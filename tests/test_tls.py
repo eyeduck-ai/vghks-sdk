@@ -7,6 +7,7 @@ import unittest
 import warnings
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
@@ -140,9 +141,10 @@ class TlsTrustTests(unittest.TestCase):
 
     def test_tls12_probe_keeps_hostname_and_ca_checks_through_requests_pool_selection(self):
         for platform_name in ("Windows", "Linux"):
+            # Keep third-party TLS backend imports bound to the actual host OS.
             with (
                 self.subTest(platform=platform_name),
-                patch("vghks_sdk.core.tls.platform.system", return_value=platform_name),
+                patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value=platform_name: value)),
             ):
                 session, _ = create_requests_session(tls12_only=True)
                 try:
@@ -158,7 +160,7 @@ class TlsTrustTests(unittest.TestCase):
                     session.close()
 
     def test_windows_defaults_to_cryptoapi_for_direct_and_proxy_https(self) -> None:
-        with patch("vghks_sdk.core.tls.platform.system", return_value="Windows"):
+        with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)):
             session, trust_mode = create_requests_session()
         try:
             adapter = session.get_adapter("https://portal.example")
@@ -179,7 +181,7 @@ class TlsTrustTests(unittest.TestCase):
             session.close()
 
     def test_custom_pem_has_priority_and_uses_requests_adapter(self) -> None:
-        with patch("vghks_sdk.core.tls.platform.system", return_value="Windows"):
+        with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)):
             session, trust_mode = create_requests_session(ca_bundle="hospital-ca.pem")
         try:
             self.assertEqual(trust_mode, CUSTOM_PEM)
@@ -192,7 +194,7 @@ class TlsTrustTests(unittest.TestCase):
             session.close()
 
     def test_non_windows_keeps_requests_default(self) -> None:
-        with patch("vghks_sdk.core.tls.platform.system", return_value="Linux"):
+        with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Linux": value)):
             session, trust_mode = create_requests_session()
         try:
             self.assertEqual(trust_mode, REQUESTS_DEFAULT)
@@ -205,7 +207,7 @@ class TlsTrustTests(unittest.TestCase):
 
     def test_missing_windows_truststore_fails_closed(self) -> None:
         with (
-            patch("vghks_sdk.core.tls.platform.system", return_value="Windows"),
+            patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)),
             patch(
                 "vghks_sdk.core.tls.importlib.import_module",
                 side_effect=ImportError("missing"),
@@ -218,7 +220,7 @@ class TlsTrustTests(unittest.TestCase):
     def test_environment_reports_effective_trust_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("vghks_sdk.core.tls.platform.system", return_value="Windows"):
+            with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)):
                 report = environment_report(root)
             self.assertEqual(report["ca_mode"], WINDOWS_SYSTEM)
 
@@ -228,7 +230,7 @@ class TlsTrustTests(unittest.TestCase):
             self.assertEqual(invalid_report["ca_mode"], "INVALID")
 
     def test_trust_mode_resolution_never_disables_verification(self) -> None:
-        with patch("vghks_sdk.core.tls.platform.system", return_value="Windows"):
+        with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)):
             self.assertEqual(resolve_tls_trust_mode(None), WINDOWS_SYSTEM)
             self.assertEqual(resolve_tls_trust_mode("hospital.pem"), CUSTOM_PEM)
 

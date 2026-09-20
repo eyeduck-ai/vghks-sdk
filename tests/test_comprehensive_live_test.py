@@ -644,7 +644,7 @@ class ComprehensiveTests(unittest.TestCase):
                     "synthetic Windows TLS failure", code="NETWORK_SCHANNEL_12175"
                 ),
             ),
-            patch("vghks_sdk.live.preflight.platform.system", return_value="Windows"),
+            patch("vghks_sdk.live.preflight.platform", SimpleNamespace(system=lambda value="Windows": value)),
             patch(
                 "requests.sessions.Session.request",
                 side_effect=requests.exceptions.SSLError("synthetic TLS"),

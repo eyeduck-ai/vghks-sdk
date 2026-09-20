@@ -4,6 +4,7 @@ import ast
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from vghks_sdk import PortalCredentials, SDKSettings, VghksSDK, VisitFilter
@@ -14,7 +15,8 @@ from vghks_sdk.models import VisitCase
 
 class SDKFacadeTests(unittest.TestCase):
     def test_default_windows_sdk_uses_system_trust_session(self) -> None:
-        with patch("vghks_sdk.core.tls.platform.system", return_value="Windows"):
+        # Patch the SDK's reference, not the global platform module used by truststore.
+        with patch("vghks_sdk.core.tls.platform", SimpleNamespace(system=lambda value="Windows": value)):
             sdk = VghksSDK(
                 settings=SDKSettings(),
                 credentials=PortalCredentials("TEST-USER", "TEST-PASSWORD"),

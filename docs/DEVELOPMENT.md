@@ -1,6 +1,6 @@
 # 開發與驗證
 
-Python 3.10+。clone 後 `python -m pip install -e ".[dev]"`；無額外 test framework，使用 unittest。Windows 專用信任庫只在 Windows 安裝。
+Python 3.10+。clone 後 `python -m pip install -e ".[dev]"`；使用 unittest。一般安裝只在 Windows 引入 truststore；dev 額外在其他平台安裝它，讓模擬 Windows 信任庫的測試也能執行。
 
 ```sh
 python run_tests.py

@@ -34,6 +34,8 @@
 - 保留預設 0.8–1.8 秒隨機節流。用 local mock 測 request sequencing，不對內網做負載測試。
 - TLS12_COMPAT 是特定服務的相容模式，仍有 HTTPS 與憑證驗證；不要全域設定 verify=False。
 - VisitCase 與各 Ref 綁定病人／就診。下載僅接受允許來源、路徑與正確病人，不擴成任意 URL 下載器。
+- 病人身分證使用 records.get_visit_cases(national_id=...) 的 type=2 路徑；先核對病人標頭並解析實際病歷號，不將身分證當 mrn。該分支尚待內網實測，詳見 docs/VISITS.md。
+- 就診醫師姓名取自清單 KSCase 的醫師欄；卡號僅保留實際回傳 vsNo。VisitFilter 可選 O／A／E，預設 O；住院／急診清單不代表其 SOAP 或醫囑端點已支援。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。
@@ -46,6 +48,8 @@
 完整流程見 docs/HAR_RECORDING.md。依序檢查錄製範圍／缺少 body、抽出請求形狀與動態相依、設計模型及純 Parser、接 Adapter／Service，再登錄操作與測試。
 
 `core/operations.py` 描述底層 request contract；`queries.py` 描述使用者可呼叫的唯讀結果。兩者不是一對一，也不能只登錄其中一處便宣告功能完成。
+
+同一原子操作的替代輸入用 QuerySpec.alternative_inputs 描述；例如 prq.visit_cases 接受 mrn 或 national_id，兩者不能同時傳入。不為同一份結果重複增加查詢 ID。
 
 `queries.dependencies` 用於測試器發現參照；`live/atomic.py` 的 `_query_inputs` 必須能以真實回應產生輸入。無候選用 NO_SAMPLE，登入／上游失敗用 BLOCKED，缺必要設定用 MISSING。
 

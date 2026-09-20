@@ -313,7 +313,13 @@ class SeptemberRecordingTests(unittest.TestCase):
         self.assertEqual(report["status_counts"].get("PARSE_ERROR", 0), 0)
         self.assertEqual(report["status_counts"]["RECORDED_ACK"], 4)
         self.assertEqual(report["status_counts"]["EXPECTED_NEGATIVE"], 1)
-        self.assertEqual(report["status_counts"]["UNAVAILABLE"], 7)
+        self.assertEqual(report["status_counts"]["UNAVAILABLE"], 8)
+        # Patient headers are now replayed too; one old capture omitted this
+        # body, while the other recorded header must resolve successfully.
+        self.assertCountEqual(
+            [e["status"] for e in report["exchanges"] if e["operation"] == "prq.patient_identity"],
+            ["UNAVAILABLE", "PARSED"],
+        )
         self.assertEqual(report["status"], "INCOMPLETE_CAPTURE")
         dbr = [
             entry

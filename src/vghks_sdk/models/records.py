@@ -34,6 +34,12 @@ class VisitCase:
     section_name: str
     index: int | None = None
     detail_params: Mapping[str, str] | None = None
+    doctor_name: str = ""
+    doctor_card: str = ""
+
+    @property
+    def case_type_label(self) -> str:
+        return {"O": "門診", "A": "住院", "E": "急診"}.get(self.case_type, self.case_type)
 
     @property
     def identity(self) -> tuple[str, str, str, str, str]:
@@ -48,10 +54,11 @@ class VisitCase:
 
 @dataclass(frozen=True, slots=True)
 class VisitFilter:
-    """Validated selector for the currently supported outpatient case type.
+    """Local selector over the complete case list returned by PRQ.
 
     Section-name and section-code selectors use OR semantics.  That result is
-    then combined with case type and the optional inclusive date range.
+    then combined with case type, physician and the inclusive date range.
+    Selecting a case type does not imply every downstream report supports it.
     """
 
     section_name_contains: tuple[str, ...] = ()
@@ -60,6 +67,9 @@ class VisitFilter:
     case_types: tuple[str, ...] = ("O",)
     start_date: date | None = None
     end_date: date | None = None
+    doctor_names: tuple[str, ...] = ()
+    doctor_name_contains: tuple[str, ...] = ()
+    doctor_cards: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         names = _unique_normalized(self.section_name_contains, mode="name")
@@ -68,9 +78,20 @@ class VisitFilter:
         object.__setattr__(self, "section_name_contains", names)
         object.__setattr__(self, "section_codes", codes)
         object.__setattr__(self, "case_types", case_types)
+        for field_name in ("doctor_names", "doctor_name_contains", "doctor_cards"):
+            object.__setattr__(
+                self,
+                field_name,
+                _unique_normalized(
+                    getattr(self, field_name),
+                    mode="code" if field_name == "doctor_cards" else "name",
+                ),
+            )
 
-        if case_types != ("O",):
-            raise ConfigurationError("only outpatient case type O is supported in this SDK version")
+        if not case_types or set(case_types) - {"O", "A", "E"}:
+            raise ConfigurationError(
+                "case types must be O (outpatient), A (inpatient) or E (emergency)"
+            )
         if self.all_sections and (names or codes):
             raise ConfigurationError("all_sections cannot be combined with section names or codes")
         if not self.all_sections and not (names or codes):
@@ -96,6 +117,18 @@ class VisitFilter:
             if case.visit_date is None:
                 return False
             if not self.start_date <= case.visit_date <= self.end_date:
+                return False
+        if self.doctor_names or self.doctor_name_contains or self.doctor_cards:
+            doctor_name = unicodedata.normalize("NFKC", case.doctor_name).strip().casefold()
+            doctor_match = (
+                doctor_name in {name.casefold() for name in self.doctor_names}
+                or any(name.casefold() in doctor_name for name in self.doctor_name_contains)
+                or (
+                    bool(case.doctor_card)
+                    and _normalize_code(case.doctor_card) in self.doctor_cards
+                )
+            )
+            if not doctor_match:
                 return False
         if self.all_sections:
             return True

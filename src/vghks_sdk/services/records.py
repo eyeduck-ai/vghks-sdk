@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..adapters.protocols import PrqAdapterProtocol
+from ..core.errors import ConfigurationError
 from ..models import (
     BinaryAsset,
     CaseDetail,
@@ -57,11 +58,25 @@ class RecordsService:
     def get_upload_history(self, mrn: str, main_type: str = "", days: str = "*") -> UploadHistory:
         return self._adapter.get_upload_history(mrn, main_type, days)
 
-    def get_visit_cases(self, mrn: str) -> list[VisitCase]:
+    def get_visit_cases(
+        self, mrn: str | None = None, *, national_id: str | None = None
+    ) -> list[VisitCase]:
+        """Fetch every returned visit by exactly one patient identifier."""
+        if national_id is not None:
+            return self._adapter.get_visit_cases(mrn, national_id=national_id)
         return self._adapter.get_visit_cases(mrn)
 
-    def find_visit_cases(self, mrn: str, visit_filter: VisitFilter) -> list[VisitCase]:
-        return visit_filter.select(self.get_visit_cases(mrn))
+    def find_visit_cases(
+        self,
+        mrn: str | None = None,
+        visit_filter: VisitFilter | None = None,
+        *,
+        national_id: str | None = None,
+    ) -> list[VisitCase]:
+        """Fetch a patient list, then apply a reusable local selector."""
+        if not isinstance(visit_filter, VisitFilter):
+            raise ConfigurationError("find_visit_cases requires a VisitFilter")
+        return visit_filter.select(self.get_visit_cases(mrn, national_id=national_id))
 
     def get_case_detail(self, case: VisitCase) -> CaseDetail:
         return self._adapter.get_case_detail(case)

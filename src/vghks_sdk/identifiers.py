@@ -20,6 +20,16 @@ def normalize_mrn(value: object, *, location: str = "value") -> str:
     return mrn
 
 
+def normalize_national_id(value: object) -> str:
+    """Normalize the PRQ identifier input without inventing a checksum rule."""
+    if not isinstance(value, str):
+        raise ConfigurationError("patient national ID is invalid", code="PATIENT_ID_INVALID")
+    identifier = unicodedata.normalize("NFKC", value).strip().upper()
+    if not _MRN_RE.fullmatch(identifier):
+        raise ConfigurationError("patient national ID is invalid", code="PATIENT_ID_INVALID")
+    return identifier
+
+
 def normalize_mrns(
     values: Iterable[object],
     *,

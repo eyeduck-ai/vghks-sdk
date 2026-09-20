@@ -5,10 +5,11 @@
 ## 單次就診與期間查詢
 
 ```python
-from vghks_sdk import OrderHistoryFilter
+from vghks_sdk import OrderHistoryFilter, VisitFilter
 
 cases = sdk.records.get_visit_cases(mrn)
-for case in cases:
+selected = VisitFilter(section_name_contains=("眼科",)).select(cases)
+for case in selected:
     orders = sdk.orders.get_case_orders(case)
     soap = sdk.records.get_soap(case)
 
@@ -16,7 +17,9 @@ for case in cases:
 history = sdk.orders.get_order_history(mrn, OrderHistoryFilter(lookback_days=365))
 ```
 
-case 類操作保留就診日期、類型、科別及 case_no。history 類操作使用各自的 Filter；醫囑、藥囑、數值、手術的條件不同，不共用任意字典。日曆日期與回溯天數限制以模型驗證為準。
+case 類操作保留就診日期、類型、科別、醫師及 case_no。可先用病歷號或病人身分證取清單，依日期、類別、科別、醫師篩選，再交給單次就診方法，詳見 [VISITS](VISITS.md)。上述 SOAP／單次醫囑使用已串接的門診路徑，不能直接套到住院或急診。
+
+history 類操作使用各自的 Filter；醫囑、藥囑、數值、手術的條件不同，不共用任意字典。日曆日期與回溯天數限制以模型驗證為準。
 
 ## 醫囑 → 報告 → PDF／JPG
 

@@ -504,6 +504,9 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
             "case_types",
             "start_date",
             "end_date",
+            "doctor_names",
+            "doctor_name_contains",
+            "doctor_cards",
         }
         if set(visit) - allowed_visit:
             raise ConfigurationError("live-test visit_filter contains unknown fields")
@@ -514,6 +517,9 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
             case_types=tuple(visit.get("case_types", ("O",)) or ("O",)),
             start_date=_date_value(visit.get("start_date"), "visit start date"),
             end_date=_date_value(visit.get("end_date"), "visit end date"),
+            doctor_names=tuple(visit.get("doctor_names", ()) or ()),
+            doctor_name_contains=tuple(visit.get("doctor_name_contains", ()) or ()),
+            doctor_cards=tuple(visit.get("doctor_cards", ()) or ()),
         )
     else:
         raise ConfigurationError("live-test visit_filter must be an object")

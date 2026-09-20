@@ -205,6 +205,13 @@ OPERATIONS: tuple[OperationSpec, ...] = (
     ),
     _spec("prq.visit_cases", "prq", "GET", "/PRQWeb/QueryCaseList.do"),
     _spec(
+        "prq.patient_identity",
+        "prq",
+        "GET",
+        "/PRQWeb/Page/JSP/KS_Patient.jsp",
+        contract_required=False,
+    ),
+    _spec(
         "prq.case_detail",
         "prq",
         "GET",

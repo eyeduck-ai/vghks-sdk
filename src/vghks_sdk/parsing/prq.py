@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import html
 import re
+from collections.abc import Iterator
 from datetime import date
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
+from ..core.errors import ParseError
 from ..core.jsliteral import (
     decode_js_string,
     evaluate_expression,
@@ -93,7 +95,74 @@ def parse_opd_patients(
     return patients
 
 
-def parse_visit_cases(html_text: str, expected_mrn: str) -> list[VisitCase]:
+def require_patient_context(html_text: str) -> None:
+    """Recognize the successful query frames before reading session state."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    paths = {urlsplit(str(frame.get("src", ""))).path for frame in soup.find_all("frame")}
+    if not (
+        any(path.endswith("/Page/JSP/KS_Patient.jsp") for path in paths)
+        and any(path.endswith("/QueryCaseList.do") for path in paths)
+    ):
+        raise ParseError(
+            "patient lookup did not establish a recognizable patient context",
+            code="PRQ_PATIENT_CONTEXT_UNCONFIRMED",
+        )
+
+
+def parse_patient_identity(html_text: str, *, expected_national_id: str = "") -> str:
+    """Resolve the MRN from the recorded patient header, checking an ID if supplied."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    nodes = soup.select("#pHistno")
+    mrns = {normalize_inline_text(node.get_text()) for node in nodes}
+    if len(mrns) != 1 or not _MRN_RE.fullmatch(next(iter(mrns), "")):
+        raise ParseError(
+            "patient header MRN is missing or ambiguous", code="PRQ_PATIENT_MRN_MISSING"
+        )
+    if expected_national_id:
+        identifiers = set()
+        for value in extract_quoted_strings(html_text):
+            if "hidno=" not in value:
+                continue
+            query = parse_qs(urlsplit(html.unescape(value)).query)
+            identifiers.update(
+                normalize_inline_text(item).upper() for item in query.get("hidno", [])
+            )
+        if identifiers != {expected_national_id.upper()}:
+            raise ParseError(
+                "patient header did not confirm the requested national ID",
+                code="PRQ_PATIENT_ID_MISMATCH",
+            )
+    return next(iter(mrns))
+
+
+def _visit_links(html_text: str) -> Iterator[tuple[str, str | None]]:
+    # Constructor arguments carry the visible physician name. Mask each whole
+    # call before the legacy-link fallback so concatenated URL fragments cannot
+    # accidentally become a second, incomplete visit.
+    remaining = []
+    cursor = 0
+    for call in iter_constructor_calls(html_text, "KSCase"):
+        remaining.append(html_text[cursor : call.start])
+        cursor = call.end
+        if not call.arguments or "QueryCaseDetail.do?" not in call.arguments[0]:
+            continue
+        href = evaluate_expression(call.arguments[0], {})
+        doctor = evaluate_expression(call.arguments[4], {}) if len(call.arguments) >= 5 else None
+        if href is None or (len(call.arguments) >= 5 and doctor is None):
+            raise ParseError(
+                "visit link or physician expression is unsupported",
+                code="PRQ_CASE_EXPRESSION_UNSUPPORTED",
+            )
+        yield href, doctor
+    remaining.append(html_text[cursor:])
+    for value in extract_quoted_strings(" ".join(remaining)):
+        if "QueryCaseDetail.do?" in value:
+            yield value, None
+
+
+def parse_visit_cases(
+    html_text: str, expected_mrn: str, *, expected_national_id: str = ""
+) -> list[VisitCase]:
     expected = normalize_inline_text(expected_mrn)
     cases: list[VisitCase] = []
     seen: set[tuple[str, str, str, str, str]] = set()
@@ -114,12 +183,12 @@ def parse_visit_cases(html_text: str, expected_mrn: str) -> list[VisitCase]:
         "rsNm",
         "heramcas",
     }
-    for value in extract_quoted_strings(html_text):
+    for value, doctor in _visit_links(html_text):
         decoded = html.unescape(value)
         if "QueryCaseDetail.do?" not in decoded or decoded.startswith("javascript:"):
             continue
         parsed = urlsplit(decoded)
-        if not parsed.query:
+        if not parsed.query or parsed.path.rsplit("/", 1)[-1] != "QueryCaseDetail.do":
             continue
         query = {
             key: values[-1]
@@ -127,7 +196,15 @@ def parse_visit_cases(html_text: str, expected_mrn: str) -> list[VisitCase]:
         }
         mrn = normalize_inline_text(query.get("hhisnum")) or expected
         if expected and mrn != expected:
-            continue
+            raise ParseError(
+                "case list belongs to another patient", code="PRQ_CASE_PATIENT_MISMATCH"
+            )
+        if (
+            expected_national_id
+            and query.get("hidno")
+            and normalize_inline_text(query["hidno"]).upper() != expected_national_id.upper()
+        ):
+            raise ParseError("case list national ID differs", code="PRQ_PATIENT_ID_MISMATCH")
         case = VisitCase(
             mrn=mrn,
             visit_date=_parse_iso_date(normalize_inline_text(query.get("caseDT"))),
@@ -137,6 +214,8 @@ def parse_visit_cases(html_text: str, expected_mrn: str) -> list[VisitCase]:
             section_name=normalize_inline_text(query.get("caseSectC")),
             index=_safe_int(query.get("index")),
             detail_params={key: query[key] for key in allowed_detail_keys if key in query},
+            doctor_name=strip_markup(doctor if doctor is not None else query.get("vsNm", "")),
+            doctor_card=normalize_inline_text(query.get("vsNo")),
         )
         if not case.case_no or case.identity in seen:
             continue

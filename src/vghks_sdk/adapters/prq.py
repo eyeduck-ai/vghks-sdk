@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 from ..core.browser_headers import IMAGE_ACCEPT
 from ..core.errors import ConfigurationError, ParseError
 from ..core.operations import operation_spec
+from ..identifiers import normalize_mrn, normalize_national_id
 from ..models import (
     BinaryAsset,
     CaseDetail,
@@ -53,8 +54,10 @@ from ..parsing.prq import (
     parse_case_detail,
     parse_numeric_report,
     parse_opd_patients,
+    parse_patient_identity,
     parse_soap,
     parse_visit_cases,
+    require_patient_context,
 )
 from ..runtime import SDKRuntime
 from .prq_extensions import PrqExtendedOperations
@@ -62,6 +65,7 @@ from .prq_extensions import PrqExtendedOperations
 _OPD_LANDING = operation_spec("prq.opd_landing")
 _OPD_PATIENTS = operation_spec("prq.opd_patients")
 _PATIENT_CONTEXT = operation_spec("prq.patient_context")
+_PATIENT_IDENTITY = operation_spec("prq.patient_identity")
 _VISIT_CASES = operation_spec("prq.visit_cases")
 _CASE_DETAIL = operation_spec("prq.case_detail")
 _SOAP = operation_spec("prq.soap")
@@ -156,21 +160,53 @@ class PrqAdapter(PrqExtendedOperations):
             operation_name="get_doctor_opd_patients",
         )
 
-    def get_visit_cases(self, mrn: str) -> list[VisitCase]:
+    def get_visit_cases(
+        self,
+        mrn: str | None = None,
+        *,
+        national_id: str | None = None,
+    ) -> list[VisitCase]:
+        if (mrn is None) == (national_id is None):
+            raise ConfigurationError(
+                "provide exactly one MRN or patient national ID", code="PATIENT_IDENTIFIER_REQUIRED"
+            )
+        mrn = normalize_mrn(mrn) if mrn is not None else ""
+        national_id = normalize_national_id(national_id) if national_id is not None else ""
+
         def operation() -> list[VisitCase]:
             hid = self.runtime.auth.hid_for("prq")
             base = self.runtime.settings.prq_base_url.rstrip("/")
-            self.runtime.request_text(
+            context_html = self.runtime.request_text(
                 _PATIENT_CONTEXT,
                 f"{base}/QueryPatientRecord.do",
                 params={"Use": "Case", "hid": hid},
-                data={"id": mrn, "queryID": "", "queryPtID": mrn, "type": "1"},
+                data={
+                    "id": national_id or mrn,
+                    "queryID": national_id,
+                    "queryPtID": mrn,
+                    "type": "2" if national_id else "1",
+                },
             )
+            resolved_mrn = mrn
+            if national_id:
+                require_patient_context(context_html)
+                patient_html = self.runtime.request_text(
+                    _PATIENT_IDENTITY,
+                    f"{base}/Page/JSP/KS_Patient.jsp",
+                )
+                resolved_mrn = parse_patient_identity(
+                    patient_html,
+                    expected_national_id=national_id,
+                )
             html_text = self.runtime.request_text(
                 _VISIT_CASES,
                 f"{base}/QueryCaseList.do",
             )
-            cases = parse_visit_cases(html_text, mrn)
+            cases = parse_visit_cases(
+                html_text,
+                resolved_mrn,
+                expected_national_id=national_id,
+            )
             if not cases and BeautifulSoup(html_text, "html.parser").find(id="typeO") is None:
                 raise ParseError(
                     "case-list response did not contain the expected structure",
@@ -192,6 +228,8 @@ class PrqAdapter(PrqExtendedOperations):
         )
 
     def get_soap(self, case: VisitCase) -> SoapRecord:
+        self._validate_outpatient_case(case)
+
         def operation() -> SoapRecord:
             self._get_case_detail_raw(case)
             self._prime_key_raw()

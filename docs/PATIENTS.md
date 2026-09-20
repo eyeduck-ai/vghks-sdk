@@ -8,6 +8,8 @@
 
 三者能獨立使用，不必先呼叫另一個公開方法。`mrn` 是病歷號；登入帳號／醫師卡號不作為病人識別碼。
 
+以病人身分證找就診清單請用 `sdk.records.get_visit_cases(national_id=...)`；每筆 VisitCase 的 `mrn` 是已核對的病歷號，可以再交給上述病人方法。身分證不能直接填進這些方法的 `mrn` 參數。就診欄位與篩選方式見 [VISITS](VISITS.md)。
+
 ```python
 from vghks_sdk.models import to_jsonable
 

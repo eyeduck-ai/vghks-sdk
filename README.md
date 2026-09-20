@@ -7,7 +7,7 @@
 ## 安裝與第一個查詢
 
 ```sh
-python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.16.0"
+python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.17.0"
 ```
 
 開發時 clone 後執行 `python -m pip install -e ".[dev]"`。尚未發布到 PyPI；目前由 GitHub 來源或自行建置的 wheel 安裝。
@@ -15,7 +15,7 @@ python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.g
 ```python
 import os
 from getpass import getpass
-from vghks_sdk import PortalCredentials, SDKSettings, VghksSDK
+from vghks_sdk import PortalCredentials, SDKSettings, VghksSDK, VisitFilter
 
 with VghksSDK(
     settings=SDKSettings(),
@@ -27,8 +27,9 @@ with VghksSDK(
     mrn = os.environ["VGHKS_MRN"]
     patient = sdk.patients.get_basic_info(mrn)
     visits = sdk.records.get_visit_cases(mrn)
-    if visits:
-        soap = sdk.records.get_soap(visits[0])
+    outpatient = VisitFilter(all_sections=True).select(visits)
+    if outpatient:
+        soap = sdk.records.get_soap(outpatient[0])
 ```
 
 每個 Service 功能回傳一份有意義的結果；所需 SSO、token、病人 context 與分頁由 Adapter 管理。使用回傳的 VisitCase、OrderReportRef 等物件串接下一步，不需手動組 HTTP 請求。
@@ -48,6 +49,8 @@ with VghksSDK(
 
 **支援單次就診與指定期間兩條路徑**：依 VisitCase 查單次資料，或使用 HistoryFilter 向伺服器查指定期間，不必先下載每次就診再自行篩選。醫囑報告與各科報告亦為獨立入口。
 
+就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。身分證路徑依 HAR 前端表單實作，尚待內網實測；用法與支援範圍見 [VISITS](docs/VISITS.md)。
+
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。門診清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
 ## 文件
@@ -63,7 +66,7 @@ with VghksSDK(
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
 
-領域欄位細節：[病人](docs/PATIENTS.md)、[手術](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+領域欄位細節：[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[手術](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
 
 ## 開發與測試
 

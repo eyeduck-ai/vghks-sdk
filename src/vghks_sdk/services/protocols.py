@@ -69,9 +69,17 @@ class OpdServiceProtocol(Protocol):
 
 
 class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
-    def get_visit_cases(self, mrn: str) -> list[VisitCase]: ...
+    def get_visit_cases(
+        self, mrn: str | None = None, *, national_id: str | None = None
+    ) -> list[VisitCase]: ...
 
-    def find_visit_cases(self, mrn: str, visit_filter: VisitFilter) -> list[VisitCase]: ...
+    def find_visit_cases(
+        self,
+        mrn: str | None = None,
+        visit_filter: VisitFilter | None = None,
+        *,
+        national_id: str | None = None,
+    ) -> list[VisitCase]: ...
 
     def get_case_detail(self, case: VisitCase) -> CaseDetail: ...
 

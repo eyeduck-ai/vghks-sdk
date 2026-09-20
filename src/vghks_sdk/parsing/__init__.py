@@ -17,6 +17,7 @@ from .prq import (
     parse_case_detail,
     parse_numeric_report,
     parse_opd_patients,
+    parse_patient_identity,
     parse_soap,
     parse_visit_cases,
 )
@@ -41,6 +42,7 @@ __all__ = [
     "parse_pacs_study",
     "parse_patient_basic_info",
     "parse_patient_demographics",
+    "parse_patient_identity",
     "parse_registration_records",
     "parse_soap",
     "parse_surgery_history",

@@ -98,6 +98,7 @@ def identify_operation(request: Mapping[str, Any]) -> str:
 def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     summary = reader.json("run_summary.json")
     context_mrn = str(summary.get("test_mrn") or "")
+    context_national_id = ""
     results: list[dict[str, Any]] = []
     for sequence, row in enumerate(reader.jsonl("capture_manifest.jsonl"), 1):
         if row.get("kind") not in {"HTTP_EXCHANGE", "NETWORK_ERROR"}:
@@ -106,7 +107,12 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         _, path, query, form = request_parts(request)
         params = {**query, **form}
         if path.endswith("/QueryPatientRecord.do"):
-            context_mrn = params.get("queryPtID") or params.get("id") or context_mrn
+            context_national_id = (
+                (params.get("queryID") or params.get("id", "")) if params.get("type") == "2" else ""
+            )
+            context_mrn = (
+                "" if context_national_id else params.get("queryPtID") or params.get("id", "")
+            )
         operation = identify_operation(request)
         capture_id = str(row.get("capture_id", ""))
         # Never copy arbitrary labels from a returned file into safe reports.
@@ -146,7 +152,11 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                 status="REDIRECT" if 300 <= status < 400 else "HTTP_ERROR",
                 error_code="" if 300 <= status < 400 else f"HTTP_{status}",
             )
-        elif operation in QUERY_BY_KEY or operation in _CONTRACTS:
+        elif (
+            operation in QUERY_BY_KEY
+            or operation in _CONTRACTS
+            or operation == "prq.patient_identity"
+        ):
             body_path = row.get("response_file")
             if not body_path:
                 result.update(status="UNAVAILABLE", error_code="RESPONSE_BODY_MISSING")
@@ -157,8 +167,25 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                     (str(value) for key, value in headers if str(key).lower() == "content-type"), ""
                 )
                 result.update(
-                    replay_response(operation, content, params, mime=mime, context_mrn=context_mrn)
+                    replay_response(
+                        operation,
+                        content,
+                        params,
+                        mime=mime,
+                        context_mrn=context_mrn,
+                        context_national_id=context_national_id,
+                    )
                 )
+                if operation == "prq.patient_identity":
+                    context_mrn = (
+                        parsing.parse_patient_identity(
+                            HarEntry(
+                                "", "", frozenset(), frozenset(), {}, 200, content, mime
+                            ).text()
+                        )
+                        if result["status"] == "PARSED"
+                        else ""
+                    )
         results.append(result)
     return results
 
@@ -170,6 +197,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
         archive = load_har(path)
         raw_entries = json.loads(path.read_text(encoding="utf-8-sig"))["log"]["entries"]
         context_mrn = ""
+        context_national_id = ""
         for index, (entry, raw) in enumerate(zip(archive.entries, raw_entries), 1):
             original = raw["request"]
             post = original.get("postData") or {}
@@ -181,11 +209,19 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
             _, request_path, query, form = request_parts(request)
             params = {**query, **form}
             if request_path.endswith("/QueryPatientRecord.do"):
-                context_mrn = params.get("queryPtID") or params.get("id") or context_mrn
+                context_national_id = (
+                    (params.get("queryID") or params.get("id", ""))
+                    if params.get("type") == "2"
+                    else ""
+                )
+                context_mrn = (
+                    "" if context_national_id else params.get("queryPtID") or params.get("id", "")
+                )
             if params.get("hhisnum") or params.get("patno"):
                 context_mrn = params.get("hhisnum") or params["patno"]
             if operation not in QUERY_BY_KEY and not (
-                operation and OPERATION_BY_KEY[operation].mutates
+                operation
+                and (OPERATION_BY_KEY[operation].mutates or operation == "prq.patient_identity")
             ):
                 continue
             if not 200 <= entry.response_status < 300:
@@ -221,7 +257,14 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                     params,
                     mime=mime,
                     context_mrn=context_mrn,
+                    context_national_id=context_national_id,
                 )
+                if operation == "prq.patient_identity":
+                    context_mrn = (
+                        parsing.parse_patient_identity(entry.text())
+                        if result["status"] == "PARSED"
+                        else ""
+                    )
                 if (
                     operation == "prq.pdf_attachment"
                     and result["error_code"] == "PDF_BINARY_INVALID"
@@ -258,6 +301,7 @@ def replay_response(
     *,
     mime: str = "",
     context_mrn: str = "",
+    context_national_id: str = "",
 ) -> dict[str, Any]:
     try:
         if not content and operation != "portal.login":
@@ -268,6 +312,9 @@ def replay_response(
             }
         entry = HarEntry("", "", frozenset(), frozenset(), {}, 200, content, mime)
         text = entry.text()
+        if operation == "prq.patient_identity":
+            parsing.parse_patient_identity(text, expected_national_id=context_national_id)
+            return {"status": "PARSED", "error_code": "", "record_count": 1}
         if operation in OPERATION_BY_KEY and OPERATION_BY_KEY[operation].mutates:
             value = (
                 json.loads(text)
@@ -284,9 +331,15 @@ def replay_response(
                 text, visit_date=date(2000, 1, 1), doctor_card=params.get("docCode", "")
             )
             if not value:
-                _require("查無" in soup.get_text() and "病患清單" in soup.get_text(),
-                         "OPD_LANDING_CONTENT_UNRECOGNIZED")
-            return {"status": "PARSED" if value else "EMPTY", "error_code": "", "record_count": len(value)}
+                _require(
+                    "查無" in soup.get_text() and "病患清單" in soup.get_text(),
+                    "OPD_LANDING_CONTENT_UNRECOGNIZED",
+                )
+            return {
+                "status": "PARSED" if value else "EMPTY",
+                "error_code": "",
+                "record_count": len(value),
+            }
         if operation not in QUERY_BY_KEY:
             _CONTRACTS[operation].validator(entry)
             return {"status": "CONTRACT_OK", "error_code": "", "record_count": None}
@@ -300,7 +353,7 @@ def replay_response(
                 raise ParseError(
                     "recorded response is a login form", code="AUTH_SESSION_LOGIN_FORM"
                 )
-            value = _parse(operation, text, params, context_mrn, soup)
+            value = _parse(operation, text, params, context_mrn, soup, context_national_id)
         count = _count(value)
         return {
             "status": "EMPTY" if count == 0 else "PARSED",
@@ -329,7 +382,12 @@ def replay_response(
 
 
 def _parse(
-    key: str, text: str, params: Mapping[str, str], context_mrn: str, soup: BeautifulSoup
+    key: str,
+    text: str,
+    params: Mapping[str, str],
+    context_mrn: str,
+    soup: BeautifulSoup,
+    context_national_id: str = "",
 ) -> Any:
     mrn = params.get("hhisnum") or params.get("patno") or context_mrn
     if key.startswith("review."):
@@ -402,7 +460,7 @@ def _parse(
         _require(soup.find("table", id="row") is not None, "WEBMAAS_REGISTRATION_STRUCTURE_MISSING")
         return parsing.parse_registration_records(text)
     if key == "prq.visit_cases":
-        rows = parsing.parse_visit_cases(text, mrn)
+        rows = parsing.parse_visit_cases(text, mrn, expected_national_id=context_national_id)
         _require(bool(rows) or soup.find(id="typeO") is not None, "PRQ_CASE_LIST_STRUCTURE_MISSING")
         return rows
     if key == "prq.case_detail":

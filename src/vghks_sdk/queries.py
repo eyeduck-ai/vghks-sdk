@@ -22,6 +22,7 @@ class QuerySpec:
     scope: str
     inputs: tuple[str, ...]
     dependencies: tuple[str, ...] = ()
+    alternative_inputs: tuple[tuple[str, ...], ...] = ()
 
     @property
     def app(self) -> str:
@@ -38,7 +39,14 @@ QUERY_SPECS = (
     QuerySpec(
         "webmaas.registration_query", "patients", "get_registration_history", "patient", ("mrn",)
     ),
-    QuerySpec("prq.visit_cases", "records", "get_visit_cases", "patient", ("mrn",)),
+    QuerySpec(
+        "prq.visit_cases",
+        "records",
+        "get_visit_cases",
+        "patient",
+        ("mrn",),
+        alternative_inputs=(("national_id",),),
+    ),
     QuerySpec(
         "prq.case_detail", "records", "get_case_detail", "case", ("case",), ("prq.visit_cases",)
     ),
@@ -274,6 +282,8 @@ def run_query(sdk: Any, key: str, **inputs: Any) -> Any:
     other records implicitly. A caller can reuse refs from any prior result.
     """
     spec = query_spec(key)
+    if any(set(inputs) == set(variant) for variant in spec.alternative_inputs):
+        return getattr(getattr(sdk, spec.service), spec.method)(**inputs)
     if set(inputs) != set(spec.inputs):
         raise ConfigurationError(
             "query inputs do not match the catalog", code="QUERY_INPUTS_INVALID"

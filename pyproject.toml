@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vghks-sdk"
+dynamic = ["version"]
+description = "Composable VGHKS intranet automation SDK with typed queries and offline diagnostics"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+authors = [{name = "eyeduck-ai"}]
+keywords = ["sdk", "intranet", "automation", "requests"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Typing :: Typed",
+]
+dependencies = [
+  "beautifulsoup4>=4.12,<5",
+  "requests>=2.31,<3",
+  "truststore==0.10.4; platform_system == 'Windows'",
+]
+
+[project.scripts]
+vghks-sdk = "vghks_sdk.cli:main"
+vghks-live-test = "vghks_sdk.live_test_app:main"
+
+[project.optional-dependencies]
+build = ["PyInstaller==6.14.2"]
+dev = ["ruff==0.14.14", "build>=1.2,<2"]
+
+[project.urls]
+Repository = "https://github.com/eyeduck-ai/vghks-sdk"
+Issues = "https://github.com/eyeduck-ai/vghks-sdk/issues"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vghks_sdk = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "vghks_sdk._version.__version__"}
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = ["data", "private", "output", "tmp", "dist", "build"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["B905"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["RUF001"]

@@ -1,0 +1,1 @@
+Synthetic public test key and self-signed certificate for loopback TLS tests only. Never use in production. Tests trust it only through their own explicit CA path; nothing is installed into Windows trust stores.

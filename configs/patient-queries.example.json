@@ -1,0 +1,11 @@
+{
+  "profile": "comprehensive",
+  "only_operations": [
+    "webmaas.demographics",
+    "webmaas.basic_info",
+    "webmaas.registration_query"
+  ],
+  "weekly_opd_soap": false,
+  "download_assets": false,
+  "include_earnings": false
+}

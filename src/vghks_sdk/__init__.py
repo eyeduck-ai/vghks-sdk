@@ -1,0 +1,173 @@
+"""Stateful, requests-based SDK for authorized internal VGHKS queries."""
+
+from typing import TYPE_CHECKING
+
+from ._version import __version__
+from .core.config import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
+from .core.errors import (
+    AuthenticationError,
+    ConfigurationError,
+    ErrorInfo,
+    NotFoundError,
+    ParseError,
+    RequestError,
+    SDKError,
+)
+from .models import (
+    AuthCheckReport,
+    AuthCheckTarget,
+    BinaryAsset,
+    CaseDetail,
+    ClinicalOrder,
+    ConsultRecord,
+    EarningsReportContext,
+    FormSnapshot,
+    HtmlDocument,
+    MedicationHistoryFilter,
+    MedicationOrder,
+    MutationReceipt,
+    NumericHistoryFilter,
+    NumericHistoryReport,
+    NumericReport,
+    NumericTable,
+    OrderCategory,
+    OrderDetail,
+    OrderDetailRef,
+    OrderHistoryFilter,
+    OrderReport,
+    OrderReportRef,
+    OutpatientPatient,
+    PacsImageRef,
+    PacsStudy,
+    PacsStudyRef,
+    PatientBasicInfo,
+    PatientDemographics,
+    PatientSurgeryRecord,
+    PdfAttachmentRef,
+    RegistrationRecord,
+    ReviewCase,
+    ReviewCaseFilter,
+    ReviewCasePart,
+    ReviewCaseRef,
+    ReviewLoginInfo,
+    SoapRecord,
+    SurgeryCase,
+    SurgeryCaseFilter,
+    SurgeryCaseRef,
+    SurgeryCommand,
+    SurgeryHistoryFilter,
+    SurgeryNoteRef,
+    SurgeryRecord,
+    TextReportHistory,
+    TreatmentRecord,
+    UnsignedRecord,
+    UploadHistory,
+    VisitCase,
+    VisitFilter,
+    VisitHistoryRecord,
+)
+from .order_status import classify_order_execution
+from .queries import Queries, QuerySpec
+from .sdk import VghksSDK
+from .search import (
+    DoctorOpdPatientSource,
+    MrnPatientSource,
+    SoapMatchEvidence,
+    SoapScanMatch,
+    SoapSearch,
+)
+from .workflows import PatientRecordsResult, SoapScanResult, export_patient_records, scan_soap
+
+if TYPE_CHECKING:
+    from .live.config import LiveTestConfig
+
+
+def __getattr__(name: str):
+    # Keep the old import working without loading the test harness in SDK apps.
+    if name == "LiveTestConfig":
+        from .live.config import LiveTestConfig
+
+        globals()[name] = LiveTestConfig
+        return LiveTestConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "AuthCheckReport",
+    "AuthCheckTarget",
+    "AuthenticationError",
+    "BinaryAsset",
+    "CaseDetail",
+    "ClinicalOrder",
+    "ConfigurationError",
+    "ConsultRecord",
+    "DoctorOpdPatientSource",
+    "EarningsCredentials",
+    "EarningsReportContext",
+    "ErrorInfo",
+    "FormSnapshot",
+    "HtmlDocument",
+    "LiveTestConfig",
+    "MedicationHistoryFilter",
+    "MedicationOrder",
+    "MrnPatientSource",
+    "MutationReceipt",
+    "NotFoundError",
+    "NumericHistoryFilter",
+    "NumericHistoryReport",
+    "NumericReport",
+    "NumericTable",
+    "OrderCategory",
+    "OrderDetail",
+    "OrderDetailRef",
+    "OrderHistoryFilter",
+    "OrderReport",
+    "OrderReportRef",
+    "OutpatientPatient",
+    "PacsImageRef",
+    "PacsStudy",
+    "PacsStudyRef",
+    "ParseError",
+    "PatientBasicInfo",
+    "PatientDemographics",
+    "PatientRecordsResult",
+    "PatientSurgeryRecord",
+    "PdfAttachmentRef",
+    "PortalCredentials",
+    "Queries",
+    "QuerySpec",
+    "RegistrationRecord",
+    "RequestError",
+    "RequestPolicy",
+    "ReviewCase",
+    "ReviewCaseFilter",
+    "ReviewCasePart",
+    "ReviewCaseRef",
+    "ReviewLoginInfo",
+    "SDKError",
+    "SDKSettings",
+    "SoapMatchEvidence",
+    "SoapRecord",
+    "SoapScanMatch",
+    "SoapScanResult",
+    "SoapSearch",
+    "SurgeryCase",
+    "SurgeryCaseFilter",
+    "SurgeryCaseRef",
+    "SurgeryCommand",
+    "SurgeryHistoryFilter",
+    "SurgeryNoteRef",
+    "SurgeryRecord",
+    "TextReportHistory",
+    "TreatmentRecord",
+    "UnsignedRecord",
+    "UploadHistory",
+    "VghksSDK",
+    "VisitCase",
+    "VisitFilter",
+    "VisitHistoryRecord",
+    "__version__",
+    "classify_order_execution",
+    "export_patient_records",
+    "scan_soap",
+]

@@ -1,0 +1,50 @@
+{
+  "schema_version": 6,
+  "profile": "ophthalmology",
+  "allow_unverified_tls": false,
+  "weekly_opd_soap": false,
+  "weekly_opd_end": null,
+  "include_earnings": false,
+  "only_operations": [],
+  "max_cases": 6,
+  "max_items": 8,
+  "output_root": "live-test-results",
+  "visit_filter": {
+    "section_name_contains": [
+      "眼科"
+    ],
+    "section_codes": [],
+    "all_sections": false,
+    "case_types": [
+      "O"
+    ],
+    "start_date": null,
+    "end_date": null
+  },
+  "soap_search": null,
+  "doctor_card": null,
+  "opd_date": null,
+  "range_start": null,
+  "range_end": null,
+  "include_surgery": false,
+  "include_unsigned": false,
+  "visit_date": null,
+  "order_date": null,
+  "download_assets": true,
+  "asset_terms": [
+    "Microsonography",
+    "DBR"
+  ],
+  "all_matching_orders": false,
+  "request_policy": {
+    "min_delay_seconds": 0.8,
+    "max_delay_seconds": 1.8,
+    "max_attempts": 3,
+    "connect_timeout_seconds": 10.0,
+    "read_timeout_seconds": 45.0,
+    "backoff_base_seconds": 1.0,
+    "max_retry_after_seconds": 60.0
+  },
+  "ca_bundle": null,
+  "endpoint_overrides": {}
+}

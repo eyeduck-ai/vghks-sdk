@@ -1,0 +1,17 @@
+{
+  "profile": "comprehensive",
+  "only_operations": [
+    "review.login_info",
+    "review.options",
+    "review.doctors",
+    "review.cases",
+    "review.case_detail",
+    "review.orders",
+    "review.attachments",
+    "review.pacs"
+  ],
+  "review_query": {},
+  "weekly_opd_soap": false,
+  "include_earnings": false,
+  "max_items": 8
+}

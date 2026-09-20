@@ -1,0 +1,13 @@
+{
+  "profile": "comprehensive",
+  "only_operations": ["oppl_records.departments", "oppl_records.cases", "oppl_records.note", "oppl_records.pdf"],
+  "surgery_query": {
+    "procedure_code": "80416",
+    "department": "ALL",
+    "periods": ["24M", "2YB"]
+  },
+  "weekly_opd_soap": false,
+  "include_earnings": false,
+  "download_assets": true,
+  "max_items": 8
+}

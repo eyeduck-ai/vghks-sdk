@@ -9,6 +9,7 @@ from typing import Protocol
 from ..extension_protocols import (
     EarningsServiceProtocol,
     PatientQueriesProtocol,
+    PersonnelProtocol,
     ReviewsProtocol,
     SurgeryCasesProtocol,
     SurgeryQueriesProtocol,
@@ -38,6 +39,7 @@ from ..models import (
     PatientDemographics,
     PatientSurgeryRecord,
     PdfAttachmentRef,
+    PersonnelRecord,
     RegistrationRecord,
     SoapRecord,
     SurgeryCommand,
@@ -138,6 +140,10 @@ class AuditServiceProtocol(Protocol):
     def get_unsigned_records(self, doctor: str, start: date, end: date) -> list[UnsignedRecord]: ...
 
 
+class PersonnelServiceProtocol(PersonnelProtocol, Protocol):
+    def get_by_card(self, card_no: str) -> PersonnelRecord | None: ...
+
+
 class SDKProtocol(Protocol):
     auth: AuthServiceProtocol
     patients: PatientsServiceProtocol
@@ -149,3 +155,4 @@ class SDKProtocol(Protocol):
     audit: AuditServiceProtocol
     earnings: EarningsServiceProtocol
     reviews: ReviewsProtocol
+    personnel: PersonnelServiceProtocol

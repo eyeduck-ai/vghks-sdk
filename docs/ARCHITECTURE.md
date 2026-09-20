@@ -32,6 +32,8 @@ Requests Session（鎖、節流、retry、capture）
 
 **Session 有狀態**：病人 context 與同主機 SSO 模式可能互相影響；Runtime 在完整操作期間持有 RLock 並管理 cache invalidation。不要在同一 Session 外加 thread pool；獨立任務各用 SDK，並維持整體節流。
 
+**連線政策由 SDK 共用**：core/connections.py 管理每個 HTTPS 來源的優先 TLS 模式及成功狀態，core/transport.py 在有限重試內切換，並在初次不可重試 POST 前匿名確認連線。live/preflight.py 沿用相同優先設定；一般 Service 不依賴測試器。Session／Cookie 不因換模式重建。預設行為與嚴格模式見 [CONNECTIONS](CONNECTIONS.md)。
+
 **測試參數屬於執行，不屬於 SDK**：LiveTestConfig.test_mrn 沿各 profile 傳遞，不使用真實病歷號全域常數。公開預設只有合成識別值；自用 EXE 的 private defaults 在建置時注入，wheel 不包含它。
 
 **診斷有兩層**：一般 DiagnosticRecorder 記錄有限的結構化錯誤；RawCaptureRecorder 為使用者明確啟用的完整未加密證據。所有 raw／parsed 回傳仍可能含個資，不能公開。

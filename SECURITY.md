@@ -6,6 +6,8 @@ HAR／return ZIP **不適合公開**。它們可能包含帳密、Cookie、SSO c
 
 測試 raw capture 依使用者需求不加密，搬移與保存由使用者管理；不應上傳到 GitHub Issue／Discussion／Release／Actions artifact。一般 SDK 不會因 import 而啟用 raw capture。
 
+0.18.0 的 SDK 先使用有憑證驗證的 HTTPS，並自動選擇舊服務相容模式。依內網使用需求，預設 allow_unverified_tls=True：遇到明確憑證錯誤時，僅對 SDKSettings 內相同主機／埠的服務略過驗證；不是全域 verify=False，也不改用 HTTP。此備援保留加密但失去伺服器身分驗證。要求嚴格憑證檢查的應用應使用 `SDKSettings(allow_unverified_tls=False)`，可另指定院內 CA。實際選擇由 connection_status／診斷記錄提供，見 [CONNECTIONS](docs/CONNECTIONS.md)。
+
 tests/fixtures/tls 的私鑰是公開的 localhost 合成測試用金鑰，只能用於 loopback mock server，不能用於任何真實服務。
 
 回報問題時提供版本、操作 ID、ErrorInfo.code、合成最小案例。若問題需要原始敏感資料，先與維護者安排合適的私下方式，不在公開 Issue 張貼。

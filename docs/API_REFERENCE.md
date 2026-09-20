@@ -103,7 +103,8 @@
 | --- | --- |
 | `sdk.auth.login()` | 建立 Portal Session；一般查詢會按需登入。 |
 | `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；不代表已有查詢資料。 |
-| `sdk.configure_connection(app, tls_profile=...)` | 登入前設定指定服務的 TLS 模式；保留 HTTPS。 |
+| `sdk.connection_status()` | 查看每個服務實際選擇的 TLS／憑證驗證及連線確認狀態；不發出請求，不含帳密。 |
+| `sdk.configure_connection(app, tls_profile=...)` | 進階覆寫指定服務的 TLS；一般使用已有自動相容與恢復，見 [CONNECTIONS](CONNECTIONS.md)。 |
 | `sdk.earnings.open_performance(credentials)` | 二次身分驗證並取得績點報表月份表單 context。 |
 | `sdk.earnings.open_bonus(credentials)` | 取得專勤工作獎金 context；此功能不代表完整薪資系統。 |
 | `sdk.earnings.get_report(context, period=None)` | 取得所選月份的 HtmlDocument；表單可選月份是唯一允許值。 |

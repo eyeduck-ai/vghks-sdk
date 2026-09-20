@@ -9,6 +9,7 @@ from .adapters.review import ReviewAdapter
 from .adapters.surgery_cases import SurgeryCasesAdapter
 from .core.capture import RawCaptureSink
 from .core.config import PortalCredentials, SDKSettings
+from .core.connections import TLSConnectionManager
 from .core.diagnostics import DiagnosticRecorder
 from .core.errors import ConfigurationError
 from .core.readiness import AUTH_CHECK_REGISTRY
@@ -42,12 +43,15 @@ class VghksSDK:
     ) -> None:
         if transport is None:
             session, _trust_mode = create_requests_session(ca_bundle=settings.ca_bundle)
+            connections = TLSConnectionManager(settings)
+            connections.apply_all(session)
             resolved_transport = SafeSessionTransport(
                 policy=settings.request_policy,
                 verify=settings.requests_verify,
                 session=session,
                 diagnostics=diagnostics,
                 raw_capture=raw_capture,
+                connections=connections,
             )
         else:
             resolved_transport = transport
@@ -87,7 +91,7 @@ class VghksSDK:
         direct: bool = False,
         verify_certificate: bool = True,
     ) -> None:
-        """Apply an explicit preflight choice to one configured service origin.
+        """Override one origin's automatic TLS choice (advanced use).
 
         Call before authentication. No request is retried and no login cookies
         are replaced. Services on the same host/port share the selected mode.
@@ -95,15 +99,30 @@ class VghksSDK:
         if app not in {spec.key for spec in AUTH_CHECK_REGISTRY} | {"mis"}:
             raise ConfigurationError("unknown service", code="TLS_TARGET_INVALID")
         transport = self._runtime.transport
+        url = getattr(self._runtime.settings, f"{app}_base_url")
         with self._runtime.operation_lock, transport._lock:
             mount_tls_profile(
                 transport.session,
-                getattr(self._runtime.settings, f"{app}_base_url"),
+                url,
                 ca_bundle=self._runtime.settings.ca_bundle,
                 tls_profile=tls_profile,
                 direct=direct,
                 verify_certificate=verify_certificate,
             )
+            if transport.connections is not None:
+                transport.connections.configure(
+                    url,
+                    tls_profile=tls_profile,
+                    direct=direct,
+                    verify_certificate=verify_certificate,
+                )
+                transport.connections.apply(transport.session, url)
+
+    def connection_status(self) -> dict[str, dict[str, object]]:
+        """Return selected HTTPS modes without credentials, cookies or URLs."""
+        transport = self._runtime.transport
+        with self._runtime.operation_lock, transport._lock:
+            return transport.connections.snapshot() if transport.connections is not None else {}
 
     def close(self) -> None:
         self._runtime.close()

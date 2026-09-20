@@ -123,7 +123,13 @@ def parse_patient_identity(html_text: str, *, expected_national_id: str = "") ->
         for value in extract_quoted_strings(html_text):
             if "hidno=" not in value:
                 continue
-            query = parse_qs(urlsplit(html.unescape(value)).query)
+            decoded = html.unescape(value).strip()
+            # The header concatenates a dynamic login URL with a literal
+            # "&hidno=...&..." suffix. urlsplit treats that suffix as a path.
+            # Read its complete query field without executing JavaScript or
+            # accepting an ID merely because it occurs somewhere in the HTML.
+            query_text = decoded[1:] if decoded.startswith("&") else urlsplit(decoded).query
+            query = parse_qs(query_text, keep_blank_values=True)
             identifiers.update(
                 normalize_inline_text(item).upper() for item in query.get("hidno", [])
             )

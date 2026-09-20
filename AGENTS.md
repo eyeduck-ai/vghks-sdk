@@ -32,9 +32,10 @@
 - 同一 SDK 共用 Session 與病人／模式 context；保持 operation_lock 跨整個相關操作。多帳號用不同 SDK。
 - 讀取重試與登入恢復由 Runtime 控制；密碼 POST 及異動不能因一般 retry 自動補送。
 - 保留預設 0.8–1.8 秒隨機節流。用 local mock 測 request sequencing，不對內網做負載測試。
-- TLS12_COMPAT 是特定服務的相容模式，仍有 HTTPS 與憑證驗證；不要全域設定 verify=False。
+- 共用 core/connections.py 負責 TLS；PRQ／SectOrd／WebMAAS 優先 TLS12_COMPAT，相同 HTTPS 主機／埠共用狀態。明確憑證錯誤可依 allow_unverified_tls（預設 True，使用者已授權內網備援）只對該來源略過驗證；不要全域 verify=False 或自行改 HTTP。嚴格模式 False 必須維持有效。
+- 初次密碼／異動 POST 前可做獨立匿名探測，不帶 Cookie／Authorization／body，不跟隨轉址。POST 本身不能因 TLS 政策重送；HTTP 回應只證明連線，不證明登入或資料。連線狀態不落地、不在 import／建構 SDK 時發網路。
 - VisitCase 與各 Ref 綁定病人／就診。下載僅接受允許來源、路徑與正確病人，不擴成任意 URL 下載器。
-- 病人身分證使用 records.get_visit_cases(national_id=...) 的 type=2 路徑；先核對病人標頭並解析實際病歷號，不將身分證當 mrn。該分支尚待內網實測，詳見 docs/VISITS.md。
+- 病人身分證使用 records.get_visit_cases(national_id=...) 的 type=2 路徑；先核對病人標頭並解析實際病歷號，不將身分證當 mrn。0.17.2 內網已驗證兩份清單一致及以 national_id 來源串接門診 SOAP／醫囑；醫師卡號仍缺來源樣本，詳見 docs/VISITS.md。
 - 就診醫師姓名取自清單 KSCase 的醫師欄；卡號僅保留實際回傳 vsNo。VisitFilter 可選 O／A／E，預設 O；住院／急診清單不代表其 SOAP 或醫囑端點已支援。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
@@ -72,6 +73,12 @@ python -m build --outdir output/package
 Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 `tools/build_live_test_exe.py`。公開版不加 `--defaults`；自用版可用 `--defaults private/live-test-defaults.json`。該 JSON 只接受 test_mrn，不能含帳密。程式啟動時 CLI／JSON／環境參數高於內嵌預設。
 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
+
+本輪新增就診搜尋用 `--default-profile visits` 建置、`tools/verify_visit_exe.py` 驗證；build metadata 決定零參數啟動範圍。測試流程在 live/visits.py，保留 MRN／身分證差異、篩選結果、NO_SAMPLE 及 fallback 來源，不能因 MRN 成功便宣稱身分證已成功。
+
+離線分析的 no_sample_steps 保留沒有對應 QuerySpec 的欄位檢查；只有缺樣本時 analysis_status 為 COMPLETED_WITH_GAPS、CLI exit code 0。不能把缺樣本列為 root_cause，也不能用它掩蓋實際 HTTP／解析錯誤。
+
+自動 TLS／網路重試的 capture 以 request_group_id 配對，只有同群組後續收到 HTTP 才將先前網路錯誤標 recovered；後續 HTTP／Parser 錯誤仍列出。connection_probe 匿名回應不交給業務 Parser。test_auto_tls.py 用真實 localhost TLS 握手驗證相容、升級、憑證、Cookie 及 POST 不重送。
 
 ## 文件與清理
 

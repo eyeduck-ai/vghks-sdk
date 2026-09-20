@@ -24,6 +24,9 @@ SDK_VERSION = str(runpy.run_path(ROOT / "src" / "vghks_sdk" / "_version.py")["__
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--defaults", type=Path, help="private JSON containing only test_mrn")
+    parser.add_argument(
+        "--default-profile", choices=("comprehensive", "visits"), default="comprehensive"
+    )
     args = parser.parse_args()
     defaults = None
     if args.defaults:
@@ -61,6 +64,7 @@ def main() -> int:
         "python": platform.python_version(),
         "pyinstaller": PyInstaller.__version__,
         "truststore": truststore.__version__,
+        "default_profile": args.default_profile,
     }
     # Only this generated temporary directory is cleaned up. Never recursively
     # delete dist: users may have put an actual intranet return ZIP there.
@@ -119,14 +123,23 @@ def main() -> int:
                 ["--plan", "--only", "prq.soap"],
                 ["--plan", "--profile", "comprehensive"],
                 ["--plan", "--profile", "ophthalmology"],
+                ["--plan", "--profile", "visits"],
             ):
-                subprocess.run(
+                checked = subprocess.run(
                     [str(executable), *arguments],
                     cwd=ROOT,
-                    stdout=log,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
                     check=True,
                 )
+                log.write(checked.stdout)
+                if (
+                    arguments == ["--plan"]
+                    and json.loads(checked.stdout)["profile"] != args.default_profile
+                ):
+                    raise SystemExit("Frozen EXE did not select the requested default profile.")
         destination = release / executable.name
         candidate = release / ".vghks-live-test.exe.tmp"
         if destination.is_symlink() or candidate.is_symlink():

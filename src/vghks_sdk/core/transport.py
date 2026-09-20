@@ -19,11 +19,18 @@ import requests
 from .browser_headers import BROWSER_LANGUAGE, BROWSER_USER_AGENT, DOCUMENT_ACCEPT
 from .capture import RawCaptureSink
 from .config import RequestPolicy
+from .connections import TLSConnectionManager, https_origin
 from .diagnostics import DiagnosticRecorder
 from .errors import ParseError, RequestError
 from .network_errors import network_error_code
 
 _CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
+
+
+class _AnonymousAuth(requests.auth.AuthBase):
+    def __call__(self, request: requests.PreparedRequest) -> requests.PreparedRequest:
+        request.headers.pop("Authorization", None)
+        return request
 
 
 class SafeSessionTransport:
@@ -43,6 +50,7 @@ class SafeSessionTransport:
         rng: random.Random | None = None,
         diagnostics: DiagnosticRecorder | None = None,
         raw_capture: RawCaptureSink | None = None,
+        connections: TLSConnectionManager | None = None,
     ) -> None:
         self.policy = policy.validate()
         self.verify = verify
@@ -51,6 +59,7 @@ class SafeSessionTransport:
         self.rng = rng or random.SystemRandom()
         self.diagnostics = diagnostics
         self.raw_capture = raw_capture
+        self.connections = connections
         self._lock = threading.RLock()
         # requests.Session already has a python-requests UA and */* Accept;
         # setdefault alone would leave those in place. Preserve explicit overrides.
@@ -67,6 +76,7 @@ class SafeSessionTransport:
         url: str,
         *,
         retry_safe: bool = False,
+        _connection_probe: bool = False,
         **kwargs: Any,
     ) -> requests.Response:
         method = method.upper()
@@ -81,7 +91,17 @@ class SafeSessionTransport:
         safe_path = urlsplit(url).path or "/"
 
         with self._lock:
+            if (
+                self.connections is not None
+                and method != "GET"
+                and not retry_safe
+                and self.connections.requires_confirmation(url)
+            ):
+                self._confirm_connection(url, timeout)
+            tried_connections: set[tuple[Any, ...]] = set()
             for attempt in range(1, attempts + 1):
+                if self.connections is not None:
+                    self.connections.apply_all(self.session)
                 throttle_delay = self._sleep_request_jitter()
                 request_id = 0
                 if self.diagnostics is not None:
@@ -91,7 +111,7 @@ class SafeSessionTransport:
                         attempt=attempt,
                         max_attempts=attempts,
                         throttle_delay_seconds=throttle_delay,
-                        tls_verification_enabled=self.verify is not False,
+                        tls_verification_enabled=self._verification_enabled(url),
                         kwargs=kwargs,
                     )
                 started = monotonic()
@@ -105,6 +125,17 @@ class SafeSessionTransport:
                     )
                 except requests.RequestException as exc:
                     elapsed = monotonic() - started
+                    code = network_error_code(exc)
+                    will_retry = attempt < attempts
+                    reason = "NETWORK_ERROR"
+                    if self.connections is not None and (
+                        code.startswith("TLS_") or code == "NETWORK_TLS_FAILED"
+                    ):
+                        self.connections.mark_failure(url, exc)
+                        will_retry = will_retry and self.connections.recover(url, exc, tried_connections)
+                        reason = "TLS_CONNECTION_CHANGED"
+                    if _connection_probe:
+                        exc.sdk_connection_probe = True
                     if self.raw_capture is not None:
                         self.raw_capture.record_network_error(
                             method=method,
@@ -116,19 +147,19 @@ class SafeSessionTransport:
                             max_attempts=attempts,
                             throttle_delay_seconds=throttle_delay,
                             elapsed_seconds=elapsed,
-                            will_retry=attempt < attempts,
+                            will_retry=will_retry,
                         )
                     if self.diagnostics is not None:
                         self.diagnostics.record_network_error(
                             request_id=request_id,
                             exc=exc,
                             elapsed_seconds=elapsed,
-                            will_retry=attempt < attempts,
+                            will_retry=will_retry,
                         )
-                    if attempt >= attempts:
+                    if not will_retry:
                         raise RequestError(
                             f"network failure for {method} {safe_path}",
-                            code=network_error_code(exc),
+                            code=code,
                             endpoint_path=safe_path,
                             attempt=attempt,
                             cause_type=exc.__class__.__name__,
@@ -138,13 +169,13 @@ class SafeSessionTransport:
                         self.raw_capture.record_retry(
                             attempt=attempt,
                             next_attempt=attempt + 1,
-                            reason="NETWORK_ERROR",
+                            reason=reason,
                             delay_seconds=delay,
                         )
                     if self.diagnostics is not None:
                         self.diagnostics.record_retry(
                             request_id=request_id,
-                            reason="NETWORK_ERROR",
+                            reason=reason,
                             next_attempt=attempt + 1,
                             delay_seconds=delay,
                         )
@@ -153,8 +184,14 @@ class SafeSessionTransport:
                     continue
 
                 elapsed = monotonic() - started
+                if self.connections is not None:
+                    self.connections.mark_response(response)
+                if _connection_probe:
+                    response.sdk_connection_probe = True
                 will_retry = (
-                    response.status_code in self.policy.retry_statuses and attempt < attempts
+                    not _connection_probe
+                    and response.status_code in self.policy.retry_statuses
+                    and attempt < attempts
                 )
                 if self.raw_capture is not None:
                     self.raw_capture.record_response(
@@ -172,7 +209,7 @@ class SafeSessionTransport:
                         elapsed_seconds=elapsed,
                     )
 
-                if response.status_code in self.policy.retry_statuses and attempt < attempts:
+                if will_retry:
                     retry_after = response.headers.get("Retry-After")
                     response.close()
                     delay = self._backoff_delay(attempt, retry_after)
@@ -194,7 +231,7 @@ class SafeSessionTransport:
                         self.sleeper(delay)
                     continue
 
-                if response.status_code >= 400:
+                if response.status_code >= 400 and not _connection_probe:
                     status = response.status_code
                     response.close()
                     raise RequestError(
@@ -254,6 +291,38 @@ class SafeSessionTransport:
 
     def reset_cookies(self) -> None:
         self.session.cookies.clear()
+
+    def _verification_enabled(self, url: str) -> bool:
+        if self.verify is False:
+            return False
+        if isinstance(self.session, requests.Session):
+            return getattr(self.session.get_adapter(url), "verify_certificate", True)
+        return True
+
+    def _confirm_connection(self, url: str, timeout: Any) -> None:
+        """Negotiate anonymously before sending a password or an unsafe POST.
+
+        Use no caller cookies, auth, body, headers, params or redirects. An HTTP
+        error at / still proves TLS works; it says nothing about login success.
+        """
+        with requests.Session() as session:
+            session.trust_env = self.session.trust_env
+            session.auth = _AnonymousAuth()  # Suppress implicit .netrc credentials too.
+            probe = SafeSessionTransport(
+                policy=self.policy,
+                verify=self.verify,
+                session=session,
+                sleeper=self.sleeper,
+                rng=self.rng,
+                diagnostics=self.diagnostics,
+                raw_capture=self.raw_capture,
+                connections=self.connections,
+            )
+            response = probe.request(
+                "GET", https_origin(url) + "/", timeout=timeout,
+                allow_redirects=False, _connection_probe=True,
+            )
+            response.close()
 
     def close(self) -> None:
         self.session.close()

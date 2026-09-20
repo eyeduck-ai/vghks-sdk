@@ -21,6 +21,7 @@ import bs4
 import requests
 
 from . import __version__
+from .build_info import build_identity
 from .core.config import EarningsCredentials, PortalCredentials
 from .core.errors import ConfigurationError
 from .core.tls import WINDOWS_SYSTEM, WindowsSystemTrustAdapter, create_requests_session
@@ -38,7 +39,7 @@ from .live.config import (
 from .live.console import configure_console_output
 from .live.defaults import SYNTHETIC_MRN
 from .live.environment import environment_report
-from .live.presets import combined_round
+from .live.presets import combined_round, visit_search_round
 from .live.profile import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .live.runner import (
     create_live_test_bundle,
@@ -61,8 +62,11 @@ def add_live_test_arguments(
     parser.add_argument("--config", type=Path, help="credential-free live-test JSON")
     parser.add_argument("--test-mrn", help="authorized patient identifier for live queries")
     parser.add_argument(
+        "--patient-national-id", help="visits profile: patient ID; omitted = read from basic info"
+    )
+    parser.add_argument(
         "--profile",
-        choices=("auth", "atomic", "comprehensive", "ophthalmology", "core", "full"),
+        choices=("auth", "atomic", "comprehensive", "ophthalmology", "visits", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the built-in combined round",
     )
@@ -219,9 +223,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"auth", "atomic", "comprehensive", "ophthalmology"}:
+        if config.profile not in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
             raise ConfigurationError(
-                "--plan requires auth, atomic, comprehensive or ophthalmology profile"
+                "--plan requires auth, atomic, comprehensive, ophthalmology or visits profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -249,14 +253,23 @@ def run_live_test_namespace(
         )
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
         patient_required = plan is None or any(
-            row["scope"] in {"patient", "history", "text_history"}
-            for row in plan["operations"]
+            row["scope"] in {"patient", "history", "text_history"} for row in plan["operations"]
         )
-        supplied_mrn = (getattr(args, "test_mrn", None) or json_values.get("test_mrn")
-                        or os.getenv("VGHKS_TEST_MRN"))
-        if patient_required and config.test_mrn == SYNTHETIC_MRN and not supplied_mrn:
+        supplied_mrn = (
+            getattr(args, "test_mrn", None)
+            or json_values.get("test_mrn")
+            or os.getenv("VGHKS_TEST_MRN")
+        )
+        if (
+            patient_required
+            and config.test_mrn == SYNTHETIC_MRN
+            and not supplied_mrn
+            and not (interactive and config.profile == "visits")
+        ):
             if interactive:
-                config = replace(config, test_mrn=_prompt_required("Authorized test MRN / 病歷號", ""))
+                config = replace(
+                    config, test_mrn=_prompt_required("Authorized test MRN / 病歷號", "")
+                )
             else:
                 raise ConfigurationError(
                     "provide --test-mrn or VGHKS_TEST_MRN for patient queries",
@@ -279,6 +292,17 @@ def run_live_test_namespace(
         else:
             credentials = _noninteractive_credentials()
 
+        patient_national_id = None
+        if config.profile == "visits":
+            patient_national_id = getattr(args, "patient_national_id", None) or os.getenv(
+                "VGHKS_PATIENT_NATIONAL_ID"
+            )
+            if interactive and not patient_national_id:
+                patient_national_id = (
+                    input("病人身分證字號 (非登入帳號; 直接 Enter 從上述病歷號自動取得): ").strip()
+                    or None
+                )
+
         earnings_credentials = None
         if config.include_earnings:
             if interactive:
@@ -300,6 +324,7 @@ def run_live_test_namespace(
             executable_directory=executable_directory,
             bundle_manager=manager,
             earnings_credentials=earnings_credentials,
+            patient_national_id=patient_national_id,
         )
         return execution.exit_code
     except BaseException as exc:
@@ -319,6 +344,8 @@ def run_live_test_namespace(
 def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "config", None) is not None:
         return load_live_test_config(args.config)
+    if getattr(args, "bundled_visits", False):
+        return visit_search_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -331,11 +358,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if zero_argument_start or (
         args.plan and not args.config and not args.profile and not args.only_operations
     ):
-        # A portable double-click must always exercise this release's full
-        # preset. Old sidecars / profile environment settings cannot narrow it.
+        # A portable double-click uses the profile selected at build time.
+        # Old sidecars / profile environment settings cannot change that scope.
         # An explicit --config or --profile remains available for development.
-        args.profile = "comprehensive"
-        args.bundled_round = True
+        args.profile = build_identity().get("default_profile", "comprehensive")
+        args.bundled_visits = args.profile == "visits"
+        args.bundled_round = not args.bundled_visits
     exit_code = 2
     try:
         exit_code = run_live_test_namespace(
@@ -590,6 +618,12 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "visits":
+        print("\n就診搜尋增量測試: 病歷號/身分證比對、到院日/類別/科別/醫師篩選。")
+        print("最多抽樣三筆門診驗證 SOAP/醫囑串接; 各項獨立記錄錯誤並繼續。")
+        print("不測審查、手術、薪資或附件; 結果 ZIP 不加密, 存於 EXE 同目錄。")
+        mrn = _prompt_required("測試病歷號 (Enter 沿用)", config.test_mrn)
+        return replace(config, test_mrn=mrn)
     if config.profile == "ophthalmology":
         print("\nOphthalmology orders: DBR / Microsonography, case and historical order lists.")
         print(
@@ -684,12 +718,13 @@ def print_query_catalog() -> None:
 def analyze_bundle_command(source: Path, output: Path, previous: Path | None = None) -> int:
     report = analyze_bundle(source, output_dir=output, compare_path=previous)
     print(f"Bundle opened; recorded run: {report['bundle_status']}")
+    print(f"Analysis status: {report['analysis_status']}")
     root = report["root_cause"]
     if root:
         print(f"Root cause: {root['phase']} / {root['code']}")
     print(f"Analysis: {output.resolve() / 'analysis.md'}")
     print(f"Retest config: {output.resolve() / 'retest-config.json'}")
-    return 0 if report["analysis_status"] == "OK" else 1
+    return 0 if report["analysis_status"] in {"OK", "COMPLETED_WITH_GAPS"} else 1
 
 
 def replay_har_command(source: Path, output: Path) -> int:

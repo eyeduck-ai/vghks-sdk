@@ -7,7 +7,7 @@
 ## 安裝與第一個查詢
 
 ```sh
-python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.17.0"
+python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.18.0"
 ```
 
 開發時 clone 後執行 `python -m pip install -e ".[dev]"`。尚未發布到 PyPI；目前由 GitHub 來源或自行建置的 wheel 安裝。
@@ -21,9 +21,6 @@ with VghksSDK(
     settings=SDKSettings(),
     credentials=PortalCredentials(os.environ["VGHKS_USERNAME"], getpass("Portal 密碼：")),
 ) as sdk:
-    # 已知舊服務的相容設定，仍保留 HTTPS 與憑證驗證。
-    for app in ("sectord", "webmaas", "prq"):
-        sdk.configure_connection(app, tls_profile="TLS12_COMPAT")
     mrn = os.environ["VGHKS_MRN"]
     patient = sdk.patients.get_basic_info(mrn)
     visits = sdk.records.get_visit_cases(mrn)
@@ -33,6 +30,8 @@ with VghksSDK(
 ```
 
 每個 Service 功能回傳一份有意義的結果；所需 SSO、token、病人 context 與分頁由 Adapter 管理。使用回傳的 VisitCase、OrderReportRef 等物件串接下一步，不需手動組 HTTP 請求。
+
+SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證的 TLS12_COMPAT，同一主機／埠共用成功設定。連線失敗會依原因有限重試；明確的憑證錯誤預設可對該服務略過驗證，HTTPS 加密仍保留。一般使用不需設定 TLS；要求嚴格驗證時設 `SDKSettings(allow_unverified_tls=False)`。完整行為見 [連線與自動恢復](docs/CONNECTIONS.md)。
 
 ## 功能入口
 
@@ -49,7 +48,7 @@ with VghksSDK(
 
 **支援單次就診與指定期間兩條路徑**：依 VisitCase 查單次資料，或使用 HistoryFilter 向伺服器查指定期間，不必先下載每次就診再自行篩選。醫囑報告與各科報告亦為獨立入口。
 
-就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。身分證路徑依 HAR 前端表單實作，尚待內網實測；用法與支援範圍見 [VISITS](docs/VISITS.md)。
+就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。兩條路徑及由身分證清單串接門診 SOAP／醫囑已有內網樣本驗證；用法與支援範圍見 [VISITS](docs/VISITS.md)。
 
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。門診清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
@@ -58,6 +57,7 @@ with VghksSDK(
 | 閱讀需求 | 文件 |
 | --- | --- |
 | 原子功能用途、參數、回傳值 | [API_REFERENCE](docs/API_REFERENCE.md) |
+| 自動連線、TLS、重試與狀態 | [CONNECTIONS](docs/CONNECTIONS.md) |
 | 組合較複雜的應用 | [COMPOSITION](docs/COMPOSITION.md)、[examples](examples/) |
 | 分層與擴充位置 | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | 錄製新 HAR 並新增功能 | [HAR_RECORDING](docs/HAR_RECORDING.md) |

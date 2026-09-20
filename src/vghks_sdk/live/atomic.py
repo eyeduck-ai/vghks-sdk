@@ -58,6 +58,10 @@ OPHTHALMOLOGY_QUERIES = (
 
 def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
     config.validate_for_execution()
+    if config.profile == "visits":
+        from .visits import build_visit_plan
+
+        return build_visit_plan(config)
     requested = config.only_operations or tuple(
         spec.key
         for spec in QUERY_SPECS
@@ -191,8 +195,22 @@ def run_atomic_test(
     settings: SDKSettings | None = None,
     login_card: str | None = None,
     earnings_credentials: EarningsCredentials | None = None,
+    patient_national_id: str | None = None,
 ) -> LiveTestResult:
     plan = build_test_plan(config)
+    if config.profile == "visits":
+        from .visits import run_visit_test
+
+        return run_visit_test(
+            sdk,
+            config,
+            output_dir=output_dir,
+            settings=settings,
+            patient_national_id=patient_national_id,
+            raw_capture=raw_capture,
+            diagnostics=diagnostics,
+            run_id=run_id,
+        )
     if config.profile == "ophthalmology":
         from .ophthalmology import run_ophthalmology_test
 
@@ -270,16 +288,25 @@ def run_atomic_test(
                     step.operation in spec.dependencies and step.status in {"ERROR", "BLOCKED"}
                     for step in steps
                 )
-                no_sample = bool(spec.dependencies) and not dependency_failed and all(
-                    any(step.operation == key and step.status in {"OK", "EMPTY", "NO_SAMPLE"}
-                        for step in steps)
-                    for key in spec.dependencies
-                ) and not spec.scope.startswith("doctor_")
+                no_sample = (
+                    bool(spec.dependencies)
+                    and not dependency_failed
+                    and all(
+                        any(
+                            step.operation == key and step.status in {"OK", "EMPTY", "NO_SAMPLE"}
+                            for step in steps
+                        )
+                        for key in spec.dependencies
+                    )
+                    and not spec.scope.startswith("doctor_")
+                )
                 steps.append(
                     LiveTestStep(
                         spec.key,
                         "BLOCKED" if dependency_failed else "NO_SAMPLE" if no_sample else "MISSING",
-                        issue=None if no_sample else ErrorInfo(
+                        issue=None
+                        if no_sample
+                        else ErrorInfo(
                             "DOCTOR_INPUT_MISSING"
                             if spec.scope.startswith("doctor_")
                             else "QUERY_INPUT_UNAVAILABLE",
@@ -788,7 +815,9 @@ def _write_coverage(
     ]
     lines.extend(
         f"{row['operation']:<36} "
-        + " ".join(f"{row[key]:>5}" for key in ("OK", "EMPTY", "ERROR", "BLOCKED", "MISSING", "NO_SAMPLE"))
+        + " ".join(
+            f"{row[key]:>5}" for key in ("OK", "EMPTY", "ERROR", "BLOCKED", "MISSING", "NO_SAMPLE")
+        )
         for row in rows
     )
     if earnings:

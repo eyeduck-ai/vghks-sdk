@@ -36,7 +36,9 @@ EMPTY_LIST = (
 
 def patient_header(mrn=MRN, identifier=NATIONAL_ID):
     return (
-        f'<span id="pHistno">{mrn}</span><script>var link="/AutoLogon?hidno={identifier}";</script>'
+        f'<span id="pHistno">{mrn}</span>'
+        '<script>var link="/AutoLogon?empID="+empId+'
+        f'"&hidno={identifier}&hcase=&hseq=";</script>'
     )
 
 
@@ -132,6 +134,35 @@ class VisitParsingTests(unittest.TestCase):
         ):
             with self.subTest(header=header), self.assertRaises(ParseError):
                 parse_patient_identity(header, expected_national_id=NATIONAL_ID)
+
+    def test_header_accepts_complete_urls_and_query_fragments(self):
+        for value in (
+            f"/AutoLogon?hidno={NATIONAL_ID}",
+            f"https://hospital.example/AutoLogon?hidno={NATIONAL_ID}",
+            f"?hidno={NATIONAL_ID}&caseNo=",
+            f"&hidno={NATIONAL_ID}&caseNo=",
+            "&amp;hidno=%54ESTID01&amp;caseNo=",
+        ):
+            page = f'<span id="pHistno">{MRN}</span><script>var link={json.dumps(value)};</script>'
+            with self.subTest(value=value):
+                self.assertEqual(
+                    parse_patient_identity(page, expected_national_id=NATIONAL_ID), MRN
+                )
+
+    def test_header_rejects_conflicting_blank_or_unrelated_fragment_ids(self):
+        for page in (
+            patient_header(identifier="OTHERID"),
+            patient_header(identifier=""),
+            patient_header() + '<script>var other="&hidno=OTHERID";</script>',
+            patient_header() + '<script>var other="&hidno=";</script>',
+            patient_header(identifier=f"{NATIONAL_ID}&hidno=OTHERID"),
+            patient_header(identifier=f"{NATIONAL_ID}-OTHER"),
+            f'<span id="pHistno">{MRN}</span><script>var text="prefixhidno={NATIONAL_ID}";</script>',
+            f'<span id="pHistno">{MRN}</span><script>var url="/elsewhere#hidno={NATIONAL_ID}";</script>',
+        ):
+            with self.subTest(page=page), self.assertRaises(ParseError) as caught:
+                parse_patient_identity(page, expected_national_id=NATIONAL_ID)
+            self.assertEqual(caught.exception.info.code, "PRQ_PATIENT_ID_MISMATCH")
 
 
 class VisitSelectionTests(unittest.TestCase):

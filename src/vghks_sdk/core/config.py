@@ -98,8 +98,12 @@ class SDKSettings:
     ca_bundle: str | None = None
     request_policy: RequestPolicy = field(default_factory=RequestPolicy)
     profiles: Mapping[str, AppProfile] = field(default_factory=dict)
+    auto_tls: bool = True
+    allow_unverified_tls: bool = True
 
     def __post_init__(self) -> None:
+        if type(self.auto_tls) is not bool or type(self.allow_unverified_tls) is not bool:
+            raise ConfigurationError("TLS settings must be booleans", code="TLS_CONFIG_INVALID")
         if self.ca_bundle:
             ca_path = Path(self.ca_bundle).expanduser()
             if not ca_path.is_file():
@@ -205,6 +209,8 @@ class SDKSettings:
             review_base_url=os.getenv("VGHKS_REVIEW_BASE_URL", defaults.review_base_url),
             ca_bundle=ca_bundle,
             request_policy=(policy or RequestPolicy()).validate(),
+            auto_tls=_env_bool("VGHKS_AUTO_TLS", True),
+            allow_unverified_tls=_env_bool("VGHKS_ALLOW_UNVERIFIED_TLS", True),
         )
         overrides: dict[str, AppProfile] = dict(settings.profiles)
         env_keys = {
@@ -226,3 +232,15 @@ class SDKSettings:
             )
         object.__setattr__(settings, "profiles", overrides)
         return settings
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigurationError(f"{name} must be a boolean", code="TLS_CONFIG_INVALID")

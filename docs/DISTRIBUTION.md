@@ -3,9 +3,9 @@
 來源 repo：<https://github.com/eyeduck-ai/vghks-sdk>，MIT 授權。GitHub 管理原始碼、文件及版本；wheel 是可供其他軟體安裝的套件，不包含自用 EXE 或測試病人資料。
 
 ```sh
-python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.16.0"
+python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.18.0"
 # 或安裝已建置 wheel
-python -m pip install vghks_sdk-0.16.0-py3-none-any.whl
+python -m pip install vghks_sdk-0.18.0-py3-none-any.whl
 ```
 
 | 方式 | 適合用途 | 需求 |
@@ -17,8 +17,8 @@ python -m pip install vghks_sdk-0.16.0-py3-none-any.whl
 目前 wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線安裝時，在與目標相符的 Python／OS 環境先準備依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse vghks_sdk-0.16.0-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.16.0
+python -m pip download --only-binary=:all: --dest wheelhouse vghks_sdk-0.18.0-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.18.0
 ```
 
 ## 發布流程

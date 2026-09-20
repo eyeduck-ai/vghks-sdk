@@ -7,7 +7,7 @@ import unittest
 import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 
@@ -17,10 +17,11 @@ from vghks_sdk.live.bundle import LiveTestBundleManager
 from vghks_sdk.live.capture import RawCaptureRecorder
 from vghks_sdk.live.config import LiveTestConfig
 from vghks_sdk.live.runner import execute_live_test
+from vghks_sdk.live_test_app import analyze_bundle_command
 from vghks_sdk.local_io import write_json_atomic
 from vghks_sdk.offline.analyze import analyze_bundle, compare_reports, inspect_bundle
 from vghks_sdk.offline.bundle import BundleReader
-from vghks_sdk.offline.replay import identify_operation, replay_response
+from vghks_sdk.offline.replay import identify_operation, replay_bundle, replay_response
 
 SECRET = "SECRET_PAYLOAD_SHOULD_NOT_APPEAR"
 
@@ -140,6 +141,89 @@ class OfflineAnalysisTests(unittest.TestCase):
         with BundleReader(archive.archive_path) as reader:
             self.assertNotIn("files_manifest.json", reader.names)
             self.assertEqual(reader.json("run_summary.json")["status"], "OK")
+
+    def test_retry_recovery_requires_same_group_and_preserves_later_http_failure(self):
+        failure = {
+            "kind": "NETWORK_ERROR", "will_retry": True,
+            "error": {"message": "CERTIFICATE_VERIFY_FAILED", "type": "SSLError"},
+        }
+        response = {"kind": "HTTP_EXCHANGE", "response": {"status_code": 200}}
+        rows = [
+            {**failure, "request_group_id": "first"},
+            {**failure, "request_group_id": "unresolved"},
+            {**response, "request_group_id": "independent"},
+            {**response, "request_group_id": "first", "response": {"status_code": 503}},
+            failure, response,  # Missing group IDs cannot prove recovery.
+        ]
+        reader = Mock(spec=BundleReader)
+        reader.json.return_value = {}
+        reader.jsonl.return_value = rows
+        results = replay_bundle(reader)
+        self.assertTrue(results[0]["recovered"])
+        self.assertNotIn("recovered", results[1])
+        self.assertEqual(results[3]["status"], "HTTP_ERROR")
+        self.assertEqual(results[3]["error_code"], "HTTP_503")
+        self.assertNotIn("recovered", results[4])
+
+    def test_missing_samples_are_reported_as_gaps_with_successful_cli_exit(self):
+        archive = self.bundle(status="COMPLETED_WITH_GAPS")
+        path = archive.run_directory / "run_summary.json"
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        summary["steps"].extend(
+            [
+                {
+                    "name": "visits.filters.doctor_card",
+                    "status": "NO_SAMPLE",
+                    "issue": {"code": "FILTER_FIELD_UNAVAILABLE", "message": SECRET},
+                },
+                {
+                    "name": SECRET,
+                    "operation": "prq.numeric",
+                    "status": "NO_SAMPLE",
+                    "issue": {"code": "QUERY_INPUT_UNAVAILABLE"},
+                },
+            ]
+        )
+        write_json_atomic(path, summary)
+        output = self.root / "gaps-analysis"
+        console = io.StringIO()
+        with redirect_stdout(console), patch("requests.sessions.Session.request") as network:
+            code = analyze_bundle_command(archive.run_directory, output)
+        network.assert_not_called()
+        self.assertEqual(code, 0)
+        report = json.loads((output / "analysis.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["analysis_status"], "COMPLETED_WITH_GAPS")
+        self.assertIsNone(report["root_cause"])
+        self.assertEqual(report["problems"], [])
+        self.assertEqual(report["query_summary"]["NO_SAMPLE"], 1)
+        self.assertEqual(len(report["no_sample_steps"]), 2)
+        self.assertEqual(report["no_sample_steps"][0]["step"], "visits.filters.doctor_card")
+        text = (output / "analysis.md").read_text(encoding="utf-8")
+        self.assertIn("visits.filters.doctor_card", text)
+        self.assertIn("FILTER_FIELD_UNAVAILABLE", text)
+        self.assertNotIn("Root cause:", console.getvalue())
+        for content in (json.dumps(report), text, console.getvalue()):
+            self.assertNotIn(SECRET, content)
+
+    def test_no_sample_marker_does_not_hide_a_real_response_error(self):
+        archive = self.bundle(body=b"unrecognized SOAP", status="COMPLETED_WITH_GAPS")
+        path = archive.run_directory / "run_summary.json"
+        summary = json.loads(path.read_text(encoding="utf-8"))
+        summary["steps"].append(
+            {
+                "name": "visits.filters.doctor_card",
+                "status": "NO_SAMPLE",
+                "issue": {"code": "FILTER_FIELD_UNAVAILABLE"},
+            }
+        )
+        write_json_atomic(path, summary)
+        with redirect_stdout(io.StringIO()):
+            code = analyze_bundle_command(archive.run_directory, self.root / "mixed-analysis")
+        self.assertEqual(code, 1)
+        report = json.loads((self.root / "mixed-analysis/analysis.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["analysis_status"], "NEEDS_ATTENTION")
+        self.assertEqual(report["root_cause"]["code"], "PRQ_SOAP_CONTAINER_MISSING")
+        self.assertEqual(len(report["no_sample_steps"]), 1)
 
     def test_legacy_checksum_sidecar_is_ignored(self):
         archive = self.bundle()

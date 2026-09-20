@@ -85,6 +85,8 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     problems: list[dict[str, str]] = []
     preflight_problems: list[dict[str, str]] = []
     for row in rows:
+        if row.get("recovered"):
+            continue
         if row["status"] in {"NETWORK_ERROR", "HTTP_ERROR", "PARSE_ERROR", "UNAVAILABLE"}:
             destination = preflight_problems if row.get("preflight") else problems
             destination.append(
@@ -99,6 +101,10 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     # Readiness is often returned as a value rather than thrown; old bundles
     # have an empty errors.jsonl even when TLS failed. Inspect it explicitly.
     for item in [summary, *steps, *(readiness.get("targets") or []), *reader.jsonl("errors.jsonl")]:
+        if item.get("status") == "NO_SAMPLE":
+            # Missing evidence is tracked separately. Actual response errors
+            # above and exception journal entries still remain problems.
+            continue
         issue = item.get("issue") or {}
         code = _safe_code(issue.get("code"))
         if code and code not in {"DEPENDENCY_FAILED", "READINESS_FAILED"}:
@@ -199,7 +205,8 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
                 "replay_parsed": sum(row["status"] == "PARSED" for row in recorded),
                 "replay_empty": sum(row["status"] == "EMPTY" for row in recorded),
                 "replay_errors": sum(
-                    row["status"] in {"PARSE_ERROR", "HTTP_ERROR", "NETWORK_ERROR", "UNAVAILABLE"}
+                    not row.get("recovered")
+                    and row["status"] in {"PARSE_ERROR", "HTTP_ERROR", "NETWORK_ERROR", "UNAVAILABLE"}
                     for row in recorded
                 ),
             }
@@ -212,6 +219,12 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         item["recovered"] = len(parts) == 3 and parts[1] in connected and parts[2] != "configure"
     unresolved_probes = [item for item in preflight_problems if not item["recovered"]]
     main = problems[0] if problems else unresolved_probes[0] if unresolved_probes else None
+    no_sample_steps = _no_sample_steps(steps)
+    has_gaps = bool(no_sample_steps) or run_status == "COMPLETED_WITH_GAPS"
+    if problems or unresolved_probes or run_status not in {"OK", "COMPLETED_WITH_GAPS"}:
+        analysis_status = "NEEDS_ATTENTION"
+    else:
+        analysis_status = "COMPLETED_WITH_GAPS" if has_gaps else "OK"
     connection_trials = _connection_trials(reader, steps)
     profiles_path = "parsed/network/selected_profiles.json"
     profiles = reader.json(profiles_path) if profiles_path in reader.names else {}
@@ -227,17 +240,16 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "authentication": authentication,
         "query_summary": {
             key: sum(row["live_status"] == key for row in matrix)
-            for key in ("VERIFIED", "EMPTY", "FAILED", "BLOCKED", "MISSING", "NOT_TESTED")
+            for key in ("VERIFIED", "EMPTY", "FAILED", "BLOCKED", "MISSING", "NO_SAMPLE", "NOT_TESTED")
         },
         "connection_trials": connection_trials,
         "connection_profiles": connection_profiles,
         "certificate_comparisons": _certificate_comparisons(connection_trials),
         "unverified_tls_services": unverified_services,
         "preflight_findings": preflight_problems,
+        "recovered_requests": [row for row in rows if row.get("recovered")],
         "bundle_status": run_status,
-        "analysis_status": "NEEDS_ATTENTION"
-        if problems or unresolved_probes or run_status != "OK"
-        else "OK",
+        "analysis_status": analysis_status,
         "bundle": {
             "status": "READABLE",
             "file_count": len(reader.names),
@@ -247,7 +259,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         ),
         "analyzer_build": build_identity(),
         "root_cause": main,
-        "next_action": _next_action(main),
+        "next_action": _next_action(main, has_gaps=has_gaps),
         "portal_login_evidence": _portal_login_evidence(reader),
         "problems": problems,
         "operations": matrix,
@@ -259,10 +271,36 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "earnings_reports": _earnings_results(steps),
         "report_content": _report_content_summary(steps, rows),
         "no_sample_operations": [row["operation"] for row in matrix if row["live_status"] == "NO_SAMPLE"],
+        "no_sample_steps": no_sample_steps,
         "scope": "Per-run evidence only. Offline parsing does not verify current intranet access or request sequencing.",
     }
     config = reader.json("run_config.json") if "run_config.json" in reader.names else {}
     return report, _retest_config(config, matrix, main, run_status)
+
+
+def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    gaps = []
+    for index, step in enumerate(steps, 1):
+        if step.get("status") != "NO_SAMPLE":
+            continue
+        operation = _step_query(step)
+        name = str(step.get("name") or "")
+        # Never copy arbitrary step names: older tools may include patient IDs.
+        known_check = re.fullmatch(
+            r"visits\.(?:same_patient|list_equivalence|"
+            r"filters\.(?:category_[OAE]|arrival_date|department_(?:code|name)|"
+            r"doctor_(?:name|card)|combined)|followup(?:\.(?:soap|orders)_sample)?)",
+            name,
+        )
+        gaps.append(
+            {
+                "step_index": index,
+                "step": name if known_check else operation,
+                "operation": operation,
+                "reason_code": _safe_code((step.get("issue") or {}).get("code")),
+            }
+        )
+    return gaps
 
 
 def _ophthalmology_summary(reader: BundleReader) -> dict[str, Any]:
@@ -601,7 +639,7 @@ def _retest_config(
             if row["live_status"] in {"FAILED", "BLOCKED", "MISSING", "EMPTY"}
         ]
     )
-    if config.get("profile") in {"comprehensive", "ophthalmology"}:
+    if config.get("profile") in {"comprehensive", "ophthalmology", "visits"}:
         # First-run scenarios include category/date variants which an atomic
         # default call would not reproduce. Preserve the complete scenario set.
         value.update(
@@ -693,8 +731,10 @@ def _phase(code: str) -> str:
     return "EXECUTION"
 
 
-def _next_action(main: dict[str, str] | None) -> str:
+def _next_action(main: dict[str, str] | None, *, has_gaps: bool = False) -> str:
     if main is None:
+        if has_gaps:
+            return "未發現未恢復的執行錯誤；NO_SAMPLE 表示缺少欄位或候選資料，仍未完成該項驗證。需要驗證這些項目時，先準備相應樣本；不必只為同一份缺樣本資料重跑 EXE。"
         return "檢查操作驗證矩陣；NOT_TESTED 與 EMPTY 尚未證實能取得目標資料。"
     code = main["code"]
     if code == "TLS_VERIFY_FAILED":
@@ -716,6 +756,7 @@ def _markdown(report: dict[str, Any]) -> str:
         "# 內網測試回傳分析",
         "",
         f"- 原執行狀態：`{report['bundle_status']}`",
+        f"- 分析狀態：`{report['analysis_status']}`",
         f"- 封裝讀取狀態：`{report['bundle']['status']}`",
         f"- 原 EXE／SDK：`{report['recorded_build']['sdk_version']}`",
         f"- 本機分析器：`{report['analyzer_build']['sdk_version']}`",
@@ -724,6 +765,18 @@ def _markdown(report: dict[str, Any]) -> str:
         report["next_action"],
         "",
     ]
+    if report["no_sample_steps"]:
+        lines += [
+            "缺少樣本的檢查（不列為執行錯誤）：",
+            "",
+            "| 步驟序號 | 檢查／操作 | 原因碼 |",
+            "| ---: | --- | --- |",
+        ]
+        lines.extend(
+            f"| {row['step_index']} | {row['step']} | {row['reason_code']} |"
+            for row in report["no_sample_steps"]
+        )
+        lines.append("")
     lines += ["| 登入／SSO 目標 | 實測狀態 | 錯誤碼 |", "| --- | --- | --- |"]
     lines.extend(
         f"| {row['target']} | {row['status']} | {row['error_code']} |"

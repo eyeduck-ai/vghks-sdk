@@ -40,7 +40,7 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.16.0-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.18.0-py3-none-any.whl
 ```
 
 Windows EXE 使用 Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4：
@@ -50,10 +50,16 @@ python -m pip install -e ".[build]"
 python tools/build_live_test_exe.py
 # 自用 EXE 內嵌本機病歷號；此檔案及此 EXE 不公開。
 python tools/build_live_test_exe.py --defaults private/live-test-defaults.json
+# 本次新增功能專用版，雙擊即進入 visits 計畫。
+python tools/build_live_test_exe.py --defaults private/live-test-defaults.json --default-profile visits
 ```
 
 private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接受帳密。公開版本在啟動時詢問 MRN 或接受 CLI／環境參數。兩種版本都可只搬 EXE。
 
 建置後以 tools/verify_live_test_exe.py、verify_patient_exe.py、verify_ophthalmology_exe.py、verify_surgery_exe.py、verify_review_exe.py 驗證 localhost HTTPS；它們將測試病歷號明確設為合成值。錯誤紀錄在 output，不進 Git。
+
+visits 專用版使用 `python tools/verify_visit_exe.py`，先驗證一般 SDK Service 不手動設定 TLS 也能登入／查詢，再驗證實際 EXE 的相容模式優先、零參數啟動、舊設定檔忽略、自動／手動身分證、部分錯誤續跑、空結果及 ZIP 同目錄輸出。所有請求只發到 localhost；測試器沒有取代尚待取得的內網證據。
+
+`tests/test_auto_tls.py` 以 localhost 真實 TLS 交握驗證舊 AES 相容、TLS 1.3、憑證備援／嚴格模式、匿名探測、Cookie 保留及 POST 不重送。合成伺服器不使用醫院域名或資料；網路切換也須接離線重解析，避免將已恢復的中途失敗誤判為未解錯誤。
 
 發布流程見 [DISTRIBUTION](DISTRIBUTION.md)，AI 接手的完整規則見 [AGENTS](../AGENTS.md)。

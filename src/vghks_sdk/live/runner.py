@@ -145,6 +145,7 @@ def execute_live_test(
     credentials: PortalCredentials,
     *,
     earnings_credentials: EarningsCredentials | None = None,
+    patient_national_id: str | None = None,
     output_dir: Path | None = None,
     overwrite: bool = False,
     executable_directory: Path | None = None,
@@ -193,7 +194,9 @@ def execute_live_test(
             manager.log(
                 "Weekly OPD workflow: login card, seven days; physician labels identify owned lists, section codes are retained as metadata."
             )
-        manager.log("Debug output: unencrypted JSON/HTML/binary files and ZIP; captured credentials may be included.")
+        manager.log(
+            "Debug output: unencrypted JSON/HTML/binary files and ZIP; captured credentials may be included."
+        )
         if config.profile in {"comprehensive", "ophthalmology"}:
             manager.log(
                 "Unverified HTTPS fallback for login/query tests: "
@@ -215,7 +218,7 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile in {"auth", "atomic", "comprehensive", "ophthalmology"}:
+            if config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
                 result = run_atomic_test(
                     sdk,
                     config,
@@ -226,6 +229,7 @@ def execute_live_test(
                     settings=settings,
                     login_card=credentials.username,
                     earnings_credentials=earnings_credentials,
+                    patient_national_id=patient_national_id,
                 )
             else:
                 result = run_live_test(

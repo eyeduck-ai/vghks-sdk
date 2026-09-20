@@ -16,6 +16,7 @@ from requests.auth import AuthBase
 from requests.utils import get_environ_proxies, select_proxy
 
 from ..core.config import SDKSettings
+from ..core.connections import preferred_tls_profile
 from ..core.errors import ErrorInfo, RequestError, error_info
 from ..core.readiness import (
     AUTH_CHECK_REGISTRY,
@@ -55,6 +56,13 @@ def run_network_checks(
         targets = (*targets, AuthCheckSpec("mis", ("Earnings",), ("portal",)))
     for spec in targets:
         url = getattr(settings, f"{spec.key}_base_url").rstrip("/") + "/"
+        parsed = urlsplit(url)
+        origin = (parsed.hostname, parsed.port or 443)
+        if origin in applied_origins:
+            shared_app, shared_choice = applied_origins[origin]
+            selections[spec.key] = {**shared_choice, "shared_origin_with": shared_app}
+            write_json_atomic(root / "parsed" / "network" / "selected_profiles.json", selections)
+            continue
         phases = (
             ("dns", lambda url=url: _dns(*_host_port(url), timeout)),
             ("tcp", lambda url=url: _tcp(*_host_port(url), timeout)),
@@ -106,26 +114,26 @@ def run_network_checks(
                 return True
             return False
 
-        if not probe("https"):
-            if not probe("https_tls12", TLS12):
-                probe("https_tls12_compat", TLS12_COMPAT)
+        preferred = preferred_tls_profile(settings, spec.key)
+        profiles = tuple(dict.fromkeys((preferred, TLS_DEFAULT, TLS12, TLS12_COMPAT)))
+        suffixes = {TLS_DEFAULT: "", TLS12: "_tls12", TLS12_COMPAT: "_tls12_compat"}
+        for profile in profiles:
+            if probe("https" + suffixes[profile], profile):
+                break
+        if not working:
             has_proxy = bool(select_proxy(url, get_environ_proxies(url)))
             if has_proxy:
-                probe("https_direct", direct=True)
-                if not probe("https_direct_tls12", TLS12, direct=True):
-                    probe("https_direct_tls12_compat", TLS12_COMPAT, direct=True)
+                for profile in profiles:
+                    if probe("https_direct" + suffixes[profile], profile, direct=True):
+                        break
             if not working:
                 # Certificate-only A/B tests: same protocol/ciphers and route,
                 # fresh anonymous sessions and no redirects. SDK adoption is a
                 # separate explicit live-test policy, applied before login.
                 for direct in (False, True) if has_proxy else (False,):
                     route = "https_direct" if direct else "https"
-                    for suffix, profile in (
-                        ("", TLS_DEFAULT),
-                        ("_tls12", TLS12),
-                        ("_tls12_compat", TLS12_COMPAT),
-                    ):
-                        if probe(f"{route}{suffix}_unverified", profile, direct, False):
+                    for profile in profiles:
+                        if probe(f"{route}{suffixes[profile]}_unverified", profile, direct, False):
                             break
             if not working and platform.system() == "Windows":
                 _run_step(
@@ -162,13 +170,7 @@ def run_network_checks(
             shared_app, shared_choice = applied_origins[origin]
             choice = {**shared_choice, "shared_origin_with": shared_app}
         elif candidates:
-            if (
-                choice["tls_profile"] == TLS_DEFAULT
-                and not choice["direct"]
-                and choice["certificate_verification"]
-            ):
-                choice["applied"] = True  # Already the SDK's default mode.
-            elif configure_connection is not None:
+            if configure_connection is not None:
                 options = {"tls_profile": choice["tls_profile"], "direct": choice["direct"]}
                 if not choice["certificate_verification"]:
                     options["verify_certificate"] = False
@@ -188,6 +190,12 @@ def run_network_checks(
                     **capture,
                 )
                 choice["applied"] = error is None
+            else:
+                choice["applied"] = (
+                    choice["tls_profile"] == preferred
+                    and not choice["direct"]
+                    and choice["certificate_verification"]
+                )
         if choice["applied"]:
             applied_origins.setdefault(origin, (spec.key, choice))
         if unverified_working:

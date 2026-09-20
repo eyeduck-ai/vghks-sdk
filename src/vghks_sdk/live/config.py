@@ -107,7 +107,7 @@ class LiveTestConfig:
     only_operations: tuple[str, ...] = ()
     max_cases: int | None = None
     max_items: int | None = None
-    # Authorized live-test fallback only; normal SDK sessions remain verified.
+    # Match the SDK policy; callers can require verified HTTPS explicitly.
     allow_unverified_tls: bool = True
     weekly_opd_soap: bool = True
     weekly_opd_end: date | None = None
@@ -173,13 +173,27 @@ class LiveTestConfig:
         )
         profile = str(self.profile).strip().lower()
         object.__setattr__(self, "profile", profile)
-        if profile not in {"auth", "atomic", "comprehensive", "ophthalmology", "core", "full"}:
+        if profile not in {
+            "auth",
+            "atomic",
+            "comprehensive",
+            "ophthalmology",
+            "visits",
+            "core",
+            "full",
+        }:
             raise ConfigurationError(
-                "live-test profile must be auth, atomic, comprehensive, ophthalmology, core or full"
+                "live-test profile must be auth, atomic, comprehensive, ophthalmology, visits, core or full"
             )
         if self.max_cases is None:
             object.__setattr__(
-                self, "max_cases", 6 if profile in {"comprehensive", "ophthalmology"} else 1
+                self,
+                "max_cases",
+                6
+                if profile in {"comprehensive", "ophthalmology"}
+                else 3
+                if profile == "visits"
+                else 1,
             )
         if self.max_items is None:
             object.__setattr__(
@@ -215,7 +229,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"auth", "atomic", "comprehensive", "ophthalmology"}
+            self.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -403,6 +417,7 @@ class LiveTestConfig:
             **values,
             ca_bundle=ca_value,
             request_policy=self.request_policy,
+            allow_unverified_tls=self.allow_unverified_tls,
         )
         profiles = dict(settings.profiles)
         for key, prefix in {"prq": "PRQ", "sectord": "SECTORD", "audit": "AUDIT"}.items():

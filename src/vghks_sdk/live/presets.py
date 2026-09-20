@@ -1,6 +1,19 @@
 """Credential-free default for the current combined intranet validation round."""
 
 
+def visit_search_round() -> dict:
+    return {
+        "profile": "visits",
+        "weekly_opd_soap": False,
+        "include_earnings": False,
+        "include_surgery": False,
+        "include_unsigned": False,
+        "download_assets": False,
+        "max_cases": 3,
+        "visit_filter": {"all_sections": True, "section_name_contains": []},
+    }
+
+
 def combined_round() -> dict:
     return {
         "profile": "comprehensive",

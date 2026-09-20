@@ -100,9 +100,11 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     context_mrn = str(summary.get("test_mrn") or "")
     context_national_id = ""
     results: list[dict[str, Any]] = []
-    for sequence, row in enumerate(reader.jsonl("capture_manifest.jsonl"), 1):
-        if row.get("kind") not in {"HTTP_EXCHANGE", "NETWORK_ERROR"}:
-            continue
+    exchanges = [
+        row for row in reader.jsonl("capture_manifest.jsonl")
+        if row.get("kind") in {"HTTP_EXCHANGE", "NETWORK_ERROR"}
+    ]
+    for sequence, row in enumerate(exchanges, 1):
         request = row.get("request") or {}
         _, path, query, form = request_parts(request)
         params = {**query, **form}
@@ -126,7 +128,10 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             "error_code": "",
             "record_count": None,
         }
-        probe = str(row.get("live_test_step", "")).startswith("network.")
+        probe = (
+            str(row.get("live_test_step", "")).startswith("network.")
+            or row.get("connection_probe") is True
+        )
         result["preflight"] = probe
         probe_name = str(row.get("live_test_step", ""))
         result["probe"] = (
@@ -187,6 +192,18 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         else ""
                     )
         results.append(result)
+    # A later HTTP response in the same transport retry group proves recovery
+    # of the connection failure. Keep that failure as evidence, not a new root
+    # cause. A later HTTP or parser error still remains an independent problem.
+    responded_groups: set[str] = set()
+    for recorded, result in zip(reversed(exchanges), reversed(results)):
+        group = recorded.get("request_group_id")
+        if not isinstance(group, str) or not group:
+            continue
+        if recorded.get("kind") == "HTTP_EXCHANGE":
+            responded_groups.add(group)
+        elif recorded.get("will_retry") is True and group in responded_groups:
+            result["recovered"] = True
     return results
 
 

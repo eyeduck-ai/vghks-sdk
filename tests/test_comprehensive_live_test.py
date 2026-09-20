@@ -315,10 +315,12 @@ class ComprehensiveTests(unittest.TestCase):
             patch("vghks_sdk.live.preflight._https", return_value={"http_status": 302}) as https,
             redirect_stdout(io.StringIO()),
         ):
-            run_network_checks(SDKSettings(), steps, root=self.root)
-        self.assertEqual((dns.call_count, tcp.call_count, https.call_count), (8, 8, 8))
-        self.assertEqual(len(steps), 24)
-        self.assertEqual(sum(step.status == "OK" for step in steps), 8)
+            choices = run_network_checks(SDKSettings(), steps, root=self.root)
+        self.assertEqual((dns.call_count, tcp.call_count, https.call_count), (6, 6, 6))
+        self.assertEqual(len(steps), 18)
+        self.assertEqual(sum(step.status == "OK" for step in steps), 6)
+        self.assertEqual(len(choices), 8)
+        self.assertEqual(choices["oppl"]["shared_origin_with"], "sectord")
 
     def test_https_probe_keeps_tls_and_does_not_follow_redirects_or_retry(self):
         with (
@@ -359,7 +361,7 @@ class ComprehensiveTests(unittest.TestCase):
             _dns("example.invalid", 443, 0.001)
         self.assertEqual(failure.exception.info.code, "NETWORK_DNS_TIMEOUT")
 
-    def test_failed_https_collects_protocol_and_proxy_variants_for_all_services(self):
+    def test_successful_profile_stops_diagnostics_and_shared_origins_reuse_it(self):
         steps = []
 
         def probe(settings, url, *, direct=False, tls_profile=TLS_DEFAULT, **kwargs):
@@ -378,25 +380,13 @@ class ComprehensiveTests(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             run_network_checks(SDKSettings(), steps, root=self.root)
-        self.assertEqual(https.call_count, 32)
-        self.assertEqual(len(steps), 48)
-        self.assertEqual(sum(step.status == "ERROR" for step in steps), 8)
-        for app in (
-            "portal",
-            "prq",
-            "sectord",
-            "webmaas",
-            "oppl",
-            "audit",
-            "oppl_records",
-            "review",
-        ):
+        self.assertEqual(https.call_count, 9)
+        self.assertEqual(sum(step.status == "ERROR" for step in steps), 3)
+        self.assertFalse(any(call.kwargs.get("direct") for call in https.call_args_list))
+        for app in ("prq", "sectord", "webmaas"):
             self.assertEqual(
                 {step.name for step in steps if step.name.startswith(f"network.{app}.https")},
-                {
-                    f"network.{app}.{phase}"
-                    for phase in ("https", "https_tls12", "https_direct", "https_direct_tls12")
-                },
+                {f"network.{app}.https_tls12_compat"},
             )
 
     def test_direct_probe_preserves_ca_and_writes_context_even_on_failure(self):

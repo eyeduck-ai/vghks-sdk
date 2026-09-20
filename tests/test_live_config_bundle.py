@@ -93,8 +93,8 @@ class LiveConfigTests(unittest.TestCase):
                 encoding="utf-8",
             )
             loaded = load_live_test_config(good)
-            self.assertEqual(Path(loaded["output_root"]), root / "results")
-            self.assertEqual(Path(loaded["ca_bundle"]), root / "internal.pem")
+            self.assertEqual(Path(loaded["output_root"]), (root / "results").resolve())
+            self.assertEqual(Path(loaded["ca_bundle"]), (root / "internal.pem").resolve())
 
     def test_full_and_optional_profiles_validate_before_execution(self) -> None:
         self.assertEqual(
@@ -185,7 +185,7 @@ class BundleTests(unittest.TestCase):
                 archive = manager.finalize(
                     status="OK", summary={"schema_version": 6, "status": "OK"}
                 )
-            self.assertEqual(archive.archive_path.parent, exe_directory)
+            self.assertEqual(archive.archive_path.parent, exe_directory.resolve())
             self.assertFalse(list(exe_directory.glob("*.sha256")))
             self.assertRegex(
                 archive.archive_path.name, r"^vghks-live-test-20260919-153045-[0-9a-f]{8}-OK\.zip$"
@@ -202,7 +202,7 @@ class BundleTests(unittest.TestCase):
                 ConfigurationError("synthetic setup error"), executable_directory=exe_directory
             )
             self.assertEqual(execution.status, "BOOTSTRAP_FAILED")
-            self.assertEqual(execution.archive.archive_path.parent, exe_directory)
+            self.assertEqual(execution.archive.archive_path.parent, exe_directory.resolve())
             with BundleReader(execution.archive.archive_path) as reader:
                 self.assertEqual(reader.json("run_summary.json")["status"], "BOOTSTRAP_FAILED")
 
@@ -218,7 +218,7 @@ class BundleTests(unittest.TestCase):
                     manager.run_directory, archive_directory=exe_directory
                 )
             network.assert_not_called()
-            self.assertEqual(archive.archive_path.parent, exe_directory)
+            self.assertEqual(archive.archive_path.parent, exe_directory.resolve())
             with BundleReader(archive.archive_path) as reader:
                 self.assertEqual(reader.json("run_summary.json")["status"], "INTERRUPTED")
 

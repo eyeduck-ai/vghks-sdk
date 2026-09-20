@@ -43,6 +43,10 @@ class ScriptedTransport:
                 origin = "https://wmc01p.vghks.gov.tw:4439"
                 app_path = "/PRQWeb"
                 hid = "AUDIT-HID"
+            elif "02060101_06" in app_dn:
+                origin = "https://wac01p.vghks.gov.tw:4430"
+                app_path = "/DDPortal"
+                hid = "PERSONNEL-HID"
             else:
                 origin = "https://zwmc01p.vghks.gov.tw:4434"
                 app_path = "/PRQWeb"
@@ -61,7 +65,8 @@ class ScriptedTransport:
             target_url = str(dict(values).get("targetURL", url))
             return FakeResponse(
                 target_url,
-                "application",
+                '<frameset><frame src="DRQuerySql.jsp"></frameset>'
+                if "/DDPortal/" in target_url else "application",
             )
         if path.endswith("/SectOrdWeb/so.do"):
             return FakeResponse(url, "ssID=s&keyOne=1&keyTwo=2&keyThree=3")
@@ -282,11 +287,11 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(
             [row.target for row in report.targets],
-            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review"],
+            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
         )
         self.assertFalse(report.targets[0].hid_present)
-        self.assertTrue(all(row.hid_present for row in report.targets[1:-1]))
-        self.assertFalse(report.targets[-1].hid_present)
+        self.assertTrue(all(row.hid_present for row in report.targets if row.target not in {"portal", "review"}))
+        self.assertFalse(next(row for row in report.targets if row.target == "review").hid_present)
         paths = {row.target: row.landing_path for row in report.targets}
         self.assertTrue(paths["prq"].startswith("/PRQWeb/"))
         self.assertTrue(paths["sectord"].startswith("/SectOrdWeb/"))

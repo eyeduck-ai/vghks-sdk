@@ -22,6 +22,7 @@ from .orders import (
     OrderReportRef,
 )
 from .patients import PatientBasicInfo, PatientDemographics, RegistrationRecord
+from .personnel import PersonnelFilter, PersonnelOption, PersonnelOptions, PersonnelRecord
 from .records import (
     CaseDetail,
     ConsultRecord,
@@ -82,6 +83,10 @@ __all__ = [
     "PatientDemographics",
     "PatientSurgeryRecord",
     "PdfAttachmentRef",
+    "PersonnelFilter",
+    "PersonnelOption",
+    "PersonnelOptions",
+    "PersonnelRecord",
     "RegistrationRecord",
     "ReviewCase",
     "ReviewCaseFilter",

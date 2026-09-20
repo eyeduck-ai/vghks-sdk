@@ -43,7 +43,8 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | `surgery` | 手術案例、紀錄 PDF、排程、同意書與明確的異動命令 |
 | `reviews` | 審查登入、案件、審查結果、醫囑、附件／影像清單 |
 | `audit`／`earnings` | 未簽病歷、績點及專勤工作獎金 |
-| `auth`／`queries` | 連線檢查、55 項唯讀功能的目錄與動態呼叫 |
+| `personnel` | 依姓名／員工編號／職稱／單位查人事，供醫師卡號轉姓名及就診篩選組合 |
+| `auth`／`queries` | 連線檢查、57 項唯讀功能的目錄與動態呼叫 |
 | `vghks_sdk.workflows` | 報告收集、門診 SOAP 篩選、手術紀錄收集 |
 
 **支援單次就診與指定期間兩條路徑**：依 VisitCase 查單次資料，或使用 HistoryFilter 向伺服器查指定期間，不必先下載每次就診再自行篩選。醫囑報告與各科報告亦為獨立入口。
@@ -66,7 +67,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
 
-領域欄位細節：[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[手術](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+領域欄位細節：[人事／醫師目錄](docs/PERSONNEL.md)、[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[手術](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
 
 ## 開發與測試
 

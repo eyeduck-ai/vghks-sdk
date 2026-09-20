@@ -95,6 +95,7 @@ class SDKSettings:
     audit_base_url: str = "https://wmc01p.vghks.gov.tw:4439/PRQWeb"
     mis_base_url: str = "https://mis01p.vghks.gov.tw"
     review_base_url: str = "https://pck01p.vghks.gov.tw/Pck"
+    personnel_base_url: str = "https://wac01p.vghks.gov.tw:4430/DDPortal"
     ca_bundle: str | None = None
     request_policy: RequestPolicy = field(default_factory=RequestPolicy)
     profiles: Mapping[str, AppProfile] = field(default_factory=dict)
@@ -128,6 +129,13 @@ class SDKSettings:
 
     def _default_profiles(self) -> Mapping[str, AppProfile]:
         return {
+            "personnel": AppProfile(
+                key="personnel",
+                app_dn="ou=02060101_06,ou=020601_01,ou=0206_01,ou=02_06,ou=02,ou=aproot,o=prodroot",
+                app_ou="02060101_06",
+                app_description="查詢醫師資料",
+                expected_base_url=self.personnel_base_url.removesuffix("/DDPortal"),
+            ),
             **{
                 key: AppProfile(
                     key=key,
@@ -207,6 +215,7 @@ class SDKSettings:
             audit_base_url=os.getenv("VGHKS_AUDIT_BASE_URL", defaults.audit_base_url),
             mis_base_url=os.getenv("VGHKS_MIS_BASE_URL", defaults.mis_base_url),
             review_base_url=os.getenv("VGHKS_REVIEW_BASE_URL", defaults.review_base_url),
+            personnel_base_url=os.getenv("VGHKS_PERSONNEL_BASE_URL", defaults.personnel_base_url),
             ca_bundle=ca_bundle,
             request_policy=(policy or RequestPolicy()).validate(),
             auto_tls=_env_bool("VGHKS_AUTO_TLS", True),
@@ -219,6 +228,7 @@ class SDKSettings:
             "audit": "AUDIT",
             "oppl": "OPPL",
             "oppl_records": "OPPL_RECORDS",
+            "personnel": "PERSONNEL",
         }
         for key, prefix in env_keys.items():
             current = overrides[key]

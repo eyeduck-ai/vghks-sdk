@@ -1,6 +1,6 @@
 # 原子功能參考
 
-本文件由 `python tools/generate_api_reference.py` 產生；共 55 個登錄唯讀查詢。
+本文件由 `python tools/generate_api_reference.py` 產生；共 57 個登錄唯讀查詢。
 用途文字維護於該工具，簽名與回傳型別取自真正的 Service；`--check` 檢查文件是否落後。
 
 每個原子功能回傳一種可使用的結果，可能需要數個 HTTP 請求完成 SSO、病人 context 或分頁。
@@ -96,6 +96,12 @@
 | `review.orders` | `get_orders(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的醫囑明細。 |
 | `review.attachments` | `get_attachments(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的附件清單／資訊；不下載附件本體。 |
 | `review.pacs` | `get_pacs(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的 PACS 清單／資訊；不下載圖片本體。 |
+## sdk.personnel
+
+| 操作 ID | Service 呼叫及回傳 | 用途 |
+| --- | --- | --- |
+| `personnel.options` | `get_options() -> PersonnelOptions` | 人事查詢可用的職稱／單位代碼與名稱，依當次表單讀取。 |
+| `personnel.search` | `search(filter: PersonnelFilter) -> list[PersonnelRecord]` | 依姓名、員工編號、職稱、單位及下層單位條件查詢人事清單；保留醫師章號及聯絡欄位。見 [PERSONNEL](PERSONNEL.md)。 |
 
 ## 登入、報表與額外入口
 
@@ -111,7 +117,8 @@
 | `sdk.records.download_surgery_record(ref)` | PRQ 歷史手術 PDF 的語意入口，使用相同 PDF 附件下載。 |
 | `sdk.records.find_visit_cases(mrn=None, visit_filter=..., national_id=None)` | 查一位病人的就診清單並套用 VisitFilter；病歷號／身分證二擇一。 |
 | `VisitFilter(...).select(cases)` | 對已取得清單依日期、類別、科別、醫師篩選、去重、排序，不發 HTTP。 |
-| `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設 55 項抽樣。 |
+| `sdk.personnel.get_by_card(card_no)` | 用員工帳號或已知四碼帳號 + F 別名查找精確匹配；回 PersonnelRecord 或 None；其 name 可接 VisitFilter.doctor_names，不使用醫師章號作為帳號。 |
+| `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設抽樣。 |
 | `sdk.surgery.open_consent_form(fields)` | 讀取同意書表單快照；不提交。 |
 
 MIS 使用 `EarningsCredentials(national_id, password)`，與 Portal 帳密分開。

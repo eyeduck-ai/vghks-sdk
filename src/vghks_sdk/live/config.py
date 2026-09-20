@@ -33,6 +33,7 @@ _ENDPOINT_FIELDS = (
     "audit_base_url",
     "mis_base_url",
     "review_base_url",
+    "personnel_base_url",
 )
 _CREDENTIAL_KEYS = {
     "national_id",

@@ -14,9 +14,12 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from vghks_sdk import services  # noqa: E402
 from vghks_sdk.queries import QUERY_SPECS  # noqa: E402
+from vghks_sdk.services.personnel import PersonnelService  # noqa: E402
 from vghks_sdk.services.reviews import ReviewsService  # noqa: E402
 
 PURPOSES = {
+    "personnel.options": "人事查詢可用的職稱／單位代碼與名稱，依當次表單讀取。",
+    "personnel.search": "依姓名、員工編號、職稱、單位及下層單位條件查詢人事清單；保留醫師章號及聯絡欄位。見 [PERSONNEL](PERSONNEL.md)。",
     "webmaas.demographics": "精簡身分與聯絡資訊；供清單補充欄位。",
     "webmaas.basic_info": "完整基本資料、住院／出院提示；保留來源欄位。",
     "webmaas.registration_query": "掛號紀錄與狀態；有掛號不等於已就診。",
@@ -83,6 +86,7 @@ CLASSES = {
     "surgery": services.SurgeryService,
     "audit": services.AuditService,
     "reviews": ReviewsService,
+    "personnel": PersonnelService,
 }
 
 
@@ -92,7 +96,7 @@ def render() -> str:
     lines = [
         "# 原子功能參考",
         "",
-        "本文件由 `python tools/generate_api_reference.py` 產生；共 55 個登錄唯讀查詢。",
+        f"本文件由 `python tools/generate_api_reference.py` 產生；共 {len(QUERY_SPECS)} 個登錄唯讀查詢。",
         "用途文字維護於該工具，簽名與回傳型別取自真正的 Service；`--check` 檢查文件是否落後。",
         "",
         "每個原子功能回傳一種可使用的結果，可能需要數個 HTTP 請求完成 SSO、病人 context 或分頁。",
@@ -133,7 +137,8 @@ def render() -> str:
         "| `sdk.records.download_surgery_record(ref)` | PRQ 歷史手術 PDF 的語意入口，使用相同 PDF 附件下載。 |",
         "| `sdk.records.find_visit_cases(mrn=None, visit_filter=..., national_id=None)` | 查一位病人的就診清單並套用 VisitFilter；病歷號／身分證二擇一。 |",
         "| `VisitFilter(...).select(cases)` | 對已取得清單依日期、類別、科別、醫師篩選、去重、排序，不發 HTTP。 |",
-        "| `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設 55 項抽樣。 |",
+        "| `sdk.personnel.get_by_card(card_no)` | 用員工帳號或已知四碼帳號 + F 別名查找精確匹配；回 PersonnelRecord 或 None；其 name 可接 VisitFilter.doctor_names，不使用醫師章號作為帳號。 |",
+        "| `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設抽樣。 |",
         "| `sdk.surgery.open_consent_form(fields)` | 讀取同意書表單快照；不提交。 |",
         "",
         "MIS 使用 `EarningsCredentials(national_id, password)`，與 Portal 帳密分開。",

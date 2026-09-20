@@ -76,7 +76,7 @@ class AuthRegistryTests(unittest.TestCase):
     def test_default_registry_order_and_capabilities(self) -> None:
         self.assertEqual(
             [spec.key for spec in resolve_auth_targets()],
-            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review"],
+            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
         )
         self.assertIn("SOAP", resolve_auth_targets()[1].capability)
 
@@ -103,9 +103,9 @@ class AuthSweepTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(
             auth.ensure_calls,
-            ["prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review"],
+            ["prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
         )
-        self.assertEqual([row.status for row in report.targets], ["OK"] * 8)
+        self.assertEqual([row.status for row in report.targets], ["OK"] * 9)
 
     def test_portal_failure_blocks_all_children_without_probing_them(self) -> None:
         auth = FakeReadinessAuth(portal_failures=[AuthenticationError("fixture portal failure")])

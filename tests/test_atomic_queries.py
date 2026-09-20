@@ -244,7 +244,7 @@ class AtomicQueriesTests(unittest.TestCase):
 
     def test_every_catalog_dependency_is_resolvable(self):
         resolved = resolve_queries(tuple(spec.key for spec in Queries.catalog))
-        self.assertEqual(len(resolved), 55)
+        self.assertEqual(len(resolved), 57)
 
     def test_zero_argument_exe_uses_combined_round(self):
         with (

@@ -223,6 +223,7 @@ def main():
                             "audit": "/PRQWeb",
                             "mis": "",
                             "review": "/Pck",
+                            "personnel": "/DDPortal",
                         }.items()
                     },
                     request_policy={
@@ -313,7 +314,7 @@ def main():
                     )
                     if combined:
                         plan = json.loads(archive.read("test_plan.json"))
-                        assert len(plan["operations"]) == 55 and len(plan["auth_targets"]) == 8
+                        assert len(plan["operations"]) == 57 and len(plan["auth_targets"]) == 9
                         assert plan["weekly_opd_soap"]["enabled"] is False
                         assert plan["review_cases"]["enabled"] is True
                         assert plan["earnings_reports"]["enabled"] is True

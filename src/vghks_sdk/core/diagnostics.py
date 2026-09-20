@@ -34,6 +34,7 @@ _STATIC_PATH_SEGMENTS = {
     "PRQWeb",
     "SectOrdWeb",
     "OPPLWeb",
+    "DDPortal",
     "webmaas",
     "RSV",
     "Page",
@@ -62,6 +63,9 @@ _STATIC_ENDPOINT_SEGMENTS = {
     "ssoFromDn.do",
     "ssoLogAdd.do",
     "surgAction.do",
+    "DRQuery.jsp",
+    "DRQuerySql.jsp",
+    "dRDoctor.do",
     "syserrorexception.jsp",
 }
 _HTML_SELECTORS = (
@@ -75,6 +79,7 @@ _HTML_SELECTORS = (
     "table#dataTbl",
     "table#pgnTbl",
     "table#pgnTb2",
+    "table#drlistTb",
     "#typeO",
     "#tabs",
     "#tab_ul",

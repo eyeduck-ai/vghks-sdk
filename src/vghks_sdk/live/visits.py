@@ -115,7 +115,6 @@ def filter_scenarios(cases: list[VisitCase]):
         ("department_code", "section_code", "section_codes"),
         ("department_name", "section_name", "section_name_contains"),
         ("doctor_name", "doctor_name", "doctor_names"),
-        ("doctor_card", "doctor_card", "doctor_cards"),
     ):
         sample = next(
             (case for case in cases if case.case_type in types and getattr(case, field)), None

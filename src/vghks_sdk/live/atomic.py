@@ -20,6 +20,7 @@ from ..models import (
     OrderHistoryFilter,
     OrderReport,
     PatientSurgeryRecord,
+    PersonnelFilter,
     ReviewCaseFilter,
     ReviewCasePart,
     SurgeryCaseFilter,
@@ -28,6 +29,7 @@ from ..models import (
     UploadHistory,
     to_jsonable,
 )
+from ..models.personnel import personnel_employee_id
 from ..queries import QUERY_SPECS, QuerySpec, resolve_queries, run_query
 from ..search import DoctorOpdPatientSource
 from ..workflows.opd_soap import scan_opd_soap
@@ -474,6 +476,9 @@ def run_atomic_test(
 def _query_inputs(
     spec: QuerySpec, config: LiveTestConfig, values: dict[str, list[Any]]
 ) -> list[dict[str, Any]]:
+    if spec.key == "personnel.search":
+        return ([{"filter": PersonnelFilter(employee_id=personnel_employee_id(config.doctor_card))}]
+                if config.doctor_card else [])
     if spec.key == "review.cases":
         fields = dict(config.review_query)
         if not fields:

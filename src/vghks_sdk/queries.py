@@ -241,6 +241,10 @@ QUERY_SPECS += (
         )
     ),
 )
+QUERY_SPECS += (
+    QuerySpec("personnel.options", "personnel", "get_options", "catalog", ()),
+    QuerySpec("personnel.search", "personnel", "search", "doctor_personnel", ("filter",)),
+)
 QUERY_BY_KEY = MappingProxyType({spec.key: spec for spec in QUERY_SPECS})
 
 

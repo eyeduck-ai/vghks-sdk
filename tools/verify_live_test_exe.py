@@ -23,6 +23,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 
+from test_personnel import directory_row, options_page, results_page  # noqa: E402
 from test_tls import LegacyAesLoopbackTests  # noqa: E402
 
 DAY = date(2026, 9, 19)
@@ -59,7 +60,8 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
             params.update(
                 dict(
                     parse_qsl(
-                        self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode()
+                        self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode(),
+                        encoding="cp950" if address.path == "/DDPortal/dRDoctor.do" else "utf-8",
                     )
                 )
             )
@@ -99,7 +101,9 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
                     + "</form>"
                 )
             prefix = (
-                "/OPPLWeb"
+                "/DDPortal"
+                if "02060101_06" in dn
+                else "/OPPLWeb"
                 if "0108_04" in dn or "010801_04" in dn
                 else "/SectOrdWeb"
                 if "011911_06" in dn
@@ -125,6 +129,17 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
                 + "</form>"
             )
             return self.reply(body)
+        if path == "/DDPortal/WPSAutoLogon":
+            return self.reply("", 302, location="/DDPortal/DRQuery.jsp")
+        if path == "/DDPortal/DRQuery.jsp":
+            return self.reply('<frameset><frame src="DRQuerySql.jsp"><frame src="blank.htm"></frameset>')
+        if path == "/DDPortal/DRQuerySql.jsp":
+            return self.reply(options_page())
+        if path == "/DDPortal/dRDoctor.do":
+            if self.command != "POST" or params.get("reqCode") != "showAllDoctors":
+                state["mutation_attempts"] = state.get("mutation_attempts", 0) + 1
+                return self.reply("unsupported personnel action", 405)
+            return self.reply(results_page(directory_row()))
         if path == "/VGHK/WPSAutoLogon.asp":
             assert self.command == "GET" and params.get("USR_ID") == "SYNTHETIC"
             return self.reply(
@@ -321,6 +336,7 @@ def main():
                         "audit": "/PRQWeb",
                         "mis": "",
                         "review": "/Pck",
+                        "personnel": "/DDPortal",
                     }.items()
                 }
                 config = {
@@ -392,7 +408,7 @@ def main():
 
                     summary = read("run_summary.json")
                     modes = read("parsed/network/selected_profiles.json")
-                    assert len(modes) == (9 if mode == "weekly_workflow" else 8) and all(
+                    assert len(modes) == (10 if mode == "weekly_workflow" else 9) and all(
                         value["certificate_verification"] and value["applied"]
                         for value in modes.values()
                     )
@@ -429,7 +445,7 @@ def main():
                         assert state["mis_password_posts"] == 2
                         assert state["mis_reports"] == ["PMO003R1", "PMO004R1"]
                         coverage = read("coverage.json")
-                        assert len(coverage["operations"]) == 55
+                        assert len(coverage["operations"]) == 57
                         assert len(coverage["excluded_write_operations"]) == 4
                         assert len(coverage["earnings_reports"]) == 4 and all(
                             row["status"] == "OK" for row in coverage["earnings_reports"]

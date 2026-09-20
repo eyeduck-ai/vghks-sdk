@@ -5,6 +5,7 @@ from __future__ import annotations
 from .adapters import AuditAdapter, OpplAdapter, PrqAdapter, WebMaasAdapter
 from .adapters.auth import AuthenticationAdapter
 from .adapters.earnings import EarningsAdapter
+from .adapters.personnel import PersonnelAdapter
 from .adapters.review import ReviewAdapter
 from .adapters.surgery_cases import SurgeryCasesAdapter
 from .core.capture import RawCaptureSink
@@ -28,6 +29,7 @@ from .services import (
     SurgeryService,
 )
 from .services.earnings import EarningsService
+from .services.personnel import PersonnelService
 from .services.reviews import ReviewsService
 
 
@@ -81,6 +83,7 @@ class VghksSDK:
         self.audit = AuditService(audit)
         self.earnings = EarningsService(EarningsAdapter(self._runtime))
         self.reviews = ReviewsService(ReviewAdapter(self._runtime))
+        self.personnel = PersonnelService(PersonnelAdapter(self._runtime))
         self.queries = Queries(self)
 
     def configure_connection(

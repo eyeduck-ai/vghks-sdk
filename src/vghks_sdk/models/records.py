@@ -69,6 +69,8 @@ class VisitFilter:
     end_date: date | None = None
     doctor_names: tuple[str, ...] = ()
     doctor_name_contains: tuple[str, ...] = ()
+    # Compatibility filter for an optional raw vsNo value. Patient-history
+    # physician selection uses names; resolve employee cards via personnel.
     doctor_cards: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:

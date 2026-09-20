@@ -12,7 +12,7 @@ from .config import SDKSettings
 from .network_errors import network_error_code
 from .tls import TLS12, TLS12_COMPAT, TLS_DEFAULT, mount_tls_profile
 
-_APPS = ("portal", "prq", "sectord", "webmaas", "oppl", "oppl_records", "audit", "mis", "review")
+_APPS = ("portal", "prq", "sectord", "webmaas", "oppl", "oppl_records", "audit", "mis", "review", "personnel")
 _COMPAT_APPS = ("prq", "sectord", "webmaas")
 _TLS_ERRORS = {"TLS_EOF", "TLS_PROTOCOL_FAILED", "NETWORK_TLS_FAILED", "TLS_VERIFY_FAILED"}
 

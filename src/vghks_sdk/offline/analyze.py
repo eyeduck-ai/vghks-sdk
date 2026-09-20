@@ -440,7 +440,7 @@ def _safe_network_step(value: Any) -> str:
     return (
         candidate
         if re.fullmatch(
-            r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis)\."
+            r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis|personnel)\."
             r"(dns|tcp|configure|https(_direct)?(_tls12(_compat)?)?(_unverified)?|https_schannel)",
             candidate,
         )

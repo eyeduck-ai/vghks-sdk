@@ -38,6 +38,8 @@
 - 病人身分證使用 records.get_visit_cases(national_id=...) 的 type=2 路徑；先核對病人標頭並解析實際病歷號，不將身分證當 mrn。0.17.2／0.18.0 內網已驗證兩份清單一致及以 national_id 來源串接門診 SOAP／醫囑。0.18.1 離線修正分支後可取得住院／急診卡號；目前門診來源仍空白，詳見 docs/VISITS.md。
 - 就診 KSCase 的互斥分支先以 iter_active_constructor_calls 靜態選擇，才解析及去重。所有建構式（含未啟用分支）均須從 legacy-link fallback 遮蔽；不可直接合併重複列的醫師資料或選第一個分支。未知條件報錯，不 eval JavaScript。
 - 就診醫師姓名取自清單 KSCase 的醫師欄；卡號僅保留實際回傳 vsNo。VisitFilter 可選 O／A／E，預設 O；住院／急診清單不代表其 SOAP 或醫囑端點已支援。
+- 歷次就診以醫師姓名篩選；personnel.get_by_card 先精確核對員工編號，再由呼叫端將 name 交給 VisitFilter。醫師章號與員工編號不可混用；四碼帳號 + F 是已知別名，其他後綴不截短。同名仍不能僅靠就診姓名確定身分。
+- DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單及選項已 HAR 離線驗證，尚無新版 SDK 內網證據。明細未錄製，見 docs/PERSONNEL.md。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。

@@ -133,7 +133,7 @@ class BundledRoundTests(unittest.TestCase):
                 plan = json.loads(console.getvalue())
                 self.assertEqual(plan["earnings_reports"]["enabled"], full)
                 self.assertEqual(plan["surgery_cases"]["enabled"], full)
-                self.assertEqual(len(plan["operations"]), 55 if full else 2)
+                self.assertEqual(len(plan["operations"]), 57 if full else 2)
 
 
 if __name__ == "__main__":

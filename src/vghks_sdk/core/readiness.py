@@ -31,6 +31,7 @@ AUTH_CHECK_REGISTRY: tuple[AuthCheckSpec, ...] = (
     AuthCheckSpec("audit", ("Unsigned Records",), ("portal",)),
     AuthCheckSpec("oppl_records", ("Surgery Cases", "Operation Notes"), ("portal",)),
     AuthCheckSpec("review", ("Review Cases", "Decisions", "Attachments"), ("portal",)),
+    AuthCheckSpec("personnel", ("Personnel", "Physician Directory"), ("portal",)),
 )
 
 _SPEC_BY_KEY = {spec.key: spec for spec in AUTH_CHECK_REGISTRY}

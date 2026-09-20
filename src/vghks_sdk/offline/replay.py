@@ -41,6 +41,7 @@ from ..models.review import ReviewCasePart, ReviewCaseRef
 from ..parsing.assets import parse_binary_asset
 from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
+from ..parsing.personnel import parse_personnel_options, parse_personnel_records
 from ..parsing.review import (
     parse_login_info,
     parse_review_case,
@@ -137,7 +138,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         result["probe"] = (
             probe_name
             if re.fullmatch(
-                r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis)\.https(_direct)?(_tls12(_compat)?)?(_unverified)?",
+                r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis|personnel)\.https(_direct)?(_tls12(_compat)?)?(_unverified)?",
                 probe_name,
             )
             else ""
@@ -407,6 +408,10 @@ def _parse(
     context_national_id: str = "",
 ) -> Any:
     mrn = params.get("hhisnum") or params.get("patno") or context_mrn
+    if key == "personnel.options":
+        return parse_personnel_options(text)
+    if key == "personnel.search":
+        return parse_personnel_records(text)
     if key.startswith("review."):
         payload = json.loads(text)
         parser = {

@@ -45,6 +45,7 @@ class SDKFacadeTests(unittest.TestCase):
             sdk.medications,
             sdk.surgery,
             sdk.audit,
+            sdk.personnel,
         )
         self.assertIs(sdk.auth._adapter, sdk._runtime)
         self.assertTrue(

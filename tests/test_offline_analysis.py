@@ -451,7 +451,7 @@ class OfflineAnalysisTests(unittest.TestCase):
         network.assert_not_called()
         self.assertEqual(report["authentication"][0]["status"], "OK")
         self.assertEqual(report["authentication"][1]["error_code"], "TLS_EOF")
-        self.assertEqual(report["query_summary"]["BLOCKED"], 55)
+        self.assertEqual(report["query_summary"]["BLOCKED"], 57)
         self.assertEqual(report["query_summary"]["FAILED"], 0)
         markdown = (self.root / "separate-analysis/analysis.md").read_text(encoding="utf-8")
         self.assertIn("入口登入與 Session 已通過", markdown)

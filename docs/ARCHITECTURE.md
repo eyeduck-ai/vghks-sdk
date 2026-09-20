@@ -1,6 +1,6 @@
 # 架構
 
-應用程式或 workflow → Service → Adapter → Runtime／Requests；Adapter 呼叫純 Parser 產生 models。55 個唯讀功能由 queries.py 統一登錄，可供自動測試與其他應用發現。
+應用程式或 workflow → Service → Adapter → Runtime／Requests；Adapter 呼叫純 Parser 產生 models。57 個唯讀功能由 queries.py 統一登錄，可供自動測試與其他應用發現。
 
 ```text
 application / workflows

@@ -29,6 +29,7 @@ _WEBMAAS_PAGES = {
     "QUY15W001": ("QUY/QUY15W001.do", "maas_QRY15"),
 }
 _PROFILE_SSO_LOGON = {
+    "personnel": operation_spec("personnel.sso_logon"),
     "prq": operation_spec("prq.sso_logon"),
     "sectord": operation_spec("sectord.sso_logon"),
     "audit": operation_spec("audit.sso_logon"),
@@ -304,6 +305,15 @@ class AuthenticationAdapter:
         self._validate_base_path(
             posted.url, self._configured_app_base(profile.key), f"{profile.key} landing"
         )
+        if profile.key == "personnel":
+            soup = BeautifulSoup(landing_text, "html.parser")
+            frames = [urljoin(posted.url, str(node.get("src", ""))) for node in soup.find_all("frame")]
+            expected = self.settings.personnel_base_url.rstrip("/") + "/DRQuerySql.jsp"
+            if expected not in frames:
+                raise AuthenticationError(
+                    "personnel landing did not contain the query frame",
+                    code="PERSONNEL_LANDING_INVALID", app="personnel",
+                )
         session = AppSession(
             key=profile.key,
             hid=form.payload.get("HID", ""),
@@ -521,6 +531,7 @@ class AuthenticationAdapter:
             "oppl_records": self.settings.oppl_base_url,
             "performance": self.settings.mis_base_url,
             "payroll": self.settings.mis_base_url,
+            "personnel": self.settings.personnel_base_url,
         }[app_key]
 
     @staticmethod

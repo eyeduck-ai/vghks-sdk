@@ -131,14 +131,14 @@ class VisitLiveTests(unittest.TestCase):
             all(call.args[0].mrn == MRN for call in self.sdk.records.get_soap.call_args_list)
         )
 
-    def test_empty_category_and_missing_doctor_card_are_gaps_not_errors(self):
+    def test_empty_category_is_gap_but_absent_raw_doctor_card_is_not_required(self):
         self.sdk.records.get_visit_cases.return_value = [replace(self.cases[0], doctor_card="")]
         result = self.run_profile()
         self.assertEqual(result.status, "COMPLETED_WITH_GAPS")
         self.assertEqual(result.error_count, 0)
         missing = {s.name for s in result.steps if s.status == "NO_SAMPLE"}
         self.assertIn("visits.filters.category_A", missing)
-        self.assertIn("visits.filters.doctor_card", missing)
+        self.assertNotIn("visits.filters.doctor_card", {s.name for s in result.steps})
 
     def test_empty_lists_produce_no_clinical_requests(self):
         self.sdk.records.get_visit_cases.return_value = []

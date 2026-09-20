@@ -23,6 +23,12 @@ from .models import (
     TextReportHistory,
     UploadHistory,
 )
+from .models.personnel import PersonnelFilter, PersonnelOptions, PersonnelRecord
+
+
+class PersonnelProtocol(Protocol):
+    def get_options(self) -> PersonnelOptions: ...
+    def search(self, filter: PersonnelFilter) -> list[PersonnelRecord]: ...
 
 
 class PatientQueriesProtocol(Protocol):

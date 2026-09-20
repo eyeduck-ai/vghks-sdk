@@ -372,8 +372,8 @@ class ReviewAdapterAndLiveTests(unittest.TestCase):
             json_values=combined_round(), environ={}
         ).with_default_doctor("SYNTHETIC")
         plan = build_test_plan(config)
-        self.assertEqual(len(plan["operations"]), 55)
-        self.assertEqual(len(plan["auth_targets"]), 8)
+        self.assertEqual(len(plan["operations"]), 57)
+        self.assertEqual(len(plan["auth_targets"]), 9)
         self.assertTrue(config.include_earnings)
         self.assertFalse(config.weekly_opd_soap)
         config = LiveTestConfig(

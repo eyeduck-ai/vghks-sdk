@@ -852,6 +852,17 @@ OPERATIONS += (
         )
     ),
 )
+OPERATIONS += (
+    _spec("personnel.sso_logon", "personnel", "POST", "/DDPortal/WPSAutoLogon",
+          form=("HID", "USR_ID", "ssID", "keyOne", "keyTwo", "keyThree", "targetURL", "wpsHost"),
+          contract_required=False),
+    _spec("personnel.options", "personnel", "GET", "/DDPortal/DRQuerySql.jsp",
+          retry_safe=True, contract_required=False),
+    _spec("personnel.search", "personnel", "POST", "/DDPortal/dRDoctor.do",
+          retry_safe=True, form=("reqCode", "value(source)", "value(name)", "value(usrId)",
+                                 "value(title)", "value(costId)", "action"),
+          values=(("reqCode", "showAllDoctors"),), contract_required=False),
+)
 OPERATION_BY_KEY = {item.key: item for item in OPERATIONS}
 
 

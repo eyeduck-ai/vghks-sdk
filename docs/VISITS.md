@@ -67,9 +67,11 @@ selected_by_id = sdk.records.find_visit_cases(
 | 類別 | `case_types=("O", "A", "E")` 選多種類別；預設只有 `("O",)`，保留原有門診 workflow 行為 |
 | 科別 | `section_codes` 精確比對，或 `section_name_contains` 子字串比對；同一維度多條件採 OR |
 | 所有科別 | 未限制科別時明確設 `all_sections=True`；不能同時指定科別名稱／代碼 |
-| 醫師 | `doctor_names` 完整姓名、`doctor_name_contains` 部分姓名、`doctor_cards` 完整卡號；同一維度採 OR，沒有醫師條件則不限制 |
+| 醫師 | `doctor_names` 完整姓名、`doctor_name_contains` 部分姓名；同一維度採 OR，沒有醫師條件則不限制。員工卡號先透過 `sdk.personnel.get_by_card` 取得姓名，見 [PERSONNEL](PERSONNEL.md) |
 
-**日期、類別、科別與醫師之間採 AND。** 結果依原有就診識別去重，按到院日由新到舊排列；同日不同就診或不同科別會保留。日期不明的紀錄在無日期條件時可保留並排在最後。同名醫師無法只靠姓名區分；有回傳卡號時可用卡號篩選。
+**日期、類別、科別與醫師之間採 AND。** 結果依原有就診識別去重，按到院日由新到舊排列；同日不同就診或不同科別會保留。日期不明的紀錄在無日期條件時可保留並排在最後。同名醫師無法只靠姓名區分；人事轉換後仍需依已有科別／日期等資訊確認。
+
+歷次就診的醫師篩選以姓名為準。舊 `doctor_cards` 參數保留相容，只比對偶爾回傳的原始 `vsNo`，不自動轉換員工卡號，也不代表每筆都有此欄。`visits` 測試不再把缺少這個可選欄位列成缺口。
 
 ## 回傳範圍與下游支援
 

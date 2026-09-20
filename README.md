@@ -7,7 +7,7 @@
 ## 安裝與第一個查詢
 
 ```sh
-python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.18.0"
+python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.18.1"
 ```
 
 開發時 clone 後執行 `python -m pip install -e ".[dev]"`。尚未發布到 PyPI；目前由 GitHub 來源或自行建置的 wheel 安裝。

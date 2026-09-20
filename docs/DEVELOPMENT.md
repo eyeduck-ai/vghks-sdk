@@ -40,7 +40,7 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.18.0-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.18.1-py3-none-any.whl
 ```
 
 Windows EXE 使用 Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4：

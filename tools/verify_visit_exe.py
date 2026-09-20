@@ -94,16 +94,18 @@ class VisitIntranet(PatientIntranet):
         if path.endswith("QueryCaseList.do"):
             if state["mode"] == "empty":
                 return self.reply(EMPTY_LIST)
-            rows = [
-                visit_row(
-                    caseNo=f"C{i}",
-                    caseType=kind,
-                    caseDT=f"2026-01-0{5 - i}",
-                    hidno=IDENTIFIER,
-                    vsNo="D001",
+            rows = []
+            for i, kind in enumerate(("O", "O", "O", "A", "E")):
+                fields = {
+                    "caseNo": f"C{i}", "caseType": kind,
+                    "caseDT": f"2026-01-0{5 - i}", "hidno": IDENTIFIER,
+                }
+                # Only the active JSP branch carries a card. An EXE with the
+                # old first-constructor parser would incorrectly report gaps.
+                rows.append(
+                    'if ("current" == "legacy") {' + visit_row(**fields)
+                    + '} else {' + visit_row(vsNo="D001", **fields) + '}'
                 )
-                for i, kind in enumerate(("O", "O", "O", "A", "E"))
-            ]
             return self.reply(visit_page(*rows))
         assert params["hhisnum"] == MRN, "national ID must never be used as an MRN"
         if path.endswith("QueryCaseDetail.do"):

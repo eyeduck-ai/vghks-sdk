@@ -95,6 +95,37 @@ class VisitParsingTests(unittest.TestCase):
         self.assertEqual(len(cases), 1)
         self.assertEqual((cases[0].doctor_name, cases[0].doctor_card), ("", ""))
 
+    def test_active_rendering_branch_preserves_card_and_detail_context(self):
+        inactive = visit_row(doctor="", caseType="A")
+        active = visit_row(
+            caseType="A", vsNo="1001F", dbSource="SYNTHETIC", vsNm="測試醫師甲"
+        )
+        source = f'if ("current" == "old" || "current" == "external") {{ {inactive} }} else {{ {active} }}'
+        for page in (visit_page(source), source):
+            with self.subTest(script_element=page != source):
+                cases = parse_visit_cases(page, MRN)
+                self.assertEqual(len(cases), 1)
+                self.assertEqual(cases[0].doctor_card, "1001F")
+                self.assertEqual(cases[0].doctor_name, "測試醫師甲")
+                self.assertEqual(cases[0].detail_params["dbSource"], "SYNTHETIC")
+                self.assertEqual(cases[0].detail_params["vsNm"], "測試醫師甲")
+
+    def test_inactive_constructor_cannot_reappear_via_literal_url_fallback(self):
+        active = visit_row(vsNo="D001")
+        # Inactive paths may contain another patient or unsupported expressions;
+        # neither should affect the selected, statically known branch.
+        inactive = visit_row(doctor="OTHER", hhisnum="11111111", vsNo="D002")
+        inactive = inactive.replace('"OTHER"', 'getDoctor()')
+        cases = parse_visit_cases(visit_page(f'if (true) {{ {active} }} else {{ {inactive} }}'), MRN)
+        self.assertEqual(len(cases), 1)
+        self.assertEqual(cases[0].doctor_card, "D001")
+
+    def test_unknown_visit_branch_fails_instead_of_guessing_a_physician(self):
+        page = visit_page(f'if (runtimeFlag) {{ {visit_row(vsNo="D001")} }}')
+        with self.assertRaises(ParseError) as caught:
+            parse_visit_cases(page, MRN)
+        self.assertEqual(caught.exception.info.code, "JS_BRANCH_UNSUPPORTED")
+
     def test_legacy_anchor_has_physician_when_url_contains_it(self):
         url = visit_link(vsNm="測試醫師乙", vsNo="D002").replace("&", "&amp;")
         result = parse_visit_cases(f'<a href="{url}">visit</a>', MRN)

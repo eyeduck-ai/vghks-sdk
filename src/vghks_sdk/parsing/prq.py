@@ -16,6 +16,7 @@ from ..core.jsliteral import (
     decode_js_string,
     evaluate_expression,
     extract_quoted_strings,
+    iter_active_constructor_calls,
     iter_constructor_calls,
     string_assignments,
 )
@@ -142,14 +143,32 @@ def parse_patient_identity(html_text: str, *, expected_national_id: str = "") ->
 
 
 def _visit_links(html_text: str) -> Iterator[tuple[str, str | None]]:
-    # Constructor arguments carry the visible physician name. Mask each whole
-    # call before the legacy-link fallback so concatenated URL fragments cannot
-    # accidentally become a second, incomplete visit.
+    # JSP emits both rendering branches for each visit. Read the statically
+    # active constructor before deduplication; the inactive one can omit the
+    # physician card and detail context. Never run JavaScript or merge branches.
+    soup = BeautifulSoup(html_text, "html.parser")
+    scripts = soup.find_all("script")
+    if not scripts:
+        yield from _visit_source_links(html_text)
+        return
+    for script in scripts:
+        yield from _visit_source_links(script.get_text())
+        script.decompose()
+    yield from _visit_source_links(str(soup))
+
+
+def _visit_source_links(source: str) -> Iterator[tuple[str, str | None]]:
+    active = {call.start: call for call in iter_active_constructor_calls(source, "KSCase")}
+    # Mask ALL constructors, including inactive ones, so legacy literal-link
+    # fallback cannot resurrect them or parse incomplete concatenated fragments.
     remaining = []
     cursor = 0
-    for call in iter_constructor_calls(html_text, "KSCase"):
-        remaining.append(html_text[cursor : call.start])
+    for call in iter_constructor_calls(source, "KSCase"):
+        remaining.append(source[cursor : call.start])
         cursor = call.end
+        call = active.get(call.start)
+        if call is None:
+            continue
         if not call.arguments or "QueryCaseDetail.do?" not in call.arguments[0]:
             continue
         href = evaluate_expression(call.arguments[0], {})
@@ -160,7 +179,7 @@ def _visit_links(html_text: str) -> Iterator[tuple[str, str | None]]:
                 code="PRQ_CASE_EXPRESSION_UNSUPPORTED",
             )
         yield href, doctor
-    remaining.append(html_text[cursor:])
+    remaining.append(source[cursor:])
     for value in extract_quoted_strings(" ".join(remaining)):
         if "QueryCaseDetail.do?" in value:
             yield value, None

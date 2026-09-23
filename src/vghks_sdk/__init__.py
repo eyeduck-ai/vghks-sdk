@@ -6,8 +6,10 @@ from ._version import __version__
 from .core.config import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
 from .core.errors import (
     AuthenticationError,
+    AuthExpiredError,
     ConfigurationError,
     ErrorInfo,
+    LoginRejectedError,
     NotFoundError,
     ParseError,
     RequestError,
@@ -99,6 +101,7 @@ def __getattr__(name: str):
 __all__ = [
     "AuthCheckReport",
     "AuthCheckTarget",
+    "AuthExpiredError",
     "AuthenticationError",
     "BinaryAsset",
     "CaseDetail",
@@ -112,6 +115,7 @@ __all__ = [
     "FormSnapshot",
     "HtmlDocument",
     "LiveTestConfig",
+    "LoginRejectedError",
     "MedicationHistoryFilter",
     "MedicationOrder",
     "MrnPatientSource",

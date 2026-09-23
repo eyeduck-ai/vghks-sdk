@@ -26,6 +26,57 @@
 
 保留 Session／Cookie、完整原子操作鎖、瀏覽器格式標頭及每次 0.8–1.8 秒隨機等待。同一 SDK 循序執行；現有 workflow／測試器繼續保留各項獨立失敗與後續可執行步驟，不把錯誤偽裝成空資料。
 
+## Session 過期與登入失敗
+
+從 0.19.1 起，SDK 明確區分「既有登入過期」與「這次登入沒有成功」。一般查詢在下次請求發現已知登入頁或 HTTP 401／403 時，清除舊 Cookie／子系統狀態、用建立 SDK 時的帳密重新登入、取得 SSO，再重做原子查詢一次。必要的病人 context 由 Adapter 重建；不需要應用程式自己操作 Cookie。沒有背景定時續期。
+
+0.19.3 也辨識 JSON 查詢被轉址到已知入口、以及回應中實際的入口導覽腳本。遇到舊 HTTP 入口轉址時直接以設定的 HTTPS 重新登入，不跟隨該 HTTP 轉址；未知的 JSON 轉址回報 `QUERY_REDIRECT_UNRECOGNIZED`，不猜測登入狀態。登入回應的「重新登入」按鈕不是自動導覽，也不能當成成功證據。
+
+每次原子查詢最多恢復一次；第二次仍過期回報 `AUTH_RELOGIN_FAILED`。若重新登入本身失敗，保留其具體 AuthenticationError 型別與 `info.code`，不再以籠統的恢復失敗碼覆蓋。HTTP 401／403 也可能是權限問題；一次恢復機會不表示 SDK 已確認原因就是過期。
+
+| 情況 | 對外結果 | 自動再次提交密碼 |
+| --- | --- | --- |
+| 帳號／密碼空白 | ConfigurationError；`CREDENTIAL_USERNAME_MISSING`／`CREDENTIAL_PASSWORD_MISSING` | 不會；尚未發出登入請求 |
+| Portal 提交後仍是登入表單、退回登入頁或明確顯示帳密錯誤 | LoginRejectedError；`PORTAL_LOGIN_REJECTED` | 不會 |
+| 登入建立階段收到 401／403 | AuthenticationError；`PORTAL_LOGIN_HTTP_DENIED`，保留 http_status | 不會；不能直接認定密碼錯誤 |
+| 登入回應空白、找不到導覽目標或落地頁空白 | AuthenticationError；`PORTAL_LOGIN_RESPONSE_EMPTY`／`PORTAL_LOGIN_TARGET_MISSING`／`PORTAL_LOGIN_LANDING_EMPTY` | 不會；帳密有效性未明 |
+| 登入導覽目標不明或互相矛盾 | AuthenticationError；`PORTAL_LOGIN_TARGET_UNRECOGNIZED`／`PORTAL_LOGIN_TARGET_AMBIGUOUS` | 不會 |
+| 登入落到已知系統錯誤頁 | AuthenticationError；`PORTAL_LOGIN_NOT_ESTABLISHED` 或 `AUTH_LANDING_ERROR_PAGE` | 不會 |
+| 審查 OAuth 提交密碼後退回登入表單 | LoginRejectedError；`REVIEW_OAUTH_LOGIN_REJECTED` | 不會 |
+| 審查 OAuth 提交密碼後收到 401／403，或回應格式不明 | AuthenticationError；`REVIEW_OAUTH_LOGIN_HTTP_DENIED`／`REVIEW_OAUTH_LOGIN_RESPONSE_UNRECOGNIZED` | 不會重新開始整段登入 |
+| MIS 提交後仍要求輸入獨立密碼 | LoginRejectedError；`EARNINGS_PASSWORD_REJECTED` | 不會 |
+
+`LoginRejectedError` 與 `AuthExpiredError` 都繼承 `AuthenticationError`，可從 `vghks_sdk` 匯入；兩者互不繼承。登入遭拒只代表系統沒有接受這次登入，無足夠證據時不進一步猜測密碼錯誤、帳號鎖定或密碼到期。未知頁面保留錯誤，不當成查詢空清單。
+
+在已建立的 `sdk` 中，應用程式可這樣處理：
+
+```python
+from vghks_sdk import AuthenticationError, LoginRejectedError, SDKError
+
+try:
+    visits = sdk.records.get_visit_cases(mrn)
+except LoginRejectedError as exc:
+    print("登入遭拒，請確認帳密或帳號狀態：", exc.info.code)
+    raise  # 停止這項任務，交給應用程式取得使用者更正後的帳密
+except AuthenticationError as exc:
+    print("無法建立或恢復登入：", exc.info.code)
+    raise
+except SDKError as exc:
+    print("查詢失敗：", exc.info.category, exc.info.code)
+    raise
+```
+
+主系統帳密更正後，以新的 `PortalCredentials` 建立新的 `VghksSDK`；不要直接修改 Adapter 的內部狀態。MIS 帳密另以 `EarningsCredentials` 傳給 `open_performance`／`open_bonus`。SDK 不保存帳密到設定檔；Credentials 的 repr 不含密碼，但啟用完整 raw capture 時輸出仍只適合本機使用。
+
+`sdk.auth.check()` 回傳報告而非一律拋出登入例外：以 `report.ok` 與 `report.targets[i].issue.code` 判斷。Portal 登入遭拒後，其相依子系統標為 BLOCKED，不再多送一次帳密。`report.reauthenticated` 表示曾進入恢復流程，不保證恢復成功。
+
+自動恢復的例外範圍：
+
+- MIS 的二次驗證不自動重播；`EARNINGS_SESSION_EXPIRED` 或 `EARNINGS_CONTEXT_EXPIRED` 需重新開啟報表，取得新的 context。
+- 新增、修改、取消等異動不會因 Session 過期自動重送；結果不明時先讀回確認。
+- 密碼 POST 不交給 Requests 自動跟隨轉址。Portal 只允許有限次同來源 GET 導覽，307／308 要求重送 POST 時即停止；沒有已知導覽目標／成功落地資訊不能僅以 HTTP 200 宣告登入成功。
+- 重試上限以每次 API 呼叫計算；應用程式仍可主動再呼叫，因此不要在外層對登入錯誤套用無限制重試。
+
 ## 查看狀態與進階設定
 
 ```python

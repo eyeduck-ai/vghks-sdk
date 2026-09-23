@@ -47,6 +47,7 @@ _CREDENTIAL_KEYS = {
     "user",
 }
 _TOP_LEVEL_KEYS = {
+    "login_negative_attempts",
     "test_mrn",
     "schema_version",
     "weekly_opd_soap",
@@ -84,6 +85,7 @@ class LiveTestConfig:
     """Validated, credential-free live-test configuration."""
 
     profile: str = "full"
+    login_negative_attempts: int = 2
     test_mrn: str = field(default_factory=default_test_mrn)
     output_root: Path | None = None
     visit_filter: VisitFilter = field(
@@ -175,6 +177,7 @@ class LiveTestConfig:
         profile = str(self.profile).strip().lower()
         object.__setattr__(self, "profile", profile)
         if profile not in {
+            "login",
             "auth",
             "atomic",
             "comprehensive",
@@ -184,8 +187,10 @@ class LiveTestConfig:
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be auth, atomic, comprehensive, ophthalmology, visits, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, core or full"
             )
+        if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
+            raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if self.max_cases is None:
             object.__setattr__(
                 self,
@@ -230,7 +235,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -352,6 +357,7 @@ class LiveTestConfig:
             "review_query": to_jsonable(self.review_query),
             "schema_version": LIVE_CONFIG_SCHEMA_VERSION,
             "profile": self.profile,
+            "login_negative_attempts": self.login_negative_attempts,
             "only_operations": list(self.only_operations),
             "max_cases": self.max_cases,
             "max_items": self.max_items,
@@ -585,6 +591,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
     return LiveTestConfig(
         test_mrn=values.get("test_mrn", default_test_mrn()),
         profile=str(values.get("profile", "full")),
+        login_negative_attempts=values.get("login_negative_attempts", 2),
         output_root=Path(str(values["output_root"])) if values.get("output_root") else None,
         visit_filter=visit_filter,
         soap_search=soap_search,

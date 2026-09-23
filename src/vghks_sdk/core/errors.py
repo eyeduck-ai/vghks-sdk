@@ -101,6 +101,15 @@ class AuthExpiredError(AuthenticationError):
     code = "AUTH_EXPIRED"
 
 
+class LoginRejectedError(AuthenticationError):
+    """Login was not accepted; the response need not identify why.
+
+    Unlike session expiry, this must never trigger automatic reauthentication.
+    """
+
+    code = "AUTH_LOGIN_REJECTED"
+
+
 class RequestError(SDKError):
     code = "REQUEST_ERROR"
     category = "NETWORK"

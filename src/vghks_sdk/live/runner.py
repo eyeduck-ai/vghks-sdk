@@ -189,7 +189,8 @@ def execute_live_test(
         )
         manager.log(f"Live test run ID: {manager.run_id}")
         manager.log(f"Profile: {config.profile}")
-        manager.log(f"Atomic test MRN: {config.test_mrn}")
+        if config.profile != "login":
+            manager.log(f"Atomic test MRN: {config.test_mrn}")
         if config.profile == "comprehensive" and config.weekly_opd_soap:
             manager.log(
                 "Weekly OPD workflow: login card, seven days; physician labels identify owned lists, section codes are retained as metadata."
@@ -218,7 +219,15 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
+            if config.profile == "login":
+                from .login import run_login_test
+
+                result = run_login_test(
+                    sdk, config, credentials=credentials, settings=settings,
+                    output_dir=manager.run_directory, raw_capture=raw_capture,
+                    diagnostics=diagnostics, run_id=manager.run_id,
+                )
+            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
                 result = run_atomic_test(
                     sdk,
                     config,

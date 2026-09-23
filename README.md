@@ -7,10 +7,10 @@
 ## 安裝與第一個查詢
 
 ```sh
-python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@v0.18.1"
+python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
 ```
 
-開發時 clone 後執行 `python -m pip install -e ".[dev]"`。尚未發布到 PyPI；目前由 GitHub 來源或自行建置的 wheel 安裝。
+上例取得 GitHub main 的版本；固定部署可改用已存在的 tag 或 commit。開發時 clone 後執行 `python -m pip install -e ".[dev]"`；尚未推送的修改需由本機 checkout 或本機 wheel 安裝。尚未發布到 PyPI。
 
 ```python
 import os
@@ -32,6 +32,8 @@ with VghksSDK(
 每個 Service 功能回傳一份有意義的結果；所需 SSO、token、病人 context 與分頁由 Adapter 管理。使用回傳的 VisitCase、OrderReportRef 等物件串接下一步，不需手動組 HTTP 請求。
 
 SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證的 TLS12_COMPAT，同一主機／埠共用成功設定。連線失敗會依原因有限重試；明確的憑證錯誤預設可對該服務略過驗證，HTTPS 加密仍保留。一般使用不需設定 TLS；要求嚴格驗證時設 `SDKSettings(allow_unverified_tls=False)`。完整行為見 [連線與自動恢復](docs/CONNECTIONS.md)。
+
+一般查詢的 Session 過期會自動重登入並重做一次；登入遭拒則以 `LoginRejectedError` 結束，不自動重送相同帳密。應用程式可依 `SDKError.info.code` 提示更正帳密或檢查連線；[錯誤處理與例外範圍](docs/CONNECTIONS.md#session-過期與登入失敗) 說明 MIS 獨立登入及寫入操作的處理。
 
 ## 功能入口
 
@@ -62,7 +64,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | 組合較複雜的應用 | [COMPOSITION](docs/COMPOSITION.md)、[examples](examples/) |
 | 分層與擴充位置 | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | 錄製新 HAR 並新增功能 | [HAR_RECORDING](docs/HAR_RECORDING.md) |
-| 測試、建置、發布 | [DEVELOPMENT](docs/DEVELOPMENT.md)、[DISTRIBUTION](docs/DISTRIBUTION.md) |
+| 測試、建置、發布與離線安裝 | [DEVELOPMENT](docs/DEVELOPMENT.md) |
 | 後續 agents 接手 | [AGENTS](AGENTS.md) |
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
@@ -79,7 +81,7 @@ python tools/check_public_tree.py
 python -m build --outdir output/package
 ```
 
-一般測試僅使用合成資料及 localhost，不需要內網、HAR 或帳密。主要登入、病人、報告附件、手術與審查查詢已有內網成功證據；各功能驗證範圍見 [VALIDATION](docs/VALIDATION.md)。
+一般測試僅使用合成資料及 localhost，不需要內網、HAR 或帳密。主要登入、病人、報告附件、手術與審查查詢已有內網成功證據；0.19.3 另確認錯誤帳密辨識、清 Cookie 後的 PRQ 恢復及人事查詢。單位與下層單位仍待驗證；完整範圍見 [VALIDATION](docs/VALIDATION.md)。
 
 SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格式標頭。平行任務應各自建立 SDK／Session，並限制所有工作合計的請求量。
 
@@ -88,6 +90,8 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 公開原始碼不含真實測試病歷號。通用工具使用 `--test-mrn`、`VGHKS_TEST_MRN` 或啟動時輸入；自用 EXE 可在建置時內嵌 `private/live-test-defaults.json`，維持只搬一個 EXE。
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
+
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

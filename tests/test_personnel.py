@@ -326,6 +326,15 @@ class PersonnelTests(unittest.TestCase):
             ),
             1,
         )
+        def iframe_landing(method, url, **kwargs):
+            result = dispatch(method, url, **kwargs)
+            if url.endswith("/WPSAutoLogon"):
+                result._content = b'<html><iframe src="DRQuerySql.jsp" /><iframe src="blank.htm" /></html>'
+            return result
+
+        auth._apps.clear()
+        session.request.side_effect = iframe_landing
+        self.assertEqual(auth.ensure("personnel").hid, "fresh-hid")
         foreign = replace(settings.profiles["personnel"], expected_base_url="https://foreign.test")
         with self.assertRaises(AuthenticationError):
             auth._parse_sso_form(form, foreign)

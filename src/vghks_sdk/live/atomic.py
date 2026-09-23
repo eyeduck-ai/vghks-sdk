@@ -60,6 +60,10 @@ OPHTHALMOLOGY_QUERIES = (
 
 def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
     config.validate_for_execution()
+    if config.profile == "login":
+        from .login import build_login_plan
+
+        return build_login_plan(config)
     if config.profile == "visits":
         from .visits import build_visit_plan
 

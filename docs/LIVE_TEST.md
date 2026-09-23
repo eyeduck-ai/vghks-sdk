@@ -1,8 +1,34 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。**0.18.1 自用版預設為 visits，就診搜尋增量測試**；通用建置仍預設 comprehensive，可用 `--default-profile visits` 改成增量版。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile login` 或 `visits` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-## 本次：就診搜尋增量測試
+目前 SDK 原始碼為 0.19.4；最近有內網回傳的 EXE 為 0.19.3、login 計畫。0.19.4 新增的單位標籤對照尚未打包成下一版 EXE，不能把原始碼測試視為該 EXE 已通過。驗證範圍集中於 [VALIDATION](VALIDATION.md)。
+
+## 本次：登入及人事測試
+
+只輸入正常的 Portal 帳號與密碼，之後自動執行，完成再按 Enter 關閉。**不需要病歷號、身分證、薪資密碼或設定檔**。只帶回 EXE 同目錄、檔名含時間的 ZIP。
+
+1. 先跑 20 個離線模擬情境，使用 SDK 真正的登入／Requests 流程及記憶體回應，不建立網路連線：正常、空白帳密、未知帳號、錯誤密碼表單／文字錯誤頁、401／403、空白／未知頁、回到登入頁、302／307／308、逾時、一次／反覆過期及重新登入遭拒；包含 302 轉向 HTTP 入口與入口自動跳轉頁。
+2. 使用輸入的正常帳密登入，逐一檢查九個登入目標、登入重用，以及 PRQ 文件類型查詢。子系統失敗不阻止獨立檢查。
+3. 查詢人事選項與登入帳號的精確員工資料，再測員工編號、姓名、職稱、單位與含下層單位的條件。職稱／單位必須能與當次表單選項唯一對應，且與本人員工編號合併查詢；缺對應保留 NO_SAMPLE，不猜代碼或下載整份人事名冊。
+4. 清除本機 Cookie，再做 PRQ 查詢，記錄是否重新登入及恢復。若伺服器仍接受原有 SSO token，記 NO_SAMPLE，表示未觸發過期；此測試不等待或證明伺服器自然逾時。
+5. 最後使用同一帳號與自動產生的錯誤密碼，最多兩次，分別驗證 `auth.login()` 與查詢時的按需登入。每次獨立 Session、最多一個實際密碼 POST，轉址及意外重試同樣受限。第一筆正常登入失敗則全部略過；第一筆負向測試若逾時、回應不明或意外成功，停止第二筆負向測試。
+
+一般 SDK 不會主動做錯誤密碼測試，僅 `login` 計畫有此行為。一般帳號每輪最多兩次是本次使用者授權的上限；重跑 EXE 會開始新一輪。開發時可用 `--login-negative-attempts 0` 關閉，或設 `1`，不允許超過 `2`。
+
+`parsed/login/` 保存逐項結果、模擬請求次序、人事條件與結果、Cookie 清除前後的登入世代、每次負向測試的密碼 POST 計數。`RESULTS.txt`、`run_summary.json` 將 SIMULATED 與 LIVE 分開。預期的 `PORTAL_LOGIN_REJECTED` 是負向測試通過，不代表登入成功；未知頁面、額外重送或 HTTP 錯誤仍列 ERROR。
+
+離線分析僅在完整步驟確認一次密碼 POST、預期拒絕且 capture 範圍相符時，將該拒絕列為 EXPECTED_NEGATIVE，原始回應不改寫。受控 Cookie 清除後恢復成功的原始 401／403 另列 recovered，後續解析錯誤不會被掩蓋。
+
+登入、PRQ 恢復、人事主要查詢及兩次預期拒絕已有 0.19.3 內網證據。補測單位篩選時不必再做錯誤密碼，可用 `--login-negative-attempts 0`；自然 TTL 仍未量測。
+
+```sh
+vghks-live-test --plan --profile login
+vghks-live-test --profile login
+vghks-live-test --profile login --login-negative-attempts 0
+```
+
+## 就診搜尋增量測試
 
 0.17.2／0.18.0 已取得內網證據：身分證與病歷號清單一致，身分證清單的門診 SOAP／醫囑串接成功。原 EXE 將醫師卡號列為 NO_SAMPLE；0.18.1 修正分支解析後，已從同份回應離線取回住院／急診卡號並驗證篩選。門診來源卡號仍空白。此計畫可用於後續不同樣本或新版導覽驗證；不需為已可離線解析的資料重跑完整功能。
 
@@ -19,9 +45,9 @@
 
 一般原始碼或通用 EXE 可明確指定 `--profile visits`。可選 `--patient-national-id`／`VGHKS_PATIENT_NATIONAL_ID`；不把此值放入一般設定檔。`--plan --profile visits` 可離線查看範圍。
 
-## 人事增量測試（0.19.0 SDK 原始碼）
+## 人事單項測試
 
-`vghks-live-test --profile atomic --only personnel.options --only personnel.search` 只測人事選項及登入帳號的人事清單，原始回應與查詢條件照常保留。新的 SDK 不再要求就診清單有可用醫師卡號，卡號應先透過人事取得姓名。此輪未重建 EXE；現存 0.18.1 EXE 不含人事功能。
+`vghks-live-test --profile atomic --only personnel.options --only personnel.search` 只測人事選項及登入帳號的人事清單，原始回應與查詢條件照常保留。新的 SDK 不再要求就診清單有可用醫師卡號，卡號應先透過人事取得姓名。0.19.2 登入專項 EXE 已包含這些查詢及多條件檢查。
 
 ## 原有完整測試
 
@@ -42,6 +68,8 @@ vghks-live-test --config configs/review-system.example.json
 每項查詢、每份報告的錯誤分別保存，其他可獨立操作的功能會繼續；登入無法建立時，相依功能標 BLOCKED。Requests 預設循序及 0.8–1.8 秒隨機間隔。
 
 ## TLS 與狀態
+
+登入專項直接使用 SDK 共用連線與自動恢復政策，實際成功模式記於 `selected_profiles.json`。其他計畫還有以下獨立預檢。
 
 預檢優先採用 SDK 的已知設定：PRQ、SectOrd、WebMAAS 直接用 TLS12_COMPAT，其他服務用 DEFAULT；成功即停止展開該來源的診斷，相同主機／埠共用結果。失敗才測其他協定、必要的 proxy／direct 路由及匿名憑證比對。此順序省去舊版在三個服務重複產生的六次失敗探測。
 
@@ -65,11 +93,12 @@ vghks-live-test --config configs/review-system.example.json
 | 檔案／路徑 | 用途 |
 | --- | --- |
 | RESULTS.txt／coverage.json | 功能結果與未覆蓋情境 |
-| run_summary.json／step_results.json | 每步状态、capture 範圍、耗時 |
+| run_summary.json／step_results.json | 每步狀態、capture 範圍、耗時 |
 | parsed/inputs/ | 每個查詢真正使用的條件 |
 | parsed/atomic/ | 原子回傳及 PDF／JPG |
 | parsed/visits/ | 身分證增量測試的清單、比對、篩選與門診串接 |
-| parsed/earnings/ | MIS 月份選项、原始 HTML、文字與表格 |
+| parsed/login/ | 登入、Session、SIMULATED 情境、人事查詢、負向密碼 POST 計數 |
+| parsed/earnings/ | MIS 月份選項、原始 HTML、文字與表格 |
 | parsed/workflows/ | 組合流程各階段資料 |
 | capture_manifest.jsonl／responses/ | HTTP 原始證據 |
 | parsed/network/selected_profiles.json | 實際 TLS／憑證驗證模式 |

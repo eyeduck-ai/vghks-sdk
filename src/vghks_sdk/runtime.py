@@ -17,6 +17,7 @@ from .core.errors import (
     AuthenticationError,
     AuthExpiredError,
     ErrorInfo,
+    ParseError,
     RequestError,
     SDKError,
     error_info,
@@ -25,6 +26,7 @@ from .core.operations import OperationSpec
 from .core.readiness import AuthCheckSpec, make_auth_report, resolve_auth_targets
 from .core.transport import SafeSessionTransport
 from .models import AuthCheckReport, AuthCheckTarget
+from .parsing.portal import is_portal_login_destination
 
 T = TypeVar("T")
 
@@ -173,6 +175,9 @@ class SDKRuntime:
                 code="OPERATION_PATH_MISMATCH",
                 endpoint_path=actual_path,
             )
+        json_redirect_guard = (
+            not spec.mutates and spec.response_kind == "json" and "allow_redirects" not in kwargs
+        )
         if spec.mutates:
             # A response lost after a clinical write is not proof of failure.
             # Never resend it through redirects, transport retry, or re-login.
@@ -180,6 +185,10 @@ class SDKRuntime:
             kwargs["allow_redirects"] = False
         else:
             kwargs.setdefault("retry_safe", spec.retry_safe)
+            if json_redirect_guard:
+                # A JSON query may redirect to the legacy HTTP login entrance
+                # when cookies expire. Detect it before Requests follows it.
+                kwargs.setdefault("allow_redirects", False)
         try:
             response = self.transport.request(spec.method, url, **kwargs)
         except RequestError as exc:
@@ -196,6 +205,21 @@ class SDKRuntime:
                 endpoint_path=spec.path,
             )
             raise
+        if (not spec.mutates and 300 <= getattr(response, "status_code", 200) < 400
+                and not kwargs.get("allow_redirects", True)):
+            location = response.headers.get("Location", "")
+            if location and is_portal_login_destination(location, response.url, self.settings.portal_base_url):
+                raise AuthExpiredError(
+                    "query redirected to the portal login entrance",
+                    code="AUTH_SESSION_REDIRECT", operation=spec.key, app=spec.app,
+                    endpoint_path=spec.path,
+                )
+            if json_redirect_guard:
+                raise ParseError(
+                    "JSON query returned an unrecognized redirect",
+                    code="QUERY_REDIRECT_UNRECOGNIZED", operation=spec.key, app=spec.app,
+                    endpoint_path=spec.path,
+                )
         self._raise_if_expired_response(response)
         return response
 
@@ -371,12 +395,7 @@ class SDKRuntime:
                         )
                         return result
                     except (AuthExpiredError, RequestError) as exc:
-                        if not allow_reauthentication:
-                            raise
-                        if isinstance(exc, RequestError) and exc.status_code not in {
-                            401,
-                            403,
-                        }:
+                        if not allow_reauthentication or not self._is_authentication_expiry(exc):
                             raise
                         if attempt == 1:
                             raise AuthenticationError(
@@ -392,6 +411,10 @@ class SDKRuntime:
                             )
                         try:
                             self.auth.login(force=True)
+                        except AuthenticationError:
+                            # Preserve rejection/unknown-login codes for the application;
+                            # they are not another expired query and must not be replayed.
+                            raise
                         except Exception as login_exc:
                             raise AuthenticationError(
                                 "re-login failed while recovering an expired session",

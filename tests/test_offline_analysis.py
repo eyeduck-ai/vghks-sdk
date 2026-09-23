@@ -182,6 +182,18 @@ class OfflineAnalysisTests(unittest.TestCase):
                     "status": "NO_SAMPLE",
                     "issue": {"code": "QUERY_INPUT_UNAVAILABLE"},
                 },
+                {
+                    "name": "login.personnel.unit",
+                    "operation": "personnel.search",
+                    "status": "NO_SAMPLE",
+                    "details": {"reason": "NO_UNAMBIGUOUS_OPTION"},
+                },
+                {
+                    "name": "login.personnel.subunits",
+                    "operation": "personnel.search",
+                    "status": "NO_SAMPLE",
+                    "details": {"reason": SECRET},
+                },
             ]
         )
         write_json_atomic(path, summary)
@@ -195,12 +207,17 @@ class OfflineAnalysisTests(unittest.TestCase):
         self.assertEqual(report["analysis_status"], "COMPLETED_WITH_GAPS")
         self.assertIsNone(report["root_cause"])
         self.assertEqual(report["problems"], [])
-        self.assertEqual(report["query_summary"]["NO_SAMPLE"], 1)
-        self.assertEqual(len(report["no_sample_steps"]), 2)
+        self.assertEqual(report["query_summary"]["NO_SAMPLE"], 2)
+        self.assertEqual(len(report["no_sample_steps"]), 4)
         self.assertEqual(report["no_sample_steps"][0]["step"], "visits.filters.doctor_card")
+        self.assertEqual(report["no_sample_steps"][2]["step"], "login.personnel.unit")
+        self.assertEqual(report["no_sample_steps"][2]["reason_code"], "NO_UNAMBIGUOUS_OPTION")
+        self.assertEqual(report["no_sample_steps"][3]["reason_code"], "")
         text = (output / "analysis.md").read_text(encoding="utf-8")
         self.assertIn("visits.filters.doctor_card", text)
         self.assertIn("FILTER_FIELD_UNAVAILABLE", text)
+        self.assertIn("login.personnel.unit", text)
+        self.assertIn("NO_UNAMBIGUOUS_OPTION", text)
         self.assertNotIn("Root cause:", console.getvalue())
         for content in (json.dumps(report), text, console.getvalue()):
             self.assertNotIn(SECRET, content)

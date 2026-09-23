@@ -13,6 +13,7 @@ from ..build_info import build_identity
 from ..core.errors import ConfigurationError
 from ..core.readiness import AUTH_CHECK_REGISTRY
 from ..live.config import resolve_live_test_config
+from ..live.login import expected_rejection
 from ..local_io import write_json_atomic
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .bundle import BundleReader
@@ -77,6 +78,28 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         steps = reader.json("step_results.json")
     if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
         raise ConfigurationError("invalid step results", code="BUNDLE_STEPS_INVALID")
+    expected_steps = {step["name"]: step for step in steps if expected_rejection(step)}
+    expected_rows = []
+    recovered_auth_ids = set()
+    for row in rows:
+        match = next((step for step in expected_steps.values() if _in_capture_range(row, step)), None)
+        if match and row["error_code"] == "PORTAL_LOGIN_REJECTED":
+            row.update(observed_status=row["status"], status="EXPECTED_NEGATIVE", expected_step=match["name"])
+            expected_rows.append(row)
+        recovery = next((step for step in steps if step.get("name") == "login.cookie_loss"
+                         and step.get("status") == "OK"
+                         and (step.get("details") or {}).get("recovered") is True), None)
+        if (recovery and _in_capture_range(row, recovery)
+                and row["operation"] == "prq.upload_types"
+                and row["error_code"] in {
+                    "AUTH_EXPIRED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM", "HTTP_401", "HTTP_403",
+                }
+                and any(later["capture_id"] > row["capture_id"]
+                        and _in_capture_range(later, recovery)
+                        and later["operation"] == row["operation"]
+                        and later["status"] in {"PARSED", "EMPTY"} for later in rows)):
+            row.update(recovered=True, recovery_type="COOKIE_LOSS_RELOGIN")
+            recovered_auth_ids.add(row["capture_id"])
     readiness = (
         reader.json("parsed/readiness.json") if "parsed/readiness.json" in reader.names else {}
     )
@@ -107,6 +130,12 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
             continue
         issue = item.get("issue") or {}
         code = _safe_code(issue.get("code"))
+        expected_step = expected_steps.get(item.get("name") or item.get("step"))
+        linked = {"capture_id": item.get("linked_capture_id")}
+        if code == "PORTAL_LOGIN_REJECTED" and expected_step and _in_capture_range(linked, expected_step):
+            continue
+        if code in {"AUTH_EXPIRED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM"} and item.get("linked_capture_id") in recovered_auth_ids:
+            continue
         if code and code not in {"DEPENDENCY_FAILED", "READINESS_FAILED"}:
             operation = issue.get("operation", "")
             if operation not in QUERY_BY_KEY and operation not in {
@@ -248,6 +277,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "unverified_tls_services": unverified_services,
         "preflight_findings": preflight_problems,
         "recovered_requests": [row for row in rows if row.get("recovered")],
+        "expected_login_rejections": expected_rows,
         "bundle_status": run_status,
         "analysis_status": analysis_status,
         "bundle": {
@@ -278,6 +308,13 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     return report, _retest_config(config, matrix, main, run_status)
 
 
+def _in_capture_range(row: dict, step: dict) -> bool:
+    values = [row.get("capture_id"), step.get("first_capture_id"), step.get("last_capture_id")]
+    if not all(isinstance(value, str) and re.fullmatch(r"\d{6}", value) for value in values):
+        return False
+    return values[1] <= values[0] <= values[2]
+
+
 def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
     gaps = []
     for index, step in enumerate(steps, 1):
@@ -292,12 +329,21 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             r"doctor_(?:name|card)|combined)|followup(?:\.(?:soap|orders)_sample)?)",
             name,
         )
+        login_check = re.fullmatch(
+            r"login\.(?:cookie_loss|personnel\.(?:options|by_card|employee|name|title|unit|subunits|filters))",
+            name,
+        )
+        reason = _safe_code((step.get("issue") or {}).get("code"))
+        detail_reason = (step.get("details") or {}).get("reason")
+        if (not reason and login_check and isinstance(detail_reason, str)
+                and detail_reason in {"NO_UNAMBIGUOUS_OPTION", "DEPENDENCY_FAILED"}):
+            reason = detail_reason
         gaps.append(
             {
                 "step_index": index,
-                "step": name if known_check else operation,
+                "step": name if known_check or login_check else operation,
                 "operation": operation,
-                "reason_code": _safe_code((step.get("issue") or {}).get("code")),
+                "reason_code": reason,
             }
         )
     return gaps
@@ -605,6 +651,7 @@ def _retest_config(
     config: dict[str, Any], matrix: list[dict[str, Any]], main: dict[str, str] | None, status: str
 ) -> dict[str, Any]:
     allowed = {
+        "login_negative_attempts",
         "visit_filter",
         "doctor_card",
         "opd_date",
@@ -639,7 +686,7 @@ def _retest_config(
             if row["live_status"] in {"FAILED", "BLOCKED", "MISSING", "EMPTY"}
         ]
     )
-    if config.get("profile") in {"comprehensive", "ophthalmology", "visits"}:
+    if config.get("profile") in {"comprehensive", "ophthalmology", "visits", "login"}:
         # First-run scenarios include category/date variants which an atomic
         # default call would not reproduce. Preserve the complete scenario set.
         value.update(

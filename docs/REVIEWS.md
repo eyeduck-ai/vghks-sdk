@@ -74,9 +74,9 @@ for case in cases:
 
 ## 內網 EXE 測試
 
-雙擊 EXE 直接使用內建參數，包含病人、眼科報告、兩條手術紀錄路徑、審查等 55 個唯讀操作，以及業績／專勤工作獎金兩份 MIS 報表。薪資的身分證字號與密碼在執行時輸入，不限筆數的每週 SOAP 組合流程預設關閉。
+comprehensive 計畫包含審查資料查詢；login 計畫只驗證審查 SSO，不查案件。雙擊 EXE 使用建置時選定的 profile，完整範圍見 [LIVE_TEST](LIVE_TEST.md)。
 
-不用搬設定檔，旁置舊檔不會覆蓋雙擊預設。開發時若只測審查系統，可明確執行 `vghks-live-test.exe --config configs/review-system.example.json`。
+內建計畫不用搬設定檔，旁置舊檔不會覆蓋雙擊預設。開發時若只測審查資料查詢，可明確執行 `vghks-live-test.exe --config configs/review-system.example.json`。
 
 審查預設使用登入帳號作為醫師，不限制申請日期。若可選科別只有一個，帶入該科別；多科別時不任選一個。完整清單全部保存，依審查結果與年份分組抽樣最多 8 件，每件分別查主資料、醫囑、附件、PACS。可用 `max_items` 調整 1–100；某件或某項失敗仍繼續其他項。
 

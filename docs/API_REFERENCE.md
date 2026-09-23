@@ -140,5 +140,8 @@ MUTATION_OUTCOME_UNKNOWN 必須先讀回查證，禁止自動重送；跨程序�
 PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數值抽取。
 `to_jsonable` 只轉成可儲存結構，不會去除個資。
 SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。
+`LoginRejectedError` 表示登入遭拒，與 `AuthExpiredError` 分開；兩者均繼承 AuthenticationError。
+一般查詢過期最多自動恢復一次；登入遭拒、原因未明的登入失敗與 MIS 二次驗證不盲目重送密碼。
+錯誤碼與呼叫端範例見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。
 
 [組合方式](COMPOSITION.md) · [架構](ARCHITECTURE.md) · [新增 HAR 功能](HAR_RECORDING.md)

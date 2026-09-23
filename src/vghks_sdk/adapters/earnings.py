@@ -7,7 +7,7 @@ from urllib.parse import urlencode, urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from ..core.config import EarningsCredentials
-from ..core.errors import AuthenticationError, ConfigurationError, ParseError
+from ..core.errors import AuthenticationError, ConfigurationError, LoginRejectedError, ParseError
 from ..core.operations import operation_spec
 from ..models import EarningsReportContext, HtmlDocument
 from ..parsing.documents import parse_document, parse_form
@@ -63,7 +63,7 @@ class EarningsAdapter:
                             )
                         if path == "/VGHK/PAswd2db.asp":
                             if password_submitted:
-                                raise AuthenticationError(
+                                raise LoginRejectedError(
                                     "MIS password was not accepted",
                                     code="EARNINGS_PASSWORD_REJECTED",
                                 )

@@ -16,7 +16,13 @@ from vghks_sdk.adapters.auth import AuthenticationAdapter
 from vghks_sdk.adapters.earnings import EarningsAdapter
 from vghks_sdk.adapters.oppl import OpplAdapter
 from vghks_sdk.adapters.prq_extensions import parse_patient_flags, parse_text_history
-from vghks_sdk.core.errors import AuthenticationError, ConfigurationError, ParseError, RequestError
+from vghks_sdk.core.errors import (
+    AuthenticationError,
+    ConfigurationError,
+    LoginRejectedError,
+    ParseError,
+    RequestError,
+)
 from vghks_sdk.core.operations import OPERATIONS, operation_spec
 from vghks_sdk.core.transport import SafeSessionTransport
 from vghks_sdk.live.atomic import build_test_plan
@@ -275,6 +281,21 @@ class AtomicRecordedTests(unittest.TestCase):
             with self.assertRaises(error):
                 EarningsAdapter(runtime).get_report(context)
             self.assertEqual(session.request.call_count, 1)
+
+    def test_mis_rejected_password_uses_typed_error_and_is_submitted_once(self):
+        page = '<form action="/VGHK/PAswd2db.asp"><input type="password" name="txtPAPSWD"></form>'
+        runtime, session, auth = runtime_with(
+            response(page, url=SDKSettings().mis_base_url + "/VGHK/PAswd2db.asp")
+        )
+        auth.ensure.return_value = SimpleNamespace(
+            landing_html=page,
+            landing_url=runtime.settings.mis_base_url + "/VGHK/Pswdchk.asp",
+        )
+        with self.assertRaises(LoginRejectedError) as caught:
+            EarningsAdapter(runtime).open_report("performance", EarningsCredentials("SYNTHETIC", "TEST-SECRET"))
+        self.assertEqual(caught.exception.info.code, "EARNINGS_PASSWORD_REJECTED")
+        self.assertEqual(session.request.call_count, 1)
+        auth.login.assert_not_called()
 
     def test_optional_earnings_analysis_requires_report_not_only_login_and_keeps_retest(self):
         from vghks_sdk.offline.analyze import _earnings_results, _retest_config

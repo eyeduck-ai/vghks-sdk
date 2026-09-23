@@ -50,7 +50,7 @@ class AppProfile:
 @dataclass(frozen=True, slots=True)
 class PortalCredentials:
     username: str
-    password: str
+    password: str = field(repr=False)
 
     def validate(self) -> PortalCredentials:
         if not self.username.strip():

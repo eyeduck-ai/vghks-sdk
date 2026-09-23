@@ -14,7 +14,7 @@ from collections.abc import Iterable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
@@ -42,6 +42,7 @@ from ..parsing.assets import parse_binary_asset
 from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
+from ..parsing.portal import has_portal_login_redirect, is_portal_login_destination
 from ..parsing.review import (
     parse_login_info,
     parse_review_case,
@@ -101,6 +102,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     context_mrn = str(summary.get("test_mrn") or "")
     context_national_id = ""
     results: list[dict[str, Any]] = []
+    portal_base = "https://portal.vghks.gov.tw"
+    redirected_operations: dict[str, tuple[str, dict[str, str]]] = {}
     exchanges = [
         row for row in reader.jsonl("capture_manifest.jsonl")
         if row.get("kind") in {"HTTP_EXCHANGE", "NETWORK_ERROR"}
@@ -117,6 +120,12 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                 "" if context_national_id else params.get("queryPtID") or params.get("id", "")
             )
         operation = identify_operation(request)
+        address = urlsplit(str(request.get("url", "")))
+        if operation in {"portal.entry", "portal.login"}:
+            portal_base = urlunsplit((address.scheme, address.netloc, "", "", ""))
+        group = str(row.get("request_group_id") or "")
+        if not operation and group in redirected_operations:
+            operation, params = redirected_operations[group]
         capture_id = str(row.get("capture_id", ""))
         # Never copy arbitrary labels from a returned file into safe reports.
         if not capture_id.isascii() or not capture_id.isdigit() or len(capture_id) > 12:
@@ -158,6 +167,13 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                 status="REDIRECT" if 300 <= status < 400 else "HTTP_ERROR",
                 error_code="" if 300 <= status < 400 else f"HTTP_{status}",
             )
+            if 300 <= status < 400:
+                if group and operation:
+                    redirected_operations[group] = operation, params
+                location = next((str(v) for k, v in response.get("headers", [])
+                                 if str(k).lower() == "location"), "")
+                if operation in QUERY_BY_KEY and location and is_portal_login_destination(location, str(request.get("url", "")), portal_base):
+                    result.update(status="PARSE_ERROR", error_code="AUTH_SESSION_REDIRECT")
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
@@ -180,6 +196,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         mime=mime,
                         context_mrn=context_mrn,
                         context_national_id=context_national_id,
+                        response_url=str(request.get("url", "")),
+                        portal_base_url=portal_base,
                     )
                 )
                 if operation == "prq.patient_identity":
@@ -320,6 +338,8 @@ def replay_response(
     mime: str = "",
     context_mrn: str = "",
     context_national_id: str = "",
+    response_url: str = "",
+    portal_base_url: str = "https://portal.vghks.gov.tw",
 ) -> dict[str, Any]:
     try:
         if not content and operation != "portal.login":
@@ -366,6 +386,11 @@ def replay_response(
         elif operation in {"prq.pdf_attachment", "oppl_records.pdf"}:
             value = parse_binary_asset(content, media_type="application/pdf")
         else:
+            if has_portal_login_redirect(text, response_url, portal_base_url):
+                raise ParseError(
+                    "recorded query returned automatic portal navigation",
+                    code="AUTH_SESSION_REDIRECT",
+                )
             soup = BeautifulSoup(text, "html.parser")
             if soup.find(attrs={"name": "muid"}) and soup.find(attrs={"name": "mpassword"}):
                 raise ParseError(

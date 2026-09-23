@@ -1,6 +1,6 @@
 # 人事／醫師目錄
 
-`sdk.personnel` 使用本次 HAR 的「查詢醫師資料」入口，沿用 Portal 帳密與 SSO，不需要另一組密碼或瀏覽器。查詢範圍是該入口提供的人員（含畫面列出的助理職稱），不代表已串接所有人事系統。
+`sdk.personnel` 使用已錄製的「查詢醫師資料」入口，沿用 Portal 帳密與 SSO，不需要另一組密碼或瀏覽器。查詢範圍是該入口提供的人員（含畫面列出的助理職稱），不代表已串接所有人事系統。
 
 ## 原子功能
 
@@ -70,6 +70,10 @@ visits = sdk.records.find_visit_cases(
 vghks-live-test --profile atomic --only personnel.options --only personnel.search
 ```
 
-兩份 HAR 已離線解析出 8 個職稱、73 個單位及 323 筆人事資料。四次查詢中，姓名兩次及員工編號一次沒有錄到 response body；職稱查詢有完整 body。因此合成測試與離線重解析可證明請求結構及解析，**新版 SDK 的 SSO、姓名／員工編號／組合條件仍待內網實測**。單位及下層單位目前依表單實作，尚無該條件的實際查詢錄製。
+兩份 HAR 已離線解析出 8 個職稱、73 個單位及 323 筆人事資料。原 HAR 的姓名兩次及員工編號一次沒有錄到 response body；職稱查詢有完整 body。後續 0.19.3 內網已取得選項，並驗證 SSO、精確卡號、員工編號、姓名及「職稱加員工編號」查詢，各條件查詢皆取得本人資料。這不代表已用 SDK 重查整份人事名冊。
+
+DDPortal 的 SSO 查詢容器支援 frame 與 iframe，並核對來源與路徑；iframe 路徑已有 0.19.3 內網成功證據。
+
+單位及「包含下層單位」仍未內網驗證：人事列回傳名稱，表單標籤可為「代碼 - 名稱」，0.19.3 EXE 的完全相同字串對照因此略過這兩項。0.19.4 測試器只去除與選項 value 相同的代碼前綴，並要求唯一匹配；SDK 的 `PersonnelOption.label` 與 `PersonnelRecord.unit` 仍保留原顯示文字。直接使用 Service 時，`PersonnelFilter.unit` 應傳當次選項的 value。
 
 後續若需完整人員明細，錄製點擊「詳細資料」直到回應完成並保存 body，再新增獨立模型、Parser、Service 與合成測試。HAR、查詢結果及衍生資料皆為本機私有資料。

@@ -41,7 +41,7 @@ python run_sdk.py replay-har --input data/recordings/new-batch --output output/h
 6. **EXE**：唯讀功能加入 queries.py 和 live/atomic.py 的輸入發現；缺候選保留 NO_SAMPLE，不冒充成功。
 7. **文件**：新增 API generator 的用途說明與組合範例，更新驗證層級。使用新 Session 的內網回傳確認實際可用。
 
-不要將真實 HAR 作為 Git fixture。公開案例應重建最小合成 HTML／JSON，使用合成識別值與內容，同时保留真正造成問題的結構，例如巢狀表格、重複表單欄位或兩個 SSO 模式。
+不要將真實 HAR 作為 Git fixture。公開案例應重建最小合成 HTML／JSON，使用合成識別值與內容，同時保留真正造成問題的結構，例如巢狀表格、重複表單欄位或兩個 SSO 模式。
 
 ## 判定完成
 

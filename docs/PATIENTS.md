@@ -58,4 +58,4 @@ basic = sdk.queries.run("webmaas.basic_info", mrn=mrn)
 
 2026-09-20 的內網回傳已確認三項病人查詢可取得資料；合成測試另涵蓋空值、分頁、身分不符與登入過期。實際欄位會依病人與就醫狀態不同，不能把錄製樣本的筆數寫成程式假設。
 
-雙擊 EXE 已包含病人查詢。開發時只測此模組，可執行 `vghks-live-test.exe --config configs/patient-queries.example.json`。ZIP 的 `parsed/atomic/` 下分別有 `webmaas.basic_info/`、`webmaas.demographics/`、`webmaas.registration_query/`，每項獨立留下 HTTP capture 與結果。病歷號由 `--test-mrn`、設定、環境變數或自用 EXE 的內嵌預設提供；公開版沒有真實預設值，互動執行時會提示輸入。
+comprehensive 計畫包含病人查詢；雙擊採用建置時的 profile，登入專項不查病人。開發時只測此模組，可執行 `vghks-live-test.exe --config configs/patient-queries.example.json`。ZIP 的 `parsed/atomic/` 下分別有 `webmaas.basic_info/`、`webmaas.demographics/`、`webmaas.registration_query/`，每項獨立留下 HTTP capture 與結果。病歷號由 `--test-mrn`、設定、環境變數或自用 EXE 的內嵌預設提供；公開版沒有真實預設值，互動執行時會提示輸入。

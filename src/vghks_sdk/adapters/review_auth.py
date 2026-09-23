@@ -6,7 +6,8 @@ from urllib.parse import parse_qs, unquote, urljoin, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
-from ..core.errors import AuthenticationError, ParseError
+from ..core.errors import AuthenticationError, LoginRejectedError, ParseError, RequestError
+from ..parsing.portal import has_portal_login_form
 from ..parsing.review import parse_login_info
 
 
@@ -22,9 +23,25 @@ class ReviewOAuth:
 
     @staticmethod
     def _fail(code: str) -> None:
-        raise AuthenticationError(
+        error = LoginRejectedError if code == "REVIEW_OAUTH_LOGIN_REJECTED" else AuthenticationError
+        raise error(
             "review OAuth flow did not match the supported login", code=code, app="review"
         )
+
+    def _request(self, method: str, url: str, *, submitted: bool, **kwargs):
+        try:
+            return self.transport.request(
+                method, url, allow_redirects=False, retry_safe=False, **kwargs,
+            )
+        except RequestError as exc:
+            if not submitted or exc.status_code not in {401, 403}:
+                raise
+            raise AuthenticationError(
+                "review OAuth was denied after password submission; reason is unknown",
+                code="REVIEW_OAUTH_LOGIN_HTTP_DENIED", app="review",
+                endpoint_path=exc.info.endpoint_path, http_status=exc.status_code,
+                cause_type=type(exc).__name__,
+            ) from exc
 
     def _callback(self, value: str) -> bool:
         p, b = urlsplit(value), urlsplit(self.base)
@@ -146,10 +163,10 @@ class ReviewOAuth:
                 ):
                     self._fail("REVIEW_OAUTH_CALLBACK_CONTEXT_MISMATCH")
                 redeemed = True
-            response = self.transport.request(
+            response = self._request(
                 method,
                 url,
-                allow_redirects=False,
+                submitted=submitted,
                 **(
                     {
                         "data": payload,
@@ -174,8 +191,14 @@ class ReviewOAuth:
                 url = urljoin(response.url, location)
                 continue
             if path in {"/oauth2Server.do", "/oauth2ServerLogin.do"}:
-                if submitted or not authorization:
-                    self._fail("REVIEW_OAUTH_LOGIN_REJECTED")
+                if not authorization:
+                    self._fail("REVIEW_OAUTH_PARAMETERS_INVALID")
+                if submitted:
+                    self._fail(
+                        "REVIEW_OAUTH_LOGIN_REJECTED"
+                        if has_portal_login_form(self.transport.text(response))
+                        else "REVIEW_OAUTH_LOGIN_RESPONSE_UNRECOGNIZED"
+                    )
                 url, payload = self._form(response, authorization)
                 submitted, method, mode = True, "POST", "portal_credentials"
                 continue
@@ -191,10 +214,10 @@ class ReviewOAuth:
                     url = self.base + "/HISLogin/SSOLogin"
                     continue
             # Positive identity check is required; a 200 login shell is not success.
-            info = self.transport.request(
+            info = self._request(
                 "GET",
                 self.base + "/Menu/GetLoginInfo",
-                allow_redirects=False,
+                submitted=submitted,
                 headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
             )
             if info.status_code != 200:

@@ -10,10 +10,22 @@ from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 from bs4 import BeautifulSoup
 
 from ..core.config import AppProfile, PortalCredentials, SDKSettings
-from ..core.errors import AuthenticationError, AuthExpiredError, SDKError
+from ..core.errors import (
+    AuthenticationError,
+    AuthExpiredError,
+    LoginRejectedError,
+    RequestError,
+    SDKError,
+)
 from ..core.operations import OperationSpec, operation_spec
 from ..core.transport import SafeSessionTransport
-from ..parsing.portal import parse_login_target
+from ..parsing.portal import (
+    has_portal_login_form,
+    has_portal_login_redirect,
+    has_portal_login_rejection,
+    is_portal_login_destination,
+    parse_login_target,
+)
 
 _PORTAL_ENTRY = operation_spec("portal.entry")
 _PORTAL_LOGIN = operation_spec("portal.login")
@@ -97,6 +109,32 @@ class AuthenticationAdapter:
     def login(self, *, force: bool = False) -> None:
         if self._portal_authenticated and not force:
             return
+        try:
+            self._login(force=force)
+        except AuthExpiredError as exc:
+            # A failed login bootstrap is not expiry of an established session.
+            raise AuthenticationError(
+                "portal did not establish a session; credential validity is unknown",
+                code="PORTAL_LOGIN_NOT_ESTABLISHED",
+                operation="portal.login", app="portal",
+                endpoint_path=exc.info.endpoint_path,
+                cause_type=type(exc).__name__,
+            ) from exc
+        except RequestError as exc:
+            if exc.status_code not in {401, 403}:
+                raise
+            # An HTTP denial may be an access policy, not a wrong password.
+            # Never route it through Runtime's expired-query recovery.
+            raise AuthenticationError(
+                "portal login flow was denied; credential validity is unknown",
+                code="PORTAL_LOGIN_HTTP_DENIED",
+                operation="portal.login", app="portal",
+                endpoint_path=exc.info.endpoint_path,
+                http_status=exc.status_code,
+                cause_type=type(exc).__name__,
+            ) from exc
+
+    def _login(self, *, force: bool) -> None:
         if force:
             self.transport.reset_cookies()
         self._apps.clear()
@@ -114,7 +152,7 @@ class AuthenticationAdapter:
         payload = self._login_payload(self.transport.text(entry), entry.url)
         now = self._milliseconds()
         login_url = self._operation_url(self.settings.portal_base_url, _PORTAL_LOGIN)
-        response = self._request(
+        posted = self._request(
             _PORTAL_LOGIN,
             login_url,
             params={"thetime": now},
@@ -126,24 +164,98 @@ class AuthenticationAdapter:
                 ).removesuffix(_PORTAL_ENTRY.path),
                 "Referer": entry.url,
             },
-            allow_redirects=True,
+            allow_redirects=False,
         )
+        response = self._follow_login_redirects(posted, password_post=True)
         text = self.transport.text(response)
-        target = parse_login_target(text)
-        target_url = urljoin(self.settings.portal_base_url.rstrip("/") + "/", target)
-        self._validate_host(target_url, self.settings.portal_base_url, "portal login target")
-        landing = self.transport.request(
-            "GET",
-            target_url,
-            allow_redirects=True,
-            headers={**_NAVIGATION_HEADERS, "Referer": response.url},
-        )
+        try:
+            target = parse_login_target(text)
+        except AuthenticationError as exc:
+            if (
+                response is posted
+                or exc.info.code != "PORTAL_LOGIN_TARGET_MISSING"
+                or urlsplit(response.url).path.lower() != "/myportal.do"
+            ):
+                raise
+            # Only the known Portal destination may replace the JS navigation;
+            # an arbitrary HTTP 200 after a redirect is not login evidence.
+            landing = response
+        else:
+            target_url = urljoin(self.settings.portal_base_url.rstrip("/") + "/", target)
+            self._validate_host(target_url, self.settings.portal_base_url, "portal login target")
+            if is_portal_login_destination(target_url, response.url, self.settings.portal_base_url):
+                raise LoginRejectedError(
+                    "portal navigated back to its login entrance",
+                    code="PORTAL_LOGIN_REJECTED", operation="portal.login", app="portal",
+                )
+            self.assert_valid_landing("", target_url)
+            if urlsplit(target_url).path.lower() != "/myportal.do":
+                raise AuthenticationError(
+                    "portal login target was not the authenticated landing",
+                    code="PORTAL_LOGIN_TARGET_UNRECOGNIZED", operation="portal.login", app="portal",
+                )
+            landing = self.transport.request(
+                "GET",
+                target_url,
+                allow_redirects=False,
+                headers={**_NAVIGATION_HEADERS, "Referer": response.url},
+            )
+            landing = self._follow_login_redirects(landing)
         landing_text = self.transport.text(landing)
+        if not landing_text.strip():
+            raise AuthenticationError(
+                "portal login landing was empty; credential validity is unknown",
+                code="PORTAL_LOGIN_LANDING_EMPTY", operation="portal.login", app="portal",
+            )
+        if has_portal_login_rejection(landing_text) or is_portal_login_destination(
+            landing.url, response.url, self.settings.portal_base_url,
+        ):
+            raise LoginRejectedError(
+                "portal login returned to the login page; rejection reason is unknown",
+                code="PORTAL_LOGIN_REJECTED",
+                operation="portal.login", app="portal", endpoint_path="/login.do",
+            )
         self.assert_valid_landing(landing_text, landing.url)
         self._validate_host(landing.url, self.settings.portal_base_url, "portal login landing")
+        if urlsplit(landing.url).path.lower() != "/myportal.do":
+            raise AuthenticationError(
+                "portal login ended at an unrecognized page",
+                code="PORTAL_LOGIN_TARGET_UNRECOGNIZED", operation="portal.login", app="portal",
+            )
         self._portal_authenticated = True
         self._portal_landing_url = landing.url
         self._generation += 1
+
+    def _follow_login_redirects(self, response, *, password_post: bool = False):
+        """Follow bounded, same-origin GET redirects without replaying passwords."""
+        for _ in range(6):
+            status = getattr(response, "status_code", 200)
+            if status not in {301, 302, 303, 307, 308}:
+                return response
+            if password_post and status in {307, 308}:
+                raise AuthenticationError(
+                    "portal requested a repeated password POST",
+                    code="PORTAL_LOGIN_POST_REDIRECT_UNSUPPORTED",
+                    operation="portal.login", app="portal", endpoint_path="/login.do",
+                )
+            location = response.headers.get("Location", "")
+            if not location:
+                raise AuthenticationError(
+                    "portal login redirect omitted its destination",
+                    code="PORTAL_LOGIN_REDIRECT_MISSING",
+                    operation="portal.login", app="portal",
+                )
+            target = urljoin(response.url, location)
+            self._validate_host(target, self.settings.portal_base_url, "portal login redirect")
+            response = self.transport.request(
+                "GET", target, allow_redirects=False,
+                headers={**_NAVIGATION_HEADERS, "Referer": response.url},
+            )
+            password_post = False
+        raise AuthenticationError(
+            "portal login exceeded the redirect limit",
+            code="PORTAL_LOGIN_REDIRECT_LIMIT", operation="portal.login", app="portal",
+        )
 
     def check_portal_session(self) -> str:
         """Probe the existing Portal session without requesting clinical data."""
@@ -227,7 +339,6 @@ class AuthenticationAdapter:
 
     def assert_not_expired(self, text: str, response_url: str) -> None:
         path = urlsplit(response_url).path.lower()
-        lowered = text.lower()
         if path.endswith("/login.do") or "syserrorexception.jsp" in path:
             raise AuthExpiredError(
                 "application session returned an authentication page",
@@ -235,13 +346,17 @@ class AuthenticationAdapter:
                 operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
-        if re.search(r"name\s*=\s*['\"]muid['\"]", lowered) and re.search(
-            r"name\s*=\s*['\"]mpassword['\"]", lowered
-        ):
+        if has_portal_login_form(text):
             raise AuthExpiredError(
                 "application session returned the portal login form",
                 code="AUTH_SESSION_LOGIN_FORM",
                 operation="auth.session",
+                endpoint_path=urlsplit(response_url).path,
+            )
+        if has_portal_login_redirect(text, response_url, self.settings.portal_base_url):
+            raise AuthExpiredError(
+                "application returned automatic navigation to the portal entrance",
+                code="AUTH_SESSION_REDIRECT", operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
 
@@ -307,7 +422,8 @@ class AuthenticationAdapter:
         )
         if profile.key == "personnel":
             soup = BeautifulSoup(landing_text, "html.parser")
-            frames = [urljoin(posted.url, str(node.get("src", ""))) for node in soup.find_all("frame")]
+            frames = [urljoin(posted.url, str(node.get("src", "")))
+                      for node in soup.find_all(("frame", "iframe"))]
             expected = self.settings.personnel_base_url.rstrip("/") + "/DRQuerySql.jsp"
             if expected not in frames:
                 raise AuthenticationError(

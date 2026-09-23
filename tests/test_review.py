@@ -20,7 +20,12 @@ from vghks_sdk import PortalCredentials, RequestPolicy, ReviewCaseFilter, Review
 from vghks_sdk.adapters.auth import AuthenticationAdapter
 from vghks_sdk.adapters.review import ReviewAdapter
 from vghks_sdk.adapters.review_auth import ReviewOAuth
-from vghks_sdk.core.errors import AuthenticationError, ConfigurationError, ParseError
+from vghks_sdk.core.errors import (
+    AuthenticationError,
+    ConfigurationError,
+    LoginRejectedError,
+    ParseError,
+)
 from vghks_sdk.core.operations import operation_spec
 from vghks_sdk.core.readiness import make_auth_report, resolve_auth_targets
 from vghks_sdk.core.transport import SafeSessionTransport
@@ -37,6 +42,7 @@ from vghks_sdk.parsing.review import (
     parse_review_part,
 )
 from vghks_sdk.queries import QUERY_SPECS, query_spec
+from vghks_sdk.runtime import SDKRuntime
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = ReviewCaseRef("000000000000001")
@@ -276,6 +282,55 @@ class ReviewParserTests(unittest.TestCase):
 
 
 class ReviewOAuthTests(unittest.TestCase):
+    def test_rejected_fallback_login_is_not_an_expired_session(self):
+        fixture = OAuthFixture(fallback=True, post_redirect=200)
+
+        def rejected(method, url, **kwargs):
+            result = fixture.dispatch(method, url, **kwargs)
+            if method == "POST":
+                result._content = b'<form><input name="muid"><input name="mpassword"></form>'
+            return result
+
+        fixture.session.request.side_effect = rejected
+        runtime = SDKRuntime(settings=fixture.settings, transport=fixture.transport, auth=fixture.auth)
+        with self.assertRaises(LoginRejectedError) as caught:
+            runtime.execute(operation_spec("review.login_info"), lambda: None, operation_name="review.login_info")
+        self.assertEqual(caught.exception.info.code, "REVIEW_OAUTH_LOGIN_REJECTED")
+        posts = [c for c in fixture.session.request.call_args_list if c.args[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        self.assertNotIn("review", fixture.auth._apps)
+
+    def test_blank_oauth_password_response_does_not_claim_credentials_were_rejected(self):
+        fixture = OAuthFixture(fallback=True, post_redirect=200)
+        with self.assertRaises(AuthenticationError) as caught:
+            fixture.auth.ensure("review")
+        self.assertNotIsInstance(caught.exception, LoginRejectedError)
+        self.assertEqual(caught.exception.info.code, "REVIEW_OAUTH_LOGIN_RESPONSE_UNRECOGNIZED")
+        posts = [c for c in fixture.session.request.call_args_list if c.args[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+
+    def test_http_denial_after_password_does_not_restart_oauth(self):
+        for path in ("/oauth2ServerLogin.do", "/Pck/HISLogin/SSOLoginCallBack", "/Pck/Menu/GetLoginInfo"):
+            for status in (401, 403):
+                with self.subTest(path=path, status=status):
+                    fixture = OAuthFixture(fallback=True)
+
+                    def denied(method, url, *, fixture=fixture, path=path, status=status, **kwargs):
+                        result = fixture.dispatch(method, url, **kwargs)
+                        if urlsplit(url).path == path:
+                            result.status_code = status
+                        return result
+
+                    fixture.session.request.side_effect = denied
+                    runtime = SDKRuntime(settings=fixture.settings, transport=fixture.transport, auth=fixture.auth)
+                    with self.assertRaises(AuthenticationError) as caught:
+                        runtime.execute(operation_spec("review.login_info"), lambda: None, operation_name="review.login_info")
+                    self.assertEqual(caught.exception.info.code, "REVIEW_OAUTH_LOGIN_HTTP_DENIED")
+                    self.assertEqual(caught.exception.info.http_status, status)
+                    posts = [c for c in fixture.session.request.call_args_list if c.args[0] == "POST"]
+                    self.assertEqual(len(posts), 1)
+                    self.assertTrue(posts[0].args[1].endswith("/oauth2ServerLogin.do"))
+
     def test_existing_portal_session_and_fresh_credentials_share_the_same_session(self):
         for fallback in (False, True):
             with self.subTest(fallback=fallback):

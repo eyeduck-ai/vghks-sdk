@@ -39,7 +39,7 @@ from .live.config import (
 from .live.console import configure_console_output
 from .live.defaults import SYNTHETIC_MRN
 from .live.environment import environment_report
-from .live.presets import combined_round, visit_search_round
+from .live.presets import combined_round, login_test_round, visit_search_round
 from .live.profile import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .live.runner import (
     create_live_test_bundle,
@@ -66,9 +66,13 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("auth", "atomic", "comprehensive", "ophthalmology", "visits", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "core", "full"),
         default=None,
-        help="explicit test depth; double-click uses the built-in combined round",
+        help="explicit test depth; double-click uses the profile selected at build time",
+    )
+    parser.add_argument(
+        "--login-negative-attempts", type=int, choices=(0, 1, 2),
+        help="login profile: real wrong-password attempts, after successful positive checks (default: 2)",
     )
     parser.add_argument(
         "--only",
@@ -134,6 +138,7 @@ def add_live_test_arguments(
         "audit_base_url",
         "mis_base_url",
         "review_base_url",
+        "personnel_base_url",
     ):
         parser.add_argument("--" + field_name.replace("_", "-"), dest=field_name)
     if include_policy:
@@ -223,9 +228,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
             raise ConfigurationError(
-                "--plan requires auth, atomic, comprehensive, ophthalmology or visits profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology or visits profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -346,6 +351,8 @@ def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         return load_live_test_config(args.config)
     if getattr(args, "bundled_visits", False):
         return visit_search_round()
+    if getattr(args, "bundled_login", False):
+        return login_test_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -363,7 +370,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         # An explicit --config or --profile remains available for development.
         args.profile = build_identity().get("default_profile", "comprehensive")
         args.bundled_visits = args.profile == "visits"
-        args.bundled_round = not args.bundled_visits
+        args.bundled_login = args.profile == "login"
+        args.bundled_round = args.profile == "comprehensive"
     exit_code = 2
     try:
         exit_code = run_live_test_namespace(
@@ -507,6 +515,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
     for key in (
         "test_mrn",
         "profile",
+        "login_negative_attempts",
         "output_root",
         "doctor_card",
         "opd_date",
@@ -608,6 +617,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
         "audit_base_url",
         "mis_base_url",
         "review_base_url",
+        "personnel_base_url",
     ):
         value = getattr(args, field_name, None)
         if value is not None:
@@ -618,6 +628,12 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "login":
+        print("\n登入專項測試: 正常登入、子系統 SSO、Session 恢復及本人人事查詢。")
+        print(f"最後最多提交 {config.login_negative_attempts} 次刻意產生的錯誤密碼; 首次正常登入失敗則略過。")
+        print("其餘錯誤情境使用內建離線模擬; 不需病歷號、身分證或薪資密碼。")
+        print("結果 ZIP 不加密, 直接存於 EXE 同目錄, 帶回該 ZIP 即可。")
+        return config
     if config.profile == "visits":
         print("\n就診搜尋增量測試: 病歷號/身分證比對、到院日/類別/科別/醫師篩選。")
         print("最多抽樣三筆門診驗證 SOAP/醫囑串接; 各項獨立記錄錯誤並繼續。")

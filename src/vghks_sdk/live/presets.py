@@ -1,6 +1,16 @@
 """Credential-free default for the current combined intranet validation round."""
 
 
+def login_test_round() -> dict:
+    return {
+        "profile": "login",
+        "login_negative_attempts": 2,
+        "weekly_opd_soap": False,
+        "include_earnings": False,
+        "download_assets": False,
+    }
+
+
 def visit_search_round() -> dict:
     return {
         "profile": "visits",

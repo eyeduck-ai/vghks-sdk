@@ -31,6 +31,8 @@
 - PortalCredentials 與 EarningsCredentials 分開；不能把密碼存進 config、repr、一般診斷或公開範例。Raw capture 刻意保留完整內容，因此其輸出只能留本機。
 - 同一 SDK 共用 Session 與病人／模式 context；保持 operation_lock 跨整個相關操作。多帳號用不同 SDK。
 - 讀取重試與登入恢復由 Runtime 控制；密碼 POST 及異動不能因一般 retry 自動補送。
+- `LoginRejectedError` 與 `AuthExpiredError` 必須分開；前者不能觸發重新登入。Portal 登入建立階段的 401／403、空回應、錯誤頁不代表既有 Session 過期；審查 OAuth 送出密碼後也不能因 401／403 重跑整段流程。Runtime 恢復失敗時保留原本 AuthenticationError 及具體錯誤碼；未知原因不猜密碼錯誤。主系統登入只允許有限次同來源 GET 轉址，307／308 不重送密碼。
+- Portal 文字拒絕頁不一定有登入表單；不可把「重新登入」按鈕的 onclick 當成自動導覽。只解析 script 頂層 literal 指定，忽略註解／字串／callback。JSON 查詢的過期 302 可指向舊 HTTP 入口，應在跟隨前辨識並由 Runtime 回到原 HTTPS 登入，不將入口 HTML 交給 JSON parser；明確自行處理轉址的 Adapter 保留其責任。
 - 保留預設 0.8–1.8 秒隨機節流。用 local mock 測 request sequencing，不對內網做負載測試。
 - 共用 core/connections.py 負責 TLS；PRQ／SectOrd／WebMAAS 優先 TLS12_COMPAT，相同 HTTPS 主機／埠共用狀態。明確憑證錯誤可依 allow_unverified_tls（預設 True，使用者已授權內網備援）只對該來源略過驗證；不要全域 verify=False 或自行改 HTTP。嚴格模式 False 必須維持有效。
 - 初次密碼／異動 POST 前可做獨立匿名探測，不帶 Cookie／Authorization／body，不跟隨轉址。POST 本身不能因 TLS 政策重送；HTTP 回應只證明連線，不證明登入或資料。連線狀態不落地、不在 import／建構 SDK 時發網路。
@@ -39,7 +41,8 @@
 - 就診 KSCase 的互斥分支先以 iter_active_constructor_calls 靜態選擇，才解析及去重。所有建構式（含未啟用分支）均須從 legacy-link fallback 遮蔽；不可直接合併重複列的醫師資料或選第一個分支。未知條件報錯，不 eval JavaScript。
 - 就診醫師姓名取自清單 KSCase 的醫師欄；卡號僅保留實際回傳 vsNo。VisitFilter 可選 O／A／E，預設 O；住院／急診清單不代表其 SOAP 或醫囑端點已支援。
 - 歷次就診以醫師姓名篩選；personnel.get_by_card 先精確核對員工編號，再由呼叫端將 name 交給 VisitFilter。醫師章號與員工編號不可混用；四碼帳號 + F 是已知別名，其他後綴不截短。同名仍不能僅靠就診姓名確定身分。
-- DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單及選項已 HAR 離線驗證，尚無新版 SDK 內網證據。明細未錄製，見 docs/PERSONNEL.md。
+- DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單已 HAR 離線驗證，0.19.3 內網已驗證選項、卡號、姓名、員工編號與職稱組合查詢。明細未錄製，見 docs/PERSONNEL.md。
+- DDPortal 的查詢容器可用 frame 或 iframe；兩者都需比對允許來源與完整 DRQuerySql.jsp 路徑，0.19.3 已有內網成功證據。表單標籤可含「代碼 - 名稱」，測試器只剝除與該 option.value 相同的前綴且須唯一匹配；模型保留原標籤。單位及下層單位仍未內網實測，不把本機修正當成已送出查詢。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。
@@ -77,7 +80,11 @@ Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 
 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
 
-本輪新增就診搜尋用 `--default-profile visits` 建置、`tools/verify_visit_exe.py` 驗證；build metadata 決定零參數啟動範圍。測試流程在 live/visits.py，保留 MRN／身分證差異、篩選結果、NO_SAMPLE 及 fallback 來源，不能因 MRN 成功便宣稱身分證已成功。
+就診搜尋用 `--default-profile visits` 建置、`tools/verify_visit_exe.py` 驗證；build metadata 決定零參數啟動範圍。測試流程在 live/visits.py，保留 MRN／身分證差異、篩選結果、NO_SAMPLE 及 fallback 來源，不能因 MRN 成功便宣稱身分證已成功。
+
+本輪登入測試用 `--default-profile login` 建置、`tools/verify_login_exe.py` 驗證，不需 private defaults。live/login.py 是測試 SDK 的應用層，live/login_simulation.py 使用無 socket 的合成 adapter。使用者授權一般帳號每輪最多兩次刻意錯誤密碼，必須在正常登入／查詢後執行；一次獨立 Session 最多一個 password POST，未知結果停止後續負向測試。禁止將模擬或清 Cookie 當成院內自然 TTL 過期證據。預期拒絕只能按通過的明確負向步驟及 capture 範圍從離線錯誤分類中分開，不可忽略所有登入失敗。
+
+0.19.3 內網已驗證明確與按需登入的兩次預期拒絕，以及清 Cookie 後 PRQ 查詢自動重新登入成功。沒有新登入缺陷時，不為補單位篩選而重跑錯誤密碼；需重用 login 計畫時可設 `--login-negative-attempts 0`。
 
 離線分析的 no_sample_steps 保留沒有對應 QuerySpec 的欄位檢查；只有缺樣本時 analysis_status 為 COMPLETED_WITH_GAPS、CLI exit code 0。不能把缺樣本列為 root_cause，也不能用它掩蓋實際 HTTP／解析錯誤。
 

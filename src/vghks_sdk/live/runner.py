@@ -189,7 +189,7 @@ def execute_live_test(
         )
         manager.log(f"Live test run ID: {manager.run_id}")
         manager.log(f"Profile: {config.profile}")
-        if config.profile != "login":
+        if config.profile not in {"login", "soap"}:
             manager.log(f"Atomic test MRN: {config.test_mrn}")
         if config.profile == "comprehensive" and config.weekly_opd_soap:
             manager.log(
@@ -198,7 +198,7 @@ def execute_live_test(
         manager.log(
             "Debug output: unencrypted JSON/HTML/binary files and ZIP; captured credentials may be included."
         )
-        if config.profile in {"comprehensive", "ophthalmology"}:
+        if config.profile in {"comprehensive", "ophthalmology", "soap"}:
             manager.log(
                 "Unverified HTTPS fallback for login/query tests: "
                 + (
@@ -227,7 +227,7 @@ def execute_live_test(
                     output_dir=manager.run_directory, raw_capture=raw_capture,
                     diagnostics=diagnostics, run_id=manager.run_id,
                 )
-            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
+            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap"}:
                 result = run_atomic_test(
                     sdk,
                     config,
@@ -371,7 +371,7 @@ def _summary_payload(
             "status": status,
             "exit_code": exit_code,
             "profile": config.profile,
-            "test_mrn": config.test_mrn,
+            "test_mrn": None if config.profile == "soap" else config.test_mrn,
             "warning": (
                 "UNREDACTED: contains credentials, replayable session state, raw "
                 "HTTP bodies, patient data, and SOAP; ZIP is not encrypted."

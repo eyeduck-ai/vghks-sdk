@@ -1,10 +1,28 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile login` 或 `visits` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼為 0.19.4；最近有內網回傳的 EXE 為 0.19.3、login 計畫。0.19.4 新增的單位標籤對照尚未打包成下一版 EXE，不能把原始碼測試視為該 EXE 已通過。驗證範圍集中於 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼為 0.20.0。2026-09-23 第二份 SOAP 專項內網回傳已確認新版 EXE 可取得藥囑表前置說明及慢性處方服藥期限；兩份就診清單仍混有異病歷號連結，維持安全阻擋。驗證範圍集中於 [VALIDATION](VALIDATION.md)。
 
-## 本次：登入及人事測試
+## 本次：9/21 多病人結構化 SOAP 測試
+
+本次建置使用 `soap` 計畫。雙擊 EXE 後輸入 Portal 帳號及密碼，即查 **2026-09-21** 登入卡號的門診清單，不需手填病歷號或設定檔。程式以回傳的醫師欄判斷專屬清單，接受帳號本身或帳號加 `F`；科別代碼只作就診比對，不用來推斷歸屬。共用及歸屬不明清單照樣保存，但不擅自查詢其病人。
+
+從專屬清單選最多 8 個**不同病歷號**，優先涵蓋不同科別／診間。每人先保存完整就診清單，再以同病歷號、日期、科別及門診類別匹配當日就診；掛號而無實際就診者記 `NO_SAMPLE`。每人最多抽 2 次匹配就診查 SOAP，保留 S、O、A+P、診斷、醫囑與藥囑的完整結構化回傳及解析問題。單一病人或 SOAP 失敗，仍測其餘病人；無法建立登入時停止相依查詢。不進行錯誤密碼、薪資、附件或異動測試。預設請求間隔仍為隨機 0.8–1.8 秒。
+
+`parsed/soap/` 中的 `roster.json`、`classified_roster.json`、`selection.json`、每名病人的 `visit_cases.json`／`matching_visits.json`／`soap_*.json` 及 `field_coverage.json` 分別保存各階段證據；原始 HTTP 本文另在 `responses/`。SOAP JSON 另有慢性處方服藥期限的結構欄位；沒有慢性處方時是空清單，覆蓋率只記錄有此樣本的筆數，不強制視為缺口。只有少於兩名可查病人或缺其他必要欄位樣本時是驗證缺口，不代表資料解析成功，也不推論病人沒有該類臨床資料。帶回 EXE 同目錄下新產生的時間命名 ZIP 即可，毋須帶回 `live-test-results`。
+
+```sh
+python tools/build_live_test_exe.py --default-profile soap
+dist/vghks-live-test.exe --plan
+dist/vghks-live-test.exe --profile soap --soap-date 2026-09-22 --max-cases 12
+```
+
+`--soap-date` 只用於另一次指定日期測試；不給參數時本輪 EXE 固定 2026-09-21。`--max-cases` 調整病人上限，`--max-items` 調整每病人的就診上限。這些選項不會改變 SDK 的原子操作。
+
+前兩份內網 ZIP 的 8 名樣本中，兩份就診清單含異病歷號連結，SDK 為避免跨病人取錯資料而拒絕整份清單；另兩名雖掛號但無匹配當日同科別門診就診，均不查 SOAP。第二份使用修正後 EXE，四份成功的 SOAP 均有 S／O／A+P、診斷與藥囑，其中一份有結構化的慢性處方服藥期限；原始回應可離線重解析。兩個清單錯誤仍需獨立處理，勿把 `COMPLETED_WITH_ERRORS` 標為全面通過。
+
+## 登入及人事專項計畫
 
 只輸入正常的 Portal 帳號與密碼，之後自動執行，完成再按 Enter 關閉。**不需要病歷號、身分證、薪資密碼或設定檔**。只帶回 EXE 同目錄、檔名含時間的 ZIP。
 
@@ -97,6 +115,7 @@ vghks-live-test --config configs/review-system.example.json
 | parsed/inputs/ | 每個查詢真正使用的條件 |
 | parsed/atomic/ | 原子回傳及 PDF／JPG |
 | parsed/visits/ | 身分證增量測試的清單、比對、篩選與門診串接 |
+| parsed/soap/ | 指定日期門診清單、多病人就診與結構化 SOAP |
 | parsed/login/ | 登入、Session、SIMULATED 情境、人事查詢、負向密碼 POST 計數 |
 | parsed/earnings/ | MIS 月份選項、原始 HTML、文字與表格 |
 | parsed/workflows/ | 組合流程各階段資料 |

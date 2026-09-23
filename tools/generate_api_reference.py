@@ -25,7 +25,7 @@ PURPOSES = {
     "webmaas.registration_query": "掛號紀錄與狀態；有掛號不等於已就診。",
     "prq.visit_cases": "以病歷號或 national_id（二擇一）查就診清單；含到院日、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。",
     "prq.case_detail": "單次就診的頁籤、連結與原始頁面。",
-    "prq.soap": "該次門診的 SOAP；可交給本地關鍵字／正則搜尋，目前僅支援 O 類別。",
+    "prq.soap": "該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要及明示的慢性處方服藥期限；保留原文與解析提示，見 [SOAP](SOAP.md)。僅支援 O 類別。",
     "prq.numeric": "該次就診的數值表格；保留原始單位及欄位。",
     "prq.case_orders": "該次就診的醫囑；參照物件可串接明細及報告。",
     "prq.case_medications": "該次就診的藥囑與用法資料。",

@@ -82,6 +82,11 @@ class RecordsService:
         return self._adapter.get_case_detail(case)
 
     def get_soap(self, case: VisitCase) -> SoapRecord:
+        """Return labelled SOAP, diagnoses and printed order/prescription summaries.
+
+        The original blocks remain available. Inspect parsing_issues for partial
+        extraction; printed summaries do not replace navigable case orders.
+        """
         return self._adapter.get_soap(case)
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport:

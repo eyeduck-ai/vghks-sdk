@@ -44,6 +44,7 @@
 - DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單已 HAR 離線驗證，0.19.3 內網已驗證選項、卡號、姓名、員工編號與職稱組合查詢。明細未錄製，見 docs/PERSONNEL.md。
 - DDPortal 的查詢容器可用 frame 或 iframe；兩者都需比對允許來源與完整 DRQuerySql.jsp 路徑，0.19.3 已有內網成功證據。表單標籤可含「代碼 - 名稱」，測試器只剝除與該 option.value 相同的前綴且須唯一匹配；模型保留原標籤。單位及下層單位仍未內網實測，不把本機修正當成已送出查詢。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
+- SOAP 使用 parsing/soap.py 依明確標籤及同表 rowspan 分段，A+P 不硬拆 A/P；blocks／full_text 保持相容。diagnoses 只取 ICD 區，不從自由文字推論診斷或主次。SoapOrder／SoapMedication 是頁面摘要，無執行狀態或附件參照；不可冒充 ClinicalOrder／MedicationOrder。藥囑表可能在連續處方說明後的第二行，需保留前置說明、從完整欄位標題解析；明示的「服藥期限」回 SoapChronicPrescriptionPeriod，原文仍保留。未知列保留原文及 parsing_issues，None 表示未辨識段落，空字串表示有標籤但無內容。0.20.0 第二份 SOAP 專項內網回傳驗證四筆 SOAP 與一筆慢性處方期限；兩份混入異病歷號連結的清單仍須阻擋。詳見 docs/SOAP.md 與 docs/VALIDATION.md。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。
 - MIS HTML 可能含巢狀導覽表，必須保留主資料表自身的列；不要只保留最內層 table。
@@ -80,9 +81,11 @@ Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 
 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
 
+結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
+
 就診搜尋用 `--default-profile visits` 建置、`tools/verify_visit_exe.py` 驗證；build metadata 決定零參數啟動範圍。測試流程在 live/visits.py，保留 MRN／身分證差異、篩選結果、NO_SAMPLE 及 fallback 來源，不能因 MRN 成功便宣稱身分證已成功。
 
-本輪登入測試用 `--default-profile login` 建置、`tools/verify_login_exe.py` 驗證，不需 private defaults。live/login.py 是測試 SDK 的應用層，live/login_simulation.py 使用無 socket 的合成 adapter。使用者授權一般帳號每輪最多兩次刻意錯誤密碼，必須在正常登入／查詢後執行；一次獨立 Session 最多一個 password POST，未知結果停止後續負向測試。禁止將模擬或清 Cookie 當成院內自然 TTL 過期證據。預期拒絕只能按通過的明確負向步驟及 capture 範圍從離線錯誤分類中分開，不可忽略所有登入失敗。
+登入專項測試用 `--default-profile login` 建置、`tools/verify_login_exe.py` 驗證，不需 private defaults。live/login.py 是測試 SDK 的應用層，live/login_simulation.py 使用無 socket 的合成 adapter。使用者授權一般帳號每輪最多兩次刻意錯誤密碼，必須在正常登入／查詢後執行；一次獨立 Session 最多一個 password POST，未知結果停止後續負向測試。禁止將模擬或清 Cookie 當成院內自然 TTL 過期證據。預期拒絕只能按通過的明確負向步驟及 capture 範圍從離線錯誤分類中分開，不可忽略所有登入失敗。
 
 0.19.3 內網已驗證明確與按需登入的兩次預期拒絕，以及清 Cookie 後 PRQ 查詢自動重新登入成功。沒有新登入缺陷時，不為補單位篩選而重跑錯誤密碼；需重用 login 計畫時可設 `--login-negative-attempts 0`。
 

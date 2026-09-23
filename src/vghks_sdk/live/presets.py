@@ -24,6 +24,17 @@ def visit_search_round() -> dict:
     }
 
 
+def soap_test_round() -> dict:
+    return {
+        "profile": "soap",
+        "download_assets": False,
+        "include_earnings": False,
+        "weekly_opd_soap": False,
+        "max_cases": 8,
+        "max_items": 2,
+    }
+
+
 def combined_round() -> dict:
     return {
         "profile": "comprehensive",

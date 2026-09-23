@@ -39,7 +39,7 @@ from .live.config import (
 from .live.console import configure_console_output
 from .live.defaults import SYNTHETIC_MRN
 from .live.environment import environment_report
-from .live.presets import combined_round, login_test_round, visit_search_round
+from .live.presets import combined_round, login_test_round, soap_test_round, visit_search_round
 from .live.profile import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .live.runner import (
     create_live_test_bundle,
@@ -66,7 +66,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -80,7 +80,7 @@ def add_live_test_arguments(
         dest="only_operations",
         help="query key to test; repeatable; selects atomic profile",
     )
-    parser.add_argument("--max-cases", type=int, help="visit samples (comprehensive: 6; atomic: 1)")
+    parser.add_argument("--max-cases", type=int, help="patient samples (SOAP profile: 8)")
     parser.add_argument(
         "--max-items", type=int, help="reference/asset samples (comprehensive: 8; atomic: 2)"
     )
@@ -98,6 +98,7 @@ def add_live_test_arguments(
     parser.add_argument("--non-interactive", action="store_true")
     parser.add_argument("--doctor-card")
     parser.add_argument("--date", type=_iso_date, dest="opd_date")
+    parser.add_argument("--soap-date", type=_iso_date, help="SOAP profile roster date (default: 2026-09-21)")
     parser.add_argument("--start", type=_iso_date, dest="range_start")
     parser.add_argument("--end", type=_iso_date, dest="range_end")
     parser.add_argument("--include-surgery", action="store_true", default=None)
@@ -228,9 +229,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology or visits profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits or soap profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -257,8 +258,11 @@ def run_live_test_namespace(
             force_interactive or sys.stdin.isatty()
         )
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
-        patient_required = plan is None or any(
-            row["scope"] in {"patient", "history", "text_history"} for row in plan["operations"]
+        patient_required = config.profile != "soap" and (
+            plan is None or any(
+                row["scope"] in {"patient", "history", "text_history"}
+                for row in plan["operations"]
+            )
         )
         supplied_mrn = (
             getattr(args, "test_mrn", None)
@@ -353,6 +357,8 @@ def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         return visit_search_round()
     if getattr(args, "bundled_login", False):
         return login_test_round()
+    if getattr(args, "bundled_soap", False):
+        return soap_test_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -371,6 +377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.profile = build_identity().get("default_profile", "comprehensive")
         args.bundled_visits = args.profile == "visits"
         args.bundled_login = args.profile == "login"
+        args.bundled_soap = args.profile == "soap"
         args.bundled_round = args.profile == "comprehensive"
     exit_code = 2
     try:
@@ -519,6 +526,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
         "output_root",
         "doctor_card",
         "opd_date",
+        "soap_date",
         "range_start",
         "range_end",
         "ca_bundle",
@@ -628,6 +636,13 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "soap":
+        print(f"\n結構化 SOAP 測試: {config.soap_date} 登入醫師專屬門診清單。")
+        print(f"最多選 {config.max_cases} 個不同病歷號, 每人最多 {config.max_items} 次當日門診就診。")
+        print("逐筆保留掛號、就診清單及結構化 SOAP; 單筆失敗仍繼續。")
+        print("不需手動輸入病歷號; 本計畫不送出刻意錯誤密碼。")
+        print("只需帶回 EXE 同目錄的時間命名 ZIP; ZIP 未加密。")
+        return config
     if config.profile == "login":
         print("\n登入專項測試: 正常登入、子系統 SSO、Session 恢復及本人人事查詢。")
         print(f"最後最多提交 {config.login_negative_attempts} 次刻意產生的錯誤密碼; 首次正常登入失敗則略過。")

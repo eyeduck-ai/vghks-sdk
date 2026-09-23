@@ -32,6 +32,7 @@ from ..models import (
     OrderReport,
     OrderReportRef,
     PacsStudyRef,
+    SoapRecord,
     SurgeryCaseRef,
     TextReportHistory,
     UploadHistory,
@@ -409,6 +410,19 @@ def replay_response(
                     "text_extraction_notes": list(value.text_extraction_notes),
                 }
                 if isinstance(value, OrderReport)
+                else {}
+            ),
+            **(
+                {
+                    "soap_sections": list(value.present_sections),
+                    "soap_diagnosis_count": len(value.diagnoses),
+                    "soap_order_count": len(value.orders),
+                    "soap_medication_count": len(value.medications),
+                    "soap_chronic_prescription_period_count": len(value.chronic_prescription_periods),
+                    "soap_unclassified_block_count": len(value.unclassified_blocks),
+                    "soap_parsing_issues": list(value.parsing_issues),
+                }
+                if isinstance(value, SoapRecord)
                 else {}
             ),
             **(

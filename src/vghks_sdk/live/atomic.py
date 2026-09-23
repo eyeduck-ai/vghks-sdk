@@ -68,6 +68,10 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         from .visits import build_visit_plan
 
         return build_visit_plan(config)
+    if config.profile == "soap":
+        from .soap import build_soap_plan
+
+        return build_soap_plan(config)
     requested = config.only_operations or tuple(
         spec.key
         for spec in QUERY_SPECS
@@ -216,6 +220,14 @@ def run_atomic_test(
             raw_capture=raw_capture,
             diagnostics=diagnostics,
             run_id=run_id,
+        )
+    if config.profile == "soap":
+        from .soap import run_soap_test
+
+        return run_soap_test(
+            sdk, config, plan=plan, output_dir=output_dir, settings=settings,
+            login_card=login_card, raw_capture=raw_capture,
+            diagnostics=diagnostics, run_id=run_id,
         )
     if config.profile == "ophthalmology":
         from .ophthalmology import run_ophthalmology_test

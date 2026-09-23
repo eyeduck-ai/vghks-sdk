@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；含到院日、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。 |
 | `prq.case_detail` | `get_case_detail(case: VisitCase) -> CaseDetail` | 單次就診的頁籤、連結與原始頁面。 |
-| `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 SOAP；可交給本地關鍵字／正則搜尋，目前僅支援 O 類別。 |
+| `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要及明示的慢性處方服藥期限；保留原文與解析提示，見 [SOAP](SOAP.md)。僅支援 O 類別。 |
 | `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留原始單位及欄位。 |
 | `prq.consults` | `get_consults(case: VisitCase) -> list[ConsultRecord]` | 該次就診的會診紀錄；合法空清單不視為例外。 |
 | `prq.treatments` | `get_treatments(case: VisitCase) -> list[TreatmentRecord]` | 該次就診的處置／治療清單。 |

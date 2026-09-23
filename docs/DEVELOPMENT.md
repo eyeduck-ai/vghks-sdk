@@ -40,8 +40,8 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.19.4-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.19.4.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.0-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.0.tar.gz
 ```
 
 Windows EXE 使用 Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4：
@@ -55,6 +55,8 @@ python tools/build_live_test_exe.py --defaults private/live-test-defaults.json
 python tools/build_live_test_exe.py --defaults private/live-test-defaults.json --default-profile visits
 # 登入專項版，不需 private defaults 或病人參數。
 python tools/build_live_test_exe.py --default-profile login
+# 多病人結構化 SOAP 專項版。
+python tools/build_live_test_exe.py --default-profile soap
 ```
 
 private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接受帳密。公開版本在啟動時詢問 MRN 或接受 CLI／環境參數。兩種版本都可只搬 EXE。
@@ -66,6 +68,8 @@ visits 專用版使用 `python tools/verify_visit_exe.py`，先驗證一般 SDK 
 `tests/test_auto_tls.py` 以 localhost 真實 TLS 交握驗證舊 AES 相容、TLS 1.3、憑證備援／嚴格模式、匿名探測、Cookie 保留及 POST 不重送。合成伺服器不使用醫院域名或資料；網路切換也須接離線重解析，避免將已恢復的中途失敗誤判為未解錯誤。
 
 登入版以 `python tools/verify_login_exe.py` 驗證當前原始碼建置的 EXE；`--source` 可先驗證原始碼。七種 HTTPS localhost 情境涵蓋過期 302／401、Cookie 清除未觸發過期、人事錯誤續跑、初始登入拒絕、負向未知回應及負向轉址；人事用 iframe 及含代碼前綴的選項，錯誤密碼用文字拒絕頁。核對伺服器實際收到的密碼 POST 次數、20 個模擬案例、零參數啟動及 ZIP／離線分析分類。每項失敗保留於 output/login-*.log。舊 EXE 不會因修改原始碼而更新，驗證結果必須記錄其 build_id。
+
+SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTTPS localhost 流程，包含多病人抽樣、藥囑表前置說明、慢性處方日期及 ZIP 輸出。院內 0.20.0 回傳已確認四筆結構化 SOAP；兩份歷次就診清單仍因異病歷號連結被安全檢查阻擋，見 [VALIDATION](VALIDATION.md)。
 
 ## 引用方式與離線安裝
 
@@ -79,14 +83,14 @@ visits 專用版使用 `python tools/verify_visit_exe.py`，先驗證一般 SDK 
 
 ```sh
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
-python -m pip install output/package/vghks_sdk-0.19.4-py3-none-any.whl
+python -m pip install output/package/vghks_sdk-0.20.0-py3-none-any.whl
 ```
 
 SDK wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線部署時，在與目標相符的 Python／OS 環境先準備 wheel 及依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.19.4-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.19.4
+python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.0-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.0
 ```
 
 ## 發布檢查

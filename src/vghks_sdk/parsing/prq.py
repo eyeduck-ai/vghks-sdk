@@ -24,16 +24,15 @@ from ..models import (
     CaseDetail,
     NumericReport,
     OutpatientPatient,
-    SoapRecord,
     VisitCase,
 )
 from .clinical import parse_numeric_tables
 from .common import (
     normalize_inline_text,
-    normalize_multiline_text,
     sort_visit_cases,
     strip_markup,
 )
+from .soap import parse_soap as parse_soap
 
 _JS_LITERAL_PATTERN = r"(?P<value>'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")"
 _MRN_RE = re.compile(r"^[A-Za-z0-9-]{1,32}$")
@@ -262,16 +261,6 @@ def parse_case_detail(html_text: str, case: VisitCase) -> CaseDetail:
         if title:
             tab_titles.append(title)
     return CaseDetail(case=case, tab_ids=tuple(tab_ids), tab_titles=tuple(tab_titles))
-
-
-def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
-    soup = BeautifulSoup(html_text, "html.parser")
-    blocks = tuple(
-        text
-        for node in soup.select("#data .soap pre")
-        if (text := normalize_multiline_text(node.get_text("", strip=False))).strip()
-    )
-    return SoapRecord(case=case, blocks=blocks)
 
 
 def parse_numeric_report(html_text: str, case: VisitCase) -> NumericReport:

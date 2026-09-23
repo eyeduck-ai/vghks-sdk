@@ -53,6 +53,8 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。兩條路徑及由身分證清單串接門診 SOAP／醫囑已有內網樣本驗證；用法與支援範圍見 [VISITS](docs/VISITS.md)。
 
+`records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；部分病人的就診清單仍因混入其他病歷號而被安全檢查阻擋。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
+
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。門診清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
 ## 文件
@@ -91,7 +93,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本輪 `soap` 計畫會由 2026-09-21 專屬門診清單抽多個不同病歷號驗證結構化 SOAP，無需預先提供病歷號。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

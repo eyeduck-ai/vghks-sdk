@@ -164,9 +164,66 @@ class CaseDetail:
 
 
 @dataclass(frozen=True, slots=True)
+class SoapDiagnosis:
+    """A diagnosis printed in SOAP, without inferring priority or ICD edition."""
+
+    code: str
+    name: str
+    coding_system: str = "ICD"
+    raw_text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SoapOrder:
+    """A printed SOAP order summary; use ClinicalOrder for report navigation."""
+
+    name: str
+    quantity: str
+    raw_text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SoapMedication:
+    """A printed SOAP prescription, preserving doses and quantities as strings."""
+
+    name: str
+    dose: str
+    unit: str
+    route: str
+    frequency: str
+    days: str
+    total_quantity: str
+    raw_text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SoapChronicPrescriptionPeriod:
+    """The printed medication-use period of a chronic prescription notice."""
+
+    start_date: date
+    end_date: date
+    source_block_index: int
+    source_label: str = "服藥期限"
+    raw_text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SoapRecord:
     case: VisitCase
     blocks: tuple[str, ...]
+    # None means no identified label; "" means an explicitly empty section.
+    subjective: str | None = None
+    objective: str | None = None
+    assessment_plan: str | None = None
+    assessment: str | None = None
+    plan: str | None = None
+    diagnoses: tuple[SoapDiagnosis, ...] = ()
+    orders: tuple[SoapOrder, ...] = ()
+    medications: tuple[SoapMedication, ...] = ()
+    present_sections: tuple[str, ...] = ()
+    unclassified_blocks: tuple[str, ...] = ()
+    parsing_issues: tuple[str, ...] = ()
+    chronic_prescription_periods: tuple[SoapChronicPrescriptionPeriod, ...] = ()
 
     @property
     def full_text(self) -> str:

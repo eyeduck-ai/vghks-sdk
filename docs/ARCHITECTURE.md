@@ -40,4 +40,6 @@ Requests Session（鎖、節流、retry、capture）
 
 **診斷有兩層**：一般 DiagnosticRecorder 記錄有限的結構化錯誤；RawCaptureRecorder 為使用者明確啟用的完整未加密證據。所有 raw／parsed 回傳仍可能含個資，不能公開。
 
+**SOAP 結構化屬於純解析**：`parsing/soap.py` 依標籤、rowspan 及摘要標頭處理同一個 SOAP 回應；`parsing/prq.py` 保留原解析器匯入入口。SoapRecord 保留原有 blocks／full_text，新增分段、SoapDiagnosis／SoapOrder／SoapMedication，以及明示「服藥期限」的 SoapChronicPrescriptionPeriod。醫囑與藥囑是頁面列印摘要，不含報告參照；取詳細醫囑及報告仍由 orders／medications 原子操作負責。未知列保留原文及 parsing_issues，不能猜測醫療含義。
+
 修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。

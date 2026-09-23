@@ -80,7 +80,10 @@ selected_by_id = sdk.records.find_visit_cases(
 - 單次數值 `get_numeric_report(case)` 和就診頁籤 `get_case_detail(case)` 保留 case_type，但既有內網成功樣本以門診為主。清單支援某類別不等於該類別所有報告都已驗證。
 - 跨期間資料仍使用各自的 `get_order_history(mrn, filter)`、`get_numeric_history` 等功能；本頁日期篩選是就診清單的本機篩選，沒有增加未錄製的伺服器查詢參數。
 - 已確認病人而沒有就診回傳 `[]`。未知頁面、身分不符或來源欄位無法解析則拋出 `SDKError`，不要把例外改成空清單。
+- 0.20.0 的 SOAP 專項院內測試中，兩份歷次就診清單的有效資料列混入異病歷號連結；`get_visit_cases` 回 `PRQ_CASE_PATIENT_MISMATCH` 並停止該病人的後續查詢。不能把這種錯誤當成空清單，也不能跟隨其他病人的參照。
 
 動態入口也支援 `sdk.queries.run("prq.visit_cases", national_id=national_id)`；QuerySpec.alternative_inputs 描述替代輸入，原有 `mrn` 呼叫相容。輸出保存可用 `to_jsonable`，其中病人／醫師及正文仍是私有資料。
+
+`get_soap(case)` 的 `subjective`、`objective`、`assessment_plan`、`diagnoses`、`orders`、`medications`、`chronic_prescription_periods` 可直接組合使用；摘要欄位及缺段處理見 [SOAP](SOAP.md)。
 
 日後新增帳號或不同情境時，可對同一病人分別使用病歷號與身分證取清單，比對 VisitCase.identity 及醫師／科別欄位，再選一筆門診查 SOAP／醫囑。只需驗證新情境，已有成功的其他模組不必為此重測。

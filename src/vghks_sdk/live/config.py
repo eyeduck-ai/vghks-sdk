@@ -24,6 +24,7 @@ from ..search import SoapSearch
 from .defaults import default_test_mrn
 
 LIVE_CONFIG_SCHEMA_VERSION = 6
+DEFAULT_SOAP_TEST_DATE = date(2026, 9, 21)
 _ENDPOINT_FIELDS = (
     "portal_base_url",
     "prq_base_url",
@@ -58,6 +59,7 @@ _TOP_LEVEL_KEYS = {
     "soap_search",
     "doctor_card",
     "opd_date",
+    "soap_date",
     "range_start",
     "range_end",
     "include_surgery",
@@ -94,6 +96,7 @@ class LiveTestConfig:
     soap_search: SoapSearch | None = None
     doctor_card: str | None = None
     opd_date: date | None = None
+    soap_date: date | None = None
     range_start: date | None = None
     range_end: date | None = None
     include_surgery: bool = False
@@ -183,11 +186,12 @@ class LiveTestConfig:
             "comprehensive",
             "ophthalmology",
             "visits",
+            "soap",
             "core",
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, core or full"
             )
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
@@ -197,6 +201,8 @@ class LiveTestConfig:
                 "max_cases",
                 6
                 if profile in {"comprehensive", "ophthalmology"}
+                else 8
+                if profile == "soap"
                 else 3
                 if profile == "visits"
                 else 1,
@@ -215,6 +221,10 @@ class LiveTestConfig:
             raise ConfigurationError("earnings tests require atomic or comprehensive profile")
         if self.weekly_opd_end is not None and not isinstance(self.weekly_opd_end, date):
             raise ConfigurationError("weekly_opd_end must be a date")
+        if self.soap_date is not None and not isinstance(self.soap_date, date):
+            raise ConfigurationError("soap_date must be a date")
+        if profile == "soap" and self.soap_date is None:
+            object.__setattr__(self, "soap_date", DEFAULT_SOAP_TEST_DATE)
         if isinstance(self.only_operations, str) or not isinstance(
             self.only_operations, (tuple, list)
         ):
@@ -235,7 +245,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -369,6 +379,7 @@ class LiveTestConfig:
             "soap_search": to_jsonable(self.soap_search),
             "doctor_card": self.doctor_card,
             "opd_date": self.opd_date.isoformat() if self.opd_date else None,
+            "soap_date": self.soap_date.isoformat() if self.soap_date else None,
             "range_start": self.range_start.isoformat() if self.range_start else None,
             "range_end": self.range_end.isoformat() if self.range_end else None,
             "include_surgery": self.include_surgery,
@@ -597,6 +608,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         soap_search=soap_search,
         doctor_card=values.get("doctor_card"),
         opd_date=_date_value(values.get("opd_date"), "OPD date"),
+        soap_date=_date_value(values.get("soap_date"), "SOAP roster date"),
         range_start=_date_value(values.get("range_start"), "range start"),
         range_end=_date_value(values.get("range_end"), "range end"),
         include_surgery=bool(values.get("include_surgery", False)),

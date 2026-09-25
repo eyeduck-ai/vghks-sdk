@@ -146,6 +146,13 @@ class SeptemberFixTests(unittest.TestCase):
         ]
         selected = select_registration_visits(rows, cases, doctor_card="DOC1")
         self.assertEqual([c.case_no for c in selected], ["V1-CASE"])
+        alias_case = VisitCase(
+            "OLD001", DAY, "O", "ALIAS-CASE", "V1", "Synthetic", lookup_mrn=own.mrn
+        )
+        self.assertEqual(
+            [c.case_no for c in select_registration_visits([own], [alias_case], doctor_card="DOC1")],
+            ["ALIAS-CASE"],
+        )
         self.assertEqual(classify_opd_registration(own, doctor_card="DOC2"), "UNCLASSIFIED")
         unknown = OutpatientPatient("UNKNOWN", "Synthetic", DAY, section_code="70")
         self.assertEqual(classify_opd_registration(unknown, doctor_card="DOC1"), "UNCLASSIFIED")

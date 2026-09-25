@@ -187,9 +187,9 @@ class PrqAdapter(PrqExtendedOperations):
                     "type": "2" if national_id else "1",
                 },
             )
+            require_patient_context(context_html)
             resolved_mrn = mrn
             if national_id:
-                require_patient_context(context_html)
                 patient_html = self.runtime.request_text(
                     _PATIENT_IDENTITY,
                     f"{base}/Page/JSP/KS_Patient.jsp",
@@ -206,6 +206,7 @@ class PrqAdapter(PrqExtendedOperations):
                 html_text,
                 resolved_mrn,
                 expected_national_id=national_id,
+                allow_related_mrns=True,
             )
             if not cases and BeautifulSoup(html_text, "html.parser").find(id="typeO") is None:
                 raise ParseError(

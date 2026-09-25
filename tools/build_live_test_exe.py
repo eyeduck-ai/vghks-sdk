@@ -25,7 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--defaults", type=Path, help="private JSON containing only test_mrn")
     parser.add_argument(
-        "--default-profile", choices=("comprehensive", "visits", "login", "soap"), default="comprehensive"
+        "--default-profile", choices=("comprehensive", "visits", "login", "soap", "regression"), default="comprehensive"
     )
     args = parser.parse_args()
     defaults = None

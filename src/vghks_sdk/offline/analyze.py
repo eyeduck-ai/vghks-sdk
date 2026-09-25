@@ -686,13 +686,13 @@ def _retest_config(
             if row["live_status"] in {"FAILED", "BLOCKED", "MISSING", "EMPTY"}
         ]
     )
-    if config.get("profile") in {"comprehensive", "ophthalmology", "visits", "login"}:
+    if config.get("profile") in {"comprehensive", "ophthalmology", "visits", "login", "regression"}:
         # First-run scenarios include category/date variants which an atomic
         # default call would not reproduce. Preserve the complete scenario set.
         value.update(
             profile=config["profile"],
             only_operations=(config.get("only_operations") or [])
-            if config["profile"] == "comprehensive"
+            if config["profile"] in {"comprehensive", "regression"}
             else [],
         )
     if value.get("include_earnings") and value["profile"] == "auth":

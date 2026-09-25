@@ -51,9 +51,11 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 **支援單次就診與指定期間兩條路徑**：依 VisitCase 查單次資料，或使用 HistoryFilter 向伺服器查指定期間，不必先下載每次就診再自行篩選。醫囑報告與各科報告亦為獨立入口。
 
-就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。兩條路徑及由身分證清單串接門診 SOAP／醫囑已有內網樣本驗證；用法與支援範圍見 [VISITS](docs/VISITS.md)。
+數值類報告依 HTML 表格表頭與儲存格位置對齊欄位；手動輸入的文字、`error` 或空白會原樣保留，不以數字大小猜測左右眼。欄位對齊與來源格式警示見 [NUMERIC_REPORTS](docs/NUMERIC_REPORTS.md)。
 
-`records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；部分病人的就診清單仍因混入其他病歷號而被安全檢查阻擋。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
+就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。院內清單若包含同病人的舊病歷號，SDK 保留該次就診原號碼以供下游查詢，並記錄本次清單的查詢號碼。兩條輸入路徑及由身分證清單串接門診 SOAP／醫囑已有內網樣本驗證；舊號門診 SOAP 也有一筆院內成功回傳，用法見 [VISITS](docs/VISITS.md)。
+
+`records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；0.20.3 另驗證一筆舊病歷號門診 SOAP，能以來源號碼取得 S／O／A+P 與診斷。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
 
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。門診清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
@@ -71,7 +73,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
 
-領域欄位細節：[人事／醫師目錄](docs/PERSONNEL.md)、[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[手術](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+領域欄位細節：[人事／醫師目錄](docs/PERSONNEL.md)、[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[數值類報告](docs/NUMERIC_REPORTS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
 
 ## 開發與測試
 
@@ -93,7 +95,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本輪 `soap` 計畫會由 2026-09-21 專屬門診清單抽多個不同病歷號驗證結構化 SOAP，無需預先提供病歷號。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 `regression` EXE 內建私有測試病歷號，重點檢查就診清單、眼科 SOAP／數值表格與醫師手術排程；原始頁面保存在結果 ZIP，以追查特定病歷號的異常。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

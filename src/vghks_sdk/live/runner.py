@@ -227,7 +227,7 @@ def execute_live_test(
                     output_dir=manager.run_directory, raw_capture=raw_capture,
                     diagnostics=diagnostics, run_id=manager.run_id,
                 )
-            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap"}:
+            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression"}:
                 result = run_atomic_test(
                     sdk,
                     config,

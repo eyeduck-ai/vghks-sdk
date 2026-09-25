@@ -44,6 +44,7 @@ from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
 from ..parsing.portal import has_portal_login_redirect, is_portal_login_destination
+from ..parsing.prq import require_patient_context
 from ..parsing.review import (
     parse_login_info,
     parse_review_case,
@@ -61,6 +62,17 @@ from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
 
 _CONTRACTS = {contract.operation_key: contract for contract in BASELINE_CONTRACTS}
+
+
+def _patient_context_confirmed(content: bytes, mime: str) -> bool:
+    """Enable legacy-MRN replay only after a recorded patient-scoped response."""
+
+    try:
+        text = HarEntry("", "", frozenset(), frozenset(), {}, 200, content, mime).text()
+        require_patient_context(text)
+    except (ParseError, UnicodeError):
+        return False
+    return True
 
 
 def request_parts(request: Mapping[str, Any]) -> tuple[str, str, dict[str, str], dict[str, str]]:
@@ -102,6 +114,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     summary = reader.json("run_summary.json")
     context_mrn = str(summary.get("test_mrn") or "")
     context_national_id = ""
+    visit_context_ready = False
     results: list[dict[str, Any]] = []
     portal_base = "https://portal.vghks.gov.tw"
     redirected_operations: dict[str, tuple[str, dict[str, str]]] = {}
@@ -114,6 +127,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         _, path, query, form = request_parts(request)
         params = {**query, **form}
         if path.endswith("/QueryPatientRecord.do"):
+            visit_context_ready = False
             context_national_id = (
                 (params.get("queryID") or params.get("id", "")) if params.get("type") == "2" else ""
             )
@@ -132,6 +146,20 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         if not capture_id.isascii() or not capture_id.isdigit() or len(capture_id) > 12:
             capture_id = f"entry-{sequence:06d}"
         response = row.get("response") or {}
+        if (
+            path.endswith("/QueryPatientRecord.do")
+            and params.get("Use") == "Case"
+            and 200 <= int(response.get("status_code", 0)) < 300
+            and row.get("response_file")
+        ):
+            visit_context_ready = _patient_context_confirmed(
+                reader.read(row["response_file"]),
+                next(
+                    (str(value) for key, value in response.get("headers", [])
+                     if str(key).lower() == "content-type"),
+                    "",
+                ),
+            )
         result = {
             "capture_id": capture_id,
             "operation": operation,
@@ -197,6 +225,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         mime=mime,
                         context_mrn=context_mrn,
                         context_national_id=context_national_id,
+                        trusted_visit_context=visit_context_ready,
                         response_url=str(request.get("url", "")),
                         portal_base_url=portal_base,
                     )
@@ -235,6 +264,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
         raw_entries = json.loads(path.read_text(encoding="utf-8-sig"))["log"]["entries"]
         context_mrn = ""
         context_national_id = ""
+        visit_context_ready = False
         for index, (entry, raw) in enumerate(zip(archive.entries, raw_entries), 1):
             original = raw["request"]
             post = original.get("postData") or {}
@@ -246,6 +276,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
             _, request_path, query, form = request_parts(request)
             params = {**query, **form}
             if request_path.endswith("/QueryPatientRecord.do"):
+                visit_context_ready = False
                 context_national_id = (
                     (params.get("queryID") or params.get("id", ""))
                     if params.get("type") == "2"
@@ -254,6 +285,15 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                 context_mrn = (
                     "" if context_national_id else params.get("queryPtID") or params.get("id", "")
                 )
+                if (
+                    params.get("Use") == "Case"
+                    and 200 <= entry.response_status < 300
+                    and entry.response_body
+                ):
+                    visit_context_ready = _patient_context_confirmed(
+                        entry.response_body,
+                        entry.response_mime_type,
+                    )
             if params.get("hhisnum") or params.get("patno"):
                 context_mrn = params.get("hhisnum") or params["patno"]
             if operation not in QUERY_BY_KEY and not (
@@ -295,6 +335,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                     mime=mime,
                     context_mrn=context_mrn,
                     context_national_id=context_national_id,
+                    trusted_visit_context=visit_context_ready,
                 )
                 if operation == "prq.patient_identity":
                     context_mrn = (
@@ -339,6 +380,7 @@ def replay_response(
     mime: str = "",
     context_mrn: str = "",
     context_national_id: str = "",
+    trusted_visit_context: bool = False,
     response_url: str = "",
     portal_base_url: str = "https://portal.vghks.gov.tw",
 ) -> dict[str, Any]:
@@ -397,7 +439,10 @@ def replay_response(
                 raise ParseError(
                     "recorded response is a login form", code="AUTH_SESSION_LOGIN_FORM"
                 )
-            value = _parse(operation, text, params, context_mrn, soup, context_national_id)
+            value = _parse(
+                operation, text, params, context_mrn, soup,
+                context_national_id, trusted_visit_context,
+            )
         count = _count(value)
         return {
             "status": "EMPTY" if count == 0 else "PARSED",
@@ -445,6 +490,7 @@ def _parse(
     context_mrn: str,
     soup: BeautifulSoup,
     context_national_id: str = "",
+    trusted_visit_context: bool = False,
 ) -> Any:
     mrn = params.get("hhisnum") or params.get("patno") or context_mrn
     if key == "personnel.options":
@@ -521,7 +567,12 @@ def _parse(
         _require(soup.find("table", id="row") is not None, "WEBMAAS_REGISTRATION_STRUCTURE_MISSING")
         return parsing.parse_registration_records(text)
     if key == "prq.visit_cases":
-        rows = parsing.parse_visit_cases(text, mrn, expected_national_id=context_national_id)
+        rows = parsing.parse_visit_cases(
+            text,
+            mrn,
+            expected_national_id=context_national_id,
+            allow_related_mrns=trusted_visit_context,
+        )
         _require(bool(rows) or soup.find(id="typeO") is not None, "PRQ_CASE_LIST_STRUCTURE_MISSING")
         return rows
     if key == "prq.case_detail":

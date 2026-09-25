@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from vghks_sdk.offline.analyze import inspect_bundle
 from vghks_sdk.offline.bundle import BundleReader
+from vghks_sdk.queries import QUERY_SPECS
 
 RETURN = (
     Path(__file__).resolve().parents[1]
@@ -31,10 +32,12 @@ class ReturnRegressionTests(unittest.TestCase):
         ):
             report, _ = inspect_bundle(reader)
         network.assert_not_called()
+        summary = report["query_summary"]
         self.assertEqual(
-            report["query_summary"],
-            {"VERIFIED": 18, "EMPTY": 2, "FAILED": 0, "BLOCKED": 1, "MISSING": 1, "NOT_TESTED": 33},
+            {key: summary[key] for key in ("VERIFIED", "EMPTY", "FAILED", "BLOCKED", "MISSING", "NO_SAMPLE")},
+            {"VERIFIED": 18, "EMPTY": 2, "FAILED": 0, "BLOCKED": 1, "MISSING": 1, "NO_SAMPLE": 0},
         )
+        self.assertEqual(sum(summary.values()), len(QUERY_SPECS))
         self.assertEqual(report["root_cause"]["code"], "HTTP_404")
         self.assertTrue(
             all(row["certificate_verification"] for row in report["connection_profiles"])

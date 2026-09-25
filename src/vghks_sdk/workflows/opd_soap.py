@@ -58,7 +58,7 @@ def select_registration_visits(
         case.identity: case
         for case in cases
         if case.case_type.strip().upper() == "O"
-        and (case.mrn, case.visit_date, case.section_code.strip()) in keys
+        and (case.patient_mrn, case.visit_date, case.section_code.strip()) in keys
     }
     return sorted(unique.values(), key=lambda case: case.identity)
 
@@ -323,7 +323,7 @@ class _OpdSoapRun:
                     [patient], selected, doctor_card=self.source.card_no
                 )
                 ambiguous = not patient.section_code.strip() or any(
-                    case.mrn == mrn
+                    case.patient_mrn == mrn
                     and case.case_type.strip().upper() == "O"
                     and case.section_code.strip() in {patient.section_code.strip(), ""}
                     and (
@@ -415,7 +415,7 @@ class _OpdSoapRun:
             self.matches.append(
                 {**result, "evidence_file": result_path.relative_to(self.root).as_posix()}
             )
-            self.matched_patients.add(case.mrn)
+            self.matched_patients.add(case.patient_mrn)
             self.counts["matches"] = len(self.matches)
             self.counts["matched_patients"] = len(self.matched_patients)
         self.checkpoint()

@@ -608,6 +608,34 @@ def _matching_brace(source: str, open_index: int) -> int | None:
     return None
 
 
+def _js_statement_boundary(source: str, start: int) -> int | None:
+    """Return the end of one statement, including a nested if/else chain."""
+
+    while start < len(source) and source[start].isspace():
+        start += 1
+    if start >= len(source):
+        return None
+    if source[start] == "{":
+        close = _matching_brace(source, start)
+        return None if close is None else close + 1
+    if re.match(r"if\s*\(", source[start:]):
+        open_paren = source.find("(", start)
+        close_paren = _matching_parenthesis(source, open_paren)
+        if close_paren is None:
+            return None
+        after_then = _js_statement_boundary(source, close_paren + 1)
+        if after_then is None:
+            return None
+        cursor = after_then
+        while cursor < len(source) and source[cursor].isspace():
+            cursor += 1
+        if re.match(r"else\b", source[cursor:]):
+            return _js_statement_boundary(source, cursor + 4)
+        return after_then
+    end = _statement_end(source, start)
+    return None if end is None else end + 1
+
+
 def _conditional_branches(source: str) -> list[tuple[str, bool, int, int]]:
     branches: list[tuple[str, bool, int, int]] = []
     marker = re.compile(r"\bif\s*\(")
@@ -628,11 +656,11 @@ def _conditional_branches(source: str) -> list[tuple[str, bool, int, int]]:
             then_start, then_end = cursor + 1, close_body
             after = close_body + 1
         else:
-            statement_end = _statement_end(source, cursor)
+            statement_end = _js_statement_boundary(source, cursor)
             if statement_end is None:
                 continue
-            then_start, then_end = cursor, statement_end + 1
-            after = statement_end + 1
+            then_start, then_end = cursor, statement_end
+            after = statement_end
         condition = source[open_paren + 1 : close_paren]
         branches.append((condition, True, then_start, then_end))
         cursor = after
@@ -649,9 +677,9 @@ def _conditional_branches(source: str) -> list[tuple[str, bool, int, int]]:
                 raise ParseError("unterminated JavaScript else branch", code="JS_BRANCH_INVALID")
             branches.append((condition, False, cursor + 1, close_else))
         else:
-            else_end = _statement_end(source, cursor)
+            else_end = _js_statement_boundary(source, cursor)
             if else_end is not None:
-                branches.append((condition, False, cursor, else_end + 1))
+                branches.append((condition, False, cursor, else_end))
     return branches
 
 

@@ -522,7 +522,7 @@ def _validate_case_list(entry: HarEntry) -> None:
     soup = _soup(entry)
     _require(soup.find(id="typeO") is not None, "outpatient case container was missing")
     _require(
-        bool(parse_visit_cases(entry.text(), entry.context_mrn)),
+        bool(parse_visit_cases(entry.text(), entry.context_mrn, allow_related_mrns=True)),
         "case links were not parsed",
     )
 

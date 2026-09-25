@@ -36,6 +36,15 @@ class PatientSurgeryRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class SurgeryScheduleProcedure:
+    """One numbered procedure code/name pair from an OPPL schedule row."""
+
+    position: int
+    code: str = ""
+    name: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SurgeryRecord:
     patient_mrn: str = ""
     case_no: str = ""
@@ -47,7 +56,25 @@ class SurgeryRecord:
     doctor_name: str = ""
     procedure: str = ""
     status: str = ""
-    extra: Mapping[str, Any] | None = None
+    extra: Mapping[str, Any] | None = field(default=None, repr=False)
+    # The schedule page displays these values in addition to the original
+    # fields. Appending them preserves positional construction by old callers.
+    ward: str = ""
+    anesthesia: str = ""
+    category: str = ""
+    patient_name: str = ""
+    patient_sex: str = ""
+    department: str = ""
+    schedule_time: str = ""
+    time_status: str = "UNKNOWN"
+    request_no: str = ""
+    sequence_no: str = ""
+    case_type: str = ""
+    internal_room_code: str = ""
+    procedures: tuple[SurgeryScheduleProcedure, ...] = ()
+    diagnosis_codes: tuple[str, ...] = ()
+    diagnosis_text: str = ""
+    source_fields: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

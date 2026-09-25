@@ -38,13 +38,16 @@
 - 初次密碼／異動 POST 前可做獨立匿名探測，不帶 Cookie／Authorization／body，不跟隨轉址。POST 本身不能因 TLS 政策重送；HTTP 回應只證明連線，不證明登入或資料。連線狀態不落地、不在 import／建構 SDK 時發網路。
 - VisitCase 與各 Ref 綁定病人／就診。下載僅接受允許來源、路徑與正確病人，不擴成任意 URL 下載器。
 - 病人身分證使用 records.get_visit_cases(national_id=...) 的 type=2 路徑；先核對病人標頭並解析實際病歷號，不將身分證當 mrn。0.17.2／0.18.0 內網已驗證兩份清單一致及以 national_id 來源串接門診 SOAP／醫囑。0.18.1 離線修正分支後可取得住院／急診卡號；目前門診來源仍空白，詳見 docs/VISITS.md。
+- 就診清單可能含同病人的舊病歷號。PRQ Adapter 必須先確認 QueryPatientRecord 的病人 context；只有啟用的 KSCase 明細列可作為歷史號碼，未歸屬清單的連結、格式不合法號碼與明示衝突的身分證仍拒絕。VisitCase.mrn 保留明細來源病歷號供 SOAP／醫囑查詢，lookup_mrn／patient_mrn 保留此次清單的查詢病歷號供跨次就診及門診掛號組合。純 parse_visit_cases 預設仍嚴格。0.20.1 原始 ZIP 的已確認舊號案例可只讀重解析為 38 筆；此事不等於新版已在內網完成舊號 SOAP 查詢。
 - 就診 KSCase 的互斥分支先以 iter_active_constructor_calls 靜態選擇，才解析及去重。所有建構式（含未啟用分支）均須從 legacy-link fallback 遮蔽；不可直接合併重複列的醫師資料或選第一個分支。未知條件報錯，不 eval JavaScript。
 - 就診醫師姓名取自清單 KSCase 的醫師欄；卡號僅保留實際回傳 vsNo。VisitFilter 可選 O／A／E，預設 O；住院／急診清單不代表其 SOAP 或醫囑端點已支援。
 - 歷次就診以醫師姓名篩選；personnel.get_by_card 先精確核對員工編號，再由呼叫端將 name 交給 VisitFilter。醫師章號與員工編號不可混用；四碼帳號 + F 是已知別名，其他後綴不截短。同名仍不能僅靠就診姓名確定身分。
 - DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單已 HAR 離線驗證，0.19.3 內網已驗證選項、卡號、姓名、員工編號與職稱組合查詢。明細未錄製，見 docs/PERSONNEL.md。
 - DDPortal 的查詢容器可用 frame 或 iframe；兩者都需比對允許來源與完整 DRQuerySql.jsp 路徑，0.19.3 已有內網成功證據。表單標籤可含「代碼 - 名稱」，測試器只剝除與該 option.value 相同的前綴且須唯一匹配；模型保留原標籤。單位及下層單位仍未內網實測，不把本機修正當成已送出查詢。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
-- SOAP 使用 parsing/soap.py 依明確標籤及同表 rowspan 分段，A+P 不硬拆 A/P；blocks／full_text 保持相容。diagnoses 只取 ICD 區，不從自由文字推論診斷或主次。SoapOrder／SoapMedication 是頁面摘要，無執行狀態或附件參照；不可冒充 ClinicalOrder／MedicationOrder。藥囑表可能在連續處方說明後的第二行，需保留前置說明、從完整欄位標題解析；明示的「服藥期限」回 SoapChronicPrescriptionPeriod，原文仍保留。未知列保留原文及 parsing_issues，None 表示未辨識段落，空字串表示有標籤但無內容。0.20.0 第二份 SOAP 專項內網回傳驗證四筆 SOAP 與一筆慢性處方期限；兩份混入異病歷號連結的清單仍須阻擋。詳見 docs/SOAP.md 與 docs/VALIDATION.md。
+- SOAP 使用 parsing/soap.py 依明確標籤及同表 rowspan 分段，A+P 不硬拆 A/P；blocks／full_text 保持相容。diagnoses 只取 ICD 區，不從自由文字推論診斷或主次。SoapOrder／SoapMedication 是頁面摘要，無執行狀態或附件參照；不可冒充 ClinicalOrder／MedicationOrder。藥囑表可能在連續處方說明後的第二行，需保留前置說明、從完整欄位標題解析；明示的「服藥期限」回 SoapChronicPrescriptionPeriod，原文仍保留。未知列保留原文及 parsing_issues，None 表示未辨識段落，空字串表示有標籤但無內容。0.20.0 第二份 SOAP 專項內網回傳驗證四筆 SOAP 與一筆慢性處方期限；當時兩份就診清單因異號阻擋。0.20.3 院內回傳另驗證一名已確認同病人之舊病歷號門診 SOAP，其他人的舊號關係尚待確認。詳見 docs/SOAP.md 與 docs/VALIDATION.md。
+- NumericTable.headers 是相容的攤平表頭，不可直接 zip(rows)；新功能使用 header_rows 與逐欄 column_paths。眼科表格可有兩層表頭、rowspan 及不合實際欄數的 colspan；能對齊才產生 column_paths，無法對齊保留原始 rows 並填 parsing_issues。手填 `error`、空白格、帶括號或說明的值依 HTML 儲存格位置保留，不靠數字猜左右眼。0.20.4 只將三欄日期／OD／OS 完全對齊的過大 colspan 計為測試警示，來源問題碼仍保留；其他不確定欄位仍是 ERROR。0.20.4 院內 EXE 回傳 `OK`，舊、新 ZIP 的就診、SOAP 及數值解析內容完全一致，警示數 2、解析錯誤數 0。長期間檢驗表的 else-if 異常值分支必須只輸出一個資料格，不能因靜態解析重複值；不執行任意 JS，數值、單位及左右眼不做臨床推論。詳見 docs/NUMERIC_REPORTS.md。
+- 手術排程 status 優先讀 ornstats，備援 orstatus；來源值可為未解碼的代碼，不能宣稱已完成手術。網頁顯示房間使用 oproom，oroproom 為另存的來源代碼；optime 的 TF／TF 加數字是未定時間，不能把 orbgntm 的 23:59:00 或月曆定位 08:30 當成已確定時間。SurgeryRecord.source_fields 保留完整原始列（含巢狀病人個資及院內識別資訊），extra 保持舊版未選欄位語義；兩者不可公開，詳見 docs/SURGERY_SCHEDULE.md。
 - 門診歸屬依回應醫師欄與已確認的 F 後綴規則；70／71／V1 只是科別。掛號與當日實際就診要分開。
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。
 - MIS HTML 可能含巢狀導覽表，必須保留主資料表自身的列；不要只保留最內層 table。

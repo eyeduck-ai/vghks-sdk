@@ -39,7 +39,13 @@ from .live.config import (
 from .live.console import configure_console_output
 from .live.defaults import SYNTHETIC_MRN
 from .live.environment import environment_report
-from .live.presets import combined_round, login_test_round, soap_test_round, visit_search_round
+from .live.presets import (
+    combined_round,
+    login_test_round,
+    regression_round,
+    soap_test_round,
+    visit_search_round,
+)
 from .live.profile import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .live.runner import (
     create_live_test_bundle,
@@ -66,7 +72,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -229,7 +235,7 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression"}:
             raise ConfigurationError(
                 "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits or soap profile"
             )
@@ -359,6 +365,8 @@ def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         return login_test_round()
     if getattr(args, "bundled_soap", False):
         return soap_test_round()
+    if getattr(args, "bundled_regression", False):
+        return regression_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -378,6 +386,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.bundled_visits = args.profile == "visits"
         args.bundled_login = args.profile == "login"
         args.bundled_soap = args.profile == "soap"
+        args.bundled_regression = args.profile == "regression"
         args.bundled_round = args.profile == "comprehensive"
     exit_code = 2
     try:
@@ -636,6 +645,12 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "regression":
+        print("\n本輪增量測試: 指定病歷號的病人資料、歷次就診、最多兩次眼科 SOAP 與數值報告。")
+        print("即使就診清單失敗, 仍繼續查詢該病人的數值報告歷史與醫師手術排程。")
+        print("原始 HTTP 回應與逐步結果會存入 EXE 同目錄的時間命名 ZIP; ZIP 未加密。")
+        print("本計畫僅唯讀, 不測錯誤密碼或異動。")
+        return config
     if config.profile == "soap":
         print(f"\n結構化 SOAP 測試: {config.soap_date} 登入醫師專屬門診清單。")
         print(f"最多選 {config.max_cases} 個不同病歷號, 每人最多 {config.max_items} 次當日門診就診。")

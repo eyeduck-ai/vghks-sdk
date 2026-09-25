@@ -149,6 +149,33 @@ class VisitParsingTests(unittest.TestCase):
             parse_visit_cases(visit_page(visit_row(), visit_row(hhisnum="11111111")), MRN)
         self.assertEqual(caught.exception.info.code, "PRQ_CASE_PATIENT_MISMATCH")
 
+    def test_patient_scoped_active_cases_keep_legacy_mrn_and_lookup_mrn(self):
+        rows = parse_visit_cases(
+            visit_page(
+                visit_row(caseNo="CURRENT"),
+                visit_row(hhisnum="11111111", caseNo="LEGACY", caseDT="2009-09-03"),
+                visit_row(hhisnum="22222222", caseNo="OLDER", caseDT="2001-04-05"),
+            ),
+            MRN,
+            allow_related_mrns=True,
+        )
+        self.assertEqual({case.case_no for case in rows}, {"CURRENT", "LEGACY", "OLDER"})
+        self.assertEqual({case.mrn for case in rows}, {MRN, "11111111", "22222222"})
+        legacy = next(case for case in rows if case.case_no == "LEGACY")
+        self.assertEqual((legacy.mrn, legacy.lookup_mrn, legacy.patient_mrn),
+                         ("11111111", MRN, MRN))
+        self.assertEqual(legacy.detail_params["hhisnum"], "11111111")
+        self.assertEqual(len(VisitFilter(all_sections=True).select(rows)), 3)
+
+    def test_unscoped_or_malformed_legacy_link_still_fails(self):
+        for source in (
+            f'<a href="{visit_link(hhisnum="11111111")}">visit</a>',
+            visit_page(visit_row(hhisnum="../other")),
+        ):
+            with self.subTest(source=source), self.assertRaises(ParseError) as caught:
+                parse_visit_cases(source, MRN, allow_related_mrns=True)
+            self.assertEqual(caught.exception.info.code, "PRQ_CASE_PATIENT_MISMATCH")
+
     def test_case_national_id_must_agree_if_returned(self):
         with self.assertRaises(ParseError):
             parse_visit_cases(visit_page(), MRN, expected_national_id="OTHERID")
@@ -308,6 +335,44 @@ class VisitLookupTests(unittest.TestCase):
             request.kwargs["data"], {"id": MRN, "queryID": "", "queryPtID": MRN, "type": "1"}
         )
 
+    def test_mrn_lookup_rejects_unconfirmed_context_before_case_list(self):
+        self.replies["prq.patient_context"] = '<script>alert("not found")</script>'
+        with self.assertRaises(ParseError) as caught:
+            self.records.get_visit_cases(MRN)
+        self.assertEqual(caught.exception.info.code, "PRQ_PATIENT_CONTEXT_UNCONFIRMED")
+        self.assertEqual(self.operation_keys(), ["prq.patient_context"])
+
+    def test_legacy_case_uses_source_mrn_for_detail_and_soap(self):
+        self.replies["prq.visit_cases"] = visit_page(
+            visit_row(caseNo="CURRENT"),
+            visit_row(hhisnum="11111111", caseNo="LEGACY", caseDT="2009-09-03"),
+        )
+        rows = self.records.get_visit_cases(MRN)
+        self.assertEqual(len(rows), 2)
+        legacy = next(case for case in rows if case.case_no == "LEGACY")
+        self.assertEqual((legacy.mrn, legacy.patient_mrn), ("11111111", MRN))
+        self.records.get_soap(legacy)
+        requests = self.runtime.request_text.call_args_list
+        for call in requests:
+            if call.args[0].key in {"prq.case_detail", "prq.soap"}:
+                self.assertEqual(call.kwargs["params"]["hhisnum"], "11111111")
+
+    def test_national_id_lookup_accepts_alias_but_rejects_explicit_id_conflict(self):
+        self.replies["prq.visit_cases"] = visit_page(
+            visit_row(caseNo="CURRENT"),
+            visit_row(hhisnum="11111111", caseNo="LEGACY"),
+        )
+        rows = self.records.get_visit_cases(national_id=NATIONAL_ID)
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(case.patient_mrn == MRN for case in rows))
+        self.replies["prq.visit_cases"] = visit_page(
+            visit_row(caseNo="CURRENT"),
+            visit_row(hhisnum="11111111", caseNo="LEGACY", hidno="OTHERID"),
+        )
+        with self.assertRaises(ParseError) as caught:
+            self.records.get_visit_cases(national_id=NATIONAL_ID)
+        self.assertEqual(caught.exception.info.code, "PRQ_PATIENT_ID_MISMATCH")
+
     def test_id_lookup_resolves_mrn_before_visit_details_soap_and_orders(self):
         selected = self.records.find_visit_cases(
             national_id=" ｔｅｓｔｉｄ０１ ",
@@ -424,6 +489,18 @@ class VisitLookupTests(unittest.TestCase):
 
 
 class VisitReplayTests(unittest.TestCase):
+    def test_replay_only_accepts_legacy_mrn_with_confirmed_context(self):
+        page = visit_page(
+            visit_row(caseNo="CURRENT"),
+            visit_row(hhisnum="11111111", caseNo="LEGACY"),
+        ).encode()
+        unconfirmed = replay_response("prq.visit_cases", page, {}, context_mrn=MRN)
+        confirmed = replay_response(
+            "prq.visit_cases", page, {}, context_mrn=MRN, trusted_visit_context=True
+        )
+        self.assertEqual(unconfirmed["error_code"], "PRQ_CASE_PATIENT_MISMATCH")
+        self.assertEqual((confirmed["status"], confirmed["record_count"]), ("PARSED", 2))
+
     def test_patient_header_replay_reports_only_count(self):
         request = {"method": "GET", "url": "https://example.test/PRQWeb/Page/JSP/KS_Patient.jsp"}
         self.assertEqual(identify_operation(request), "prq.patient_identity")

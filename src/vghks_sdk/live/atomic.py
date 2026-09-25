@@ -17,6 +17,9 @@ from ..models import (
     BinaryAsset,
     MedicationHistoryFilter,
     NumericHistoryFilter,
+    NumericHistoryReport,
+    NumericReport,
+    NumericTable,
     OrderHistoryFilter,
     OrderReport,
     PatientSurgeryRecord,
@@ -27,6 +30,7 @@ from ..models import (
     SurgeryHistoryFilter,
     TextReportHistory,
     UploadHistory,
+    VisitCase,
     to_jsonable,
 )
 from ..models.personnel import personnel_employee_id
@@ -92,7 +96,7 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         )
     specs = (
         resolve_queries(requested)
-        if config.profile in {"atomic", "comprehensive", "ophthalmology"}
+        if config.profile in {"atomic", "comprehensive", "ophthalmology", "regression"}
         else ()
     )
     targets = tuple(dict.fromkeys(spec.app for spec in specs)) or ("prq", "webmaas")
@@ -100,7 +104,7 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         config.profile == "comprehensive" and not config.only_operations
     ):
         targets = tuple(spec.key for spec in AUTH_CHECK_REGISTRY)
-    elif config.profile == "comprehensive":
+    elif config.profile in {"comprehensive", "regression"}:
         if config.weekly_opd_soap:
             targets = (*targets, "prq")
         targets = tuple(spec.key for spec in resolve_auth_targets(targets))
@@ -358,9 +362,13 @@ def run_atomic_test(
                     summarize=_counts,
                     classify=_classify,
                     missing_code="QUERY_RESULT_EMPTY",
-                    classified_error_code="SURGERY_PDF_LINKS_INCOMPLETE"
-                    if spec.key == "prq.surgery_history"
-                    else "",
+                    classified_error_code=(
+                        "SURGERY_PDF_LINKS_INCOMPLETE"
+                        if spec.key == "prq.surgery_history"
+                        else "NUMERIC_TABLE_PARSING_ISSUES"
+                        if spec.key in {"prq.numeric", "prq.numeric_history"}
+                        else ""
+                    ),
                     **common,
                 )
                 if value is not None:
@@ -623,6 +631,15 @@ def _query_inputs(
                     case.visit_date.year if case.visit_date else None,
                 ),
             )
+        elif config.profile == "regression" and config.max_cases >= 2:
+            # Verify navigation through one historical MRN when the patient-
+            # scoped list contains an alias.  Keep the latest ordinary visit
+            # too, without increasing the bounded number of SOAP requests.
+            selected = cases[: config.max_cases]
+            related = next((case for case in cases if case.mrn != case.patient_mrn), None)
+            if related is not None and related not in selected:
+                selected = [*selected[: config.max_cases - 1], related]
+            cases = selected
         return [{"case": case} for case in cases[: config.max_cases]]
     if spec.scope.startswith("doctor_") and not config.doctor_card:
         return []
@@ -719,6 +736,21 @@ def _counts(value: Any) -> dict[str, Any]:
         return {"record_count": len(value.report_refs)}
     if isinstance(value, UploadHistory):
         return {"record_count": len(value.pdf_refs), "table_count": len(value.document.tables)}
+    if isinstance(value, (NumericReport, NumericHistoryReport)):
+        numeric_warnings = sum(
+            1
+            for table in value.tables
+            for issue in table.parsing_issues
+            if issue == "NUMERIC_HEADER_SPAN_MISMATCH" and _aligned_eye_table(table)
+        )
+        numeric_issues = sum(len(table.parsing_issues) for table in value.tables)
+        return {
+            "record_count": len(value.tables),
+            "numeric_row_count": sum(len(table.rows) for table in value.tables),
+            "numeric_issue_count": numeric_issues,
+            "numeric_warning_count": numeric_warnings,
+            "numeric_error_count": numeric_issues - numeric_warnings,
+        }
     if isinstance(value, dict):
         for key in ("consents", "surgs", "reqs", "pfiles", "forms", "caseList"):
             if key in value and isinstance(value[key], (list, dict)):
@@ -733,6 +765,12 @@ def _counts(value: Any) -> dict[str, Any]:
             "text_extraction_notes": list(value.text_extraction_notes),
         }
     if isinstance(value, (tuple, list)):
+        if value and all(isinstance(row, VisitCase) for row in value):
+            return {
+                "record_count": len(value),
+                "source_mrn_count": len({row.mrn for row in value}),
+                "related_mrn_visit_count": sum(row.mrn != row.patient_mrn for row in value),
+            }
         if value and all(isinstance(row, PatientSurgeryRecord) for row in value):
             return {
                 "record_count": len(value),
@@ -753,7 +791,26 @@ def _classify(value: Any) -> str:
     count = _counts(value)
     if count.get("surgery_pdf_issue_count"):
         return "ERROR"
+    if count.get("numeric_error_count"):
+        return "ERROR"
     return "EMPTY" if count.get("record_count") == 0 else "OK"
+
+
+def _aligned_eye_table(table: NumericTable) -> bool:
+    """A stale group colspan is harmless only with an exact OD/OS cell grid."""
+
+    if len(table.header_rows) != 2 or tuple(map(len, table.header_rows)) != (2, 2):
+        return False
+    first, second = table.header_rows
+    if first[0] != "日期" or not first[1] or set(second) != {"OD", "OS"}:
+        return False
+    if table.column_paths != (
+        ("日期",),
+        (first[1], second[0]),
+        (first[1], second[1]),
+    ):
+        return False
+    return bool(table.rows) and all(len(row) == 3 for row in table.rows)
 
 
 def _raise(error: Exception) -> None:

@@ -32,6 +32,8 @@ Requests Session（鎖、節流、retry、capture）
 
 **Session 有狀態**：病人 context 與同主機 SSO 模式可能互相影響；Runtime 在完整操作期間持有 RLock 並管理 cache invalidation。不要在同一 Session 外加 thread pool；獨立任務各用 SDK，並維持整體節流。
 
+**就診清單可含歷史病歷號**：PRQ Adapter 建立並辨識病人 context 後，Parser 才接受正式啟用就診列中的舊號。`VisitCase.mrn` 是該列明細連結的來源號碼，`lookup_mrn` 是取得整份清單的號碼；門診組合以 `patient_mrn` 對應掛號，單次 SOAP／醫囑仍使用來源號碼。獨立解析或來源不明連結維持嚴格檢查。
+
 **登入失敗不等於 Session 過期**：AuthExpiredError 才代表可嘗試恢復的既有登入；LoginRejectedError 為 AuthenticationError 的另一個子類別，不能進入重登入迴圈。Adapter 區分登入建立階段與查詢階段的回應，Runtime 在重登入遭拒時保留原錯誤。原子查詢最多恢復一次；MIS 二次驗證與異動不套用這個自動重做機制。詳見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。
 
 **連線政策由 SDK 共用**：core/connections.py 管理每個 HTTPS 來源的優先 TLS 模式及成功狀態，core/transport.py 在有限重試內切換，並在初次不可重試 POST 前匿名確認連線。live/preflight.py 沿用相同優先設定；一般 Service 不依賴測試器。Session／Cookie 不因換模式重建。預設行為與嚴格模式見 [CONNECTIONS](CONNECTIONS.md)。

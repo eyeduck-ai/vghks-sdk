@@ -141,7 +141,7 @@ def parse_patient_identity(html_text: str, *, expected_national_id: str = "") ->
     return next(iter(mrns))
 
 
-def _visit_links(html_text: str) -> Iterator[tuple[str, str | None]]:
+def _visit_links(html_text: str) -> Iterator[tuple[str, str | None, bool]]:
     # JSP emits both rendering branches for each visit. Read the statically
     # active constructor before deduplication; the inactive one can omit the
     # physician card and detail context. Never run JavaScript or merge branches.
@@ -156,7 +156,7 @@ def _visit_links(html_text: str) -> Iterator[tuple[str, str | None]]:
     yield from _visit_source_links(str(soup))
 
 
-def _visit_source_links(source: str) -> Iterator[tuple[str, str | None]]:
+def _visit_source_links(source: str) -> Iterator[tuple[str, str | None, bool]]:
     active = {call.start: call for call in iter_active_constructor_calls(source, "KSCase")}
     # Mask ALL constructors, including inactive ones, so legacy literal-link
     # fallback cannot resurrect them or parse incomplete concatenated fragments.
@@ -177,15 +177,19 @@ def _visit_source_links(source: str) -> Iterator[tuple[str, str | None]]:
                 "visit link or physician expression is unsupported",
                 code="PRQ_CASE_EXPRESSION_UNSUPPORTED",
             )
-        yield href, doctor
+        yield href, doctor, True
     remaining.append(source[cursor:])
     for value in extract_quoted_strings(" ".join(remaining)):
         if "QueryCaseDetail.do?" in value:
-            yield value, None
+            yield value, None, False
 
 
 def parse_visit_cases(
-    html_text: str, expected_mrn: str, *, expected_national_id: str = ""
+    html_text: str,
+    expected_mrn: str,
+    *,
+    expected_national_id: str = "",
+    allow_related_mrns: bool = False,
 ) -> list[VisitCase]:
     expected = normalize_inline_text(expected_mrn)
     cases: list[VisitCase] = []
@@ -207,7 +211,7 @@ def parse_visit_cases(
         "rsNm",
         "heramcas",
     }
-    for value, doctor in _visit_links(html_text):
+    for value, doctor, active_case in _visit_links(html_text):
         decoded = html.unescape(value)
         if "QueryCaseDetail.do?" not in decoded or decoded.startswith("javascript:"):
             continue
@@ -219,7 +223,9 @@ def parse_visit_cases(
             for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
         }
         mrn = normalize_inline_text(query.get("hhisnum")) or expected
-        if expected and mrn != expected:
+        if expected and mrn != expected and not (
+            allow_related_mrns and active_case and _MRN_RE.fullmatch(mrn)
+        ):
             raise ParseError(
                 "case list belongs to another patient", code="PRQ_CASE_PATIENT_MISMATCH"
             )
@@ -240,6 +246,7 @@ def parse_visit_cases(
             detail_params={key: query[key] for key in allowed_detail_keys if key in query},
             doctor_name=strip_markup(doctor if doctor is not None else query.get("vsNm", "")),
             doctor_card=normalize_inline_text(query.get("vsNo")),
+            lookup_mrn=expected,
         )
         if not case.case_no or case.identity in seen:
             continue

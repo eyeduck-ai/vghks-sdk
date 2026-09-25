@@ -36,6 +36,15 @@ class VisitCase:
     detail_params: Mapping[str, str] | None = None
     doctor_name: str = ""
     doctor_card: str = ""
+    # The MRN used to obtain the patient-scoped list.  `mrn` remains the
+    # original MRN from this visit's detail link, including legacy aliases.
+    lookup_mrn: str = ""
+
+    @property
+    def patient_mrn(self) -> str:
+        """MRN of the patient lookup that returned this visit."""
+
+        return self.lookup_mrn or self.mrn
 
     @property
     def case_type_label(self) -> str:
@@ -235,6 +244,11 @@ class NumericTable:
     title: str
     headers: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
+    # Raw header rows retain the layout that ``headers`` historically flattens.
+    header_rows: tuple[tuple[str, ...], ...] = ()
+    # One label path per value column, only when the source can be aligned.
+    column_paths: tuple[tuple[str, ...], ...] = ()
+    parsing_issues: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

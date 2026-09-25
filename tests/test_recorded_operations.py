@@ -11,7 +11,13 @@ from urllib.parse import parse_qs, urlsplit
 
 import requests
 
-from vghks_sdk import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
+from vghks_sdk import (
+    EarningsCredentials,
+    PortalCredentials,
+    RequestPolicy,
+    SDKSettings,
+    SurgeryScheduleProcedure,
+)
 from vghks_sdk.adapters.auth import AuthenticationAdapter
 from vghks_sdk.adapters.earnings import EarningsAdapter
 from vghks_sdk.adapters.oppl import OpplAdapter
@@ -181,13 +187,119 @@ class AtomicRecordedTests(unittest.TestCase):
                         "orhisnum": "SYNTHETIC",
                         "orbgndt": {"dts": "2026-10-01"},
                         "ordate": {"dts": "2026-09-19"},
+                        "orstatus": "SCHEDULED",
                     }
                 ]
             }
         )
         self.assertEqual(rows[0].surgery_date, "2026-10-01")
+        self.assertEqual(rows[0].status, "SCHEDULED")
+        self.assertEqual((rows[0].extra or {})["orstatus"], "SCHEDULED")
         with self.assertRaises(ParseError):
             parse_surgery_records({"error": "not allowed"})
+
+    def test_schedule_matches_visible_columns_and_keeps_tf_unconfirmed(self):
+        rows = parse_surgery_records(
+            {
+                "surgs": [
+                    {
+                        "orhisnum": "SYNTHETIC-1",
+                        "orbgndt": {"dts": "2026-10-01"},
+                        "orbgntm": {"dts": "23:59:00"},
+                        "optime": "TF1",
+                        "oproom": "VISIBLE-ROOM",
+                        "oroproom": "INTERNAL-ROOM",
+                        "oropamed": "LA",
+                        "orfreqnc": "routine",
+                        "orcatgy": "OPH",
+                        "ordocnm": "VISIBLE-DOCTOR",
+                        "ordocnam": "OTHER-DOCTOR",
+                        "patient": {
+                            "hnursta": "W1",
+                            "hbedno": "02",
+                            "hnamec": "SYNTHETIC-PATIENT",
+                            "hsexc": "F",
+                        },
+                    },
+                    {
+                        "orhisnum": "SYNTHETIC-2",
+                        "orbgntm": {"dts": "08:30:00"},
+                        "optime": "0830",
+                        "oproom": "A6",
+                        "patient": {"hnursta": "OPD"},
+                    },
+                ]
+            }
+        )
+        unconfirmed, clock_time = rows
+        self.assertEqual(unconfirmed.surgery_date, "2026-10-01")
+        self.assertEqual(unconfirmed.patient_mrn, "SYNTHETIC-1")
+        self.assertEqual(unconfirmed.ward, "W1-02")
+        self.assertEqual(unconfirmed.room, "VISIBLE-ROOM")
+        self.assertEqual(unconfirmed.anesthesia, "LA")
+        self.assertEqual(unconfirmed.category, "routine")
+        self.assertEqual(unconfirmed.patient_name, "SYNTHETIC-PATIENT")
+        self.assertEqual(unconfirmed.patient_sex, "F")
+        self.assertEqual(unconfirmed.department, "OPH")
+        self.assertEqual(unconfirmed.doctor_name, "VISIBLE-DOCTOR")
+        self.assertEqual(unconfirmed.schedule_time, "TF1")
+        self.assertEqual(unconfirmed.time_status, "UNCONFIRMED")
+        self.assertEqual(unconfirmed.start_time, "")
+        self.assertEqual(clock_time.ward, "OPD")
+        self.assertEqual(clock_time.schedule_time, "0830")
+        self.assertEqual(clock_time.time_status, "CLOCK_TIME")
+        self.assertEqual(clock_time.start_time, "08:30:00")
+
+    def test_schedule_exposes_additional_identifiers_codes_and_full_source(self):
+        raw = {
+            "orhisnum": "SYNTHETIC",
+            "orreqno": "REQ-1",
+            "ordseqno": "2",
+            "orcasetp": "O",
+            "oproom": "VISIBLE-ROOM",
+            "oroproom": "INTERNAL-ROOM",
+            "oropnc1": "PROC-1",
+            "oropnm1": "FIRST PROCEDURE",
+            "oropnm3": "THIRD PROCEDURE",
+            "oropicd1": "D1",
+            "oropicd2": "D2",
+            "ordiag": "SYNTHETIC DIAGNOSIS",
+            "patient": {"hnursta": "OPD", "hnamec": "SYNTHETIC PATIENT"},
+            "unknown": {"detail": "kept"},
+        }
+        (record,) = parse_surgery_records({"surgs": [raw]})
+        self.assertEqual(
+            (record.request_no, record.sequence_no, record.case_type), ("REQ-1", "2", "O")
+        )
+        self.assertEqual(record.internal_room_code, "INTERNAL-ROOM")
+        self.assertEqual(
+            record.procedures,
+            (
+                SurgeryScheduleProcedure(1, "PROC-1", "FIRST PROCEDURE"),
+                SurgeryScheduleProcedure(3, "", "THIRD PROCEDURE"),
+            ),
+        )
+        self.assertEqual(record.diagnosis_codes, ("D1", "D2"))
+        self.assertEqual(record.diagnosis_text, "SYNTHETIC DIAGNOSIS")
+        self.assertEqual(record.source_fields, raw)
+        self.assertNotIn("oroproom", record.extra or {})
+        raw["patient"]["hnamec"] = "CHANGED AFTER PARSE"
+        self.assertEqual(record.source_fields["patient"]["hnamec"], "SYNTHETIC PATIENT")
+        self.assertNotIn("source_fields", repr(record))
+
+    def test_schedule_rejects_mismatched_nested_patient(self):
+        with self.assertRaises(ParseError) as caught:
+            parse_surgery_records(
+                {
+                    "surgs": [
+                        {
+                            "orhisnum": "SYNTHETIC-1",
+                            "patient": {"hhisnum": "SYNTHETIC-2", "hnamec": "OTHER"},
+                        }
+                    ]
+                }
+            )
+        self.assertEqual(caught.exception.info.code, "OPPL_SURGERY_PATIENT_MISMATCH")
 
     def test_patient_json_and_text_links_reject_wrong_patient(self):
         with self.assertRaises(ParseError):
@@ -292,7 +404,9 @@ class AtomicRecordedTests(unittest.TestCase):
             landing_url=runtime.settings.mis_base_url + "/VGHK/Pswdchk.asp",
         )
         with self.assertRaises(LoginRejectedError) as caught:
-            EarningsAdapter(runtime).open_report("performance", EarningsCredentials("SYNTHETIC", "TEST-SECRET"))
+            EarningsAdapter(runtime).open_report(
+                "performance", EarningsCredentials("SYNTHETIC", "TEST-SECRET")
+            )
         self.assertEqual(caught.exception.info.code, "EARNINGS_PASSWORD_REJECTED")
         self.assertEqual(session.request.call_count, 1)
         auth.login.assert_not_called()

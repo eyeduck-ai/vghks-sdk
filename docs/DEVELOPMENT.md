@@ -69,7 +69,7 @@ visits 專用版使用 `python tools/verify_visit_exe.py`，先驗證一般 SDK 
 
 登入版以 `python tools/verify_login_exe.py` 驗證當前原始碼建置的 EXE；`--source` 可先驗證原始碼。七種 HTTPS localhost 情境涵蓋過期 302／401、Cookie 清除未觸發過期、人事錯誤續跑、初始登入拒絕、負向未知回應及負向轉址；人事用 iframe 及含代碼前綴的選項，錯誤密碼用文字拒絕頁。核對伺服器實際收到的密碼 POST 次數、20 個模擬案例、零參數啟動及 ZIP／離線分析分類。每項失敗保留於 output/login-*.log。舊 EXE 不會因修改原始碼而更新，驗證結果必須記錄其 build_id。
 
-SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTTPS localhost 流程，包含多病人抽樣、藥囑表前置說明、慢性處方日期及 ZIP 輸出。院內 0.20.0 回傳已確認四筆結構化 SOAP；兩份歷次就診清單仍因異病歷號連結被安全檢查阻擋，見 [VALIDATION](VALIDATION.md)。
+SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTTPS localhost 流程，包含多病人抽樣、藥囑表前置說明、慢性處方日期及 ZIP 輸出。院內 0.20.0 回傳已確認四筆結構化 SOAP；另兩份異號就診清單當時被阻擋。0.20.3 增量 EXE 回傳另驗證一名已確認同病人的舊號門診 SOAP；其他人的舊號關係尚未逐一核對，見 [VALIDATION](VALIDATION.md)。
 
 ## 引用方式與離線安裝
 

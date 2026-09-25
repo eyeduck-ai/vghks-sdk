@@ -262,7 +262,7 @@ def run_visit_test(
     else:
         skipped("visits.by_national_id", "PATIENT_ID_UNAVAILABLE", key="prq.visit_cases")
 
-    matching_id = by_id is not None and all(case.mrn == mrn for case in by_id)
+    matching_id = by_id is not None and all(case.patient_mrn == mrn for case in by_id)
     if by_id is not None:
         _run_step(
             steps,
@@ -298,7 +298,7 @@ def run_visit_test(
     cases = by_id if source == "national_id" else by_mrn
     # Never send follow-up queries for an unexpected patient, even when a
     # manual national ID was mistyped or a custom adapter returned bad data.
-    if cases is not None and any(case.mrn != mrn for case in cases):
+    if cases is not None and any(case.patient_mrn != mrn for case in cases):
         cases = None
         skipped("visits.selection", "TEST_PATIENT_MISMATCH")
     write_json_atomic(

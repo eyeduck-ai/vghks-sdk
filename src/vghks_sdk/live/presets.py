@@ -1,4 +1,14 @@
-"""Credential-free default for the current combined intranet validation round."""
+"""Credential-free defaults for bounded intranet validation rounds."""
+
+
+REGRESSION_QUERIES = (
+    "webmaas.basic_info",
+    "prq.visit_cases",
+    "prq.soap",
+    "prq.numeric",
+    "prq.numeric_history",
+    "oppl.surgery_schedule",
+)
 
 
 def login_test_round() -> dict:
@@ -32,6 +42,19 @@ def soap_test_round() -> dict:
         "weekly_opd_soap": False,
         "max_cases": 8,
         "max_items": 2,
+    }
+
+
+def regression_round() -> dict:
+    """Focused read-only checks for visit-index, numeric and surgery changes."""
+    return {
+        "profile": "regression",
+        "weekly_opd_soap": False,
+        "include_earnings": False,
+        "download_assets": False,
+        "max_cases": 2,
+        "max_items": 2,
+        "only_operations": list(REGRESSION_QUERIES),
     }
 
 

@@ -51,6 +51,7 @@ from .surgery import (
     SurgeryCommand,
     SurgeryHistoryFilter,
     SurgeryRecord,
+    SurgeryScheduleProcedure,
 )
 from .surgery_cases import SurgeryCase, SurgeryCaseFilter, SurgeryCaseRef, SurgeryNoteRef
 
@@ -109,6 +110,7 @@ __all__ = [
     "SurgeryHistoryFilter",
     "SurgeryNoteRef",
     "SurgeryRecord",
+    "SurgeryScheduleProcedure",
     "TextReportHistory",
     "TreatmentRecord",
     "UnsignedRecord",

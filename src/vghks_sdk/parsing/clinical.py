@@ -201,7 +201,7 @@ def parse_numeric_tables(html_text: str) -> tuple[NumericTable, ...]:
         parsed = _numeric_table(table)
         if parsed is None:
             continue
-        identity = (parsed.title, parsed.headers, parsed.rows)
+        identity = (parsed.title, parsed.header_rows, parsed.rows)
         if identity not in seen:
             seen.add(identity)
             tables.append(parsed)
@@ -606,17 +606,25 @@ def _pdf_candidates(source: str) -> Iterable[str]:
 
 
 def _numeric_table(table: Tag) -> NumericTable | None:
-    rows = table.find_all("tr")
+    rows = [row for row in table.find_all("tr") if row.find_parent("table") is table]
     headers = tuple(
         normalize_inline_text(cell.get_text(" ", strip=True))
-        for cell in table.find_all("th")
+        for row in rows
+        for cell in row.find_all("th", recursive=False)
         if normalize_inline_text(cell.get_text(" ", strip=True))
     )
     values: list[tuple[str, ...]] = []
+    header_cells: list[list[Tag]] = []
+    data_started = False
     for row in rows:
         cells = row.find_all("td", recursive=False)
         if not cells:
+            if not data_started:
+                heading_cells = row.find_all("th", recursive=False)
+                if heading_cells:
+                    header_cells.append(heading_cells)
             continue
+        data_started = True
         parsed = tuple(normalize_inline_text(cell.get_text(" ", strip=True)) for cell in cells)
         if any(parsed):
             values.append(parsed)
@@ -629,7 +637,114 @@ def _numeric_table(table: Tag) -> NumericTable | None:
         title = normalize_inline_text(previous.get_text(" ", strip=True)) if previous else ""
     if not title:
         title = headers[1] if len(headers) > 1 else headers[0] if headers else ""
-    return NumericTable(title=title, headers=headers, rows=tuple(values))
+    header_rows = tuple(
+        tuple(normalize_inline_text(cell.get_text(" ", strip=True)) for cell in row)
+        for row in header_cells
+    )
+    widths = {len(row) for row in values}
+    issues: list[str] = []
+    if len(widths) > 1:
+        issues.append("NUMERIC_ROW_WIDTH_MISMATCH")
+    column_paths: tuple[tuple[str, ...], ...] = ()
+    if values:
+        column_paths, header_issues = _numeric_column_paths(header_cells, max(widths))
+        issues.extend(header_issues)
+        if len(widths) > 1:
+            column_paths = ()
+    return NumericTable(
+        title=title,
+        headers=headers,
+        rows=tuple(values),
+        header_rows=header_rows,
+        column_paths=column_paths,
+        parsing_issues=tuple(dict.fromkeys(issues)),
+    )
+
+
+def _numeric_column_paths(
+    header_rows: list[list[Tag]], width: int
+) -> tuple[tuple[tuple[str, ...], ...], tuple[str, ...]]:
+    if not header_rows:
+        return (), ("NUMERIC_HEADER_MISSING",)
+    grid: list[list[str | None]] = [[None] * width for _ in header_rows]
+    issues: list[str] = []
+
+    def span(cell: Tag, key: str) -> int:
+        raw = cell.get(key, 1)
+        try:
+            value = int(str(raw))
+        except ValueError:
+            value = 0
+        if value < 1:
+            issues.append("NUMERIC_HEADER_SPAN_INVALID")
+            return 1
+        return value
+
+    for row_index, cells in enumerate(header_rows):
+        cursor = 0
+        for cell_index, cell in enumerate(cells):
+            free = [index for index in range(cursor, width) if grid[row_index][index] is None]
+            available = len(free) - (len(cells) - cell_index - 1)
+            if available < 1:
+                issues.append("NUMERIC_HEADER_UNALIGNED")
+                break
+            declared_width = span(cell, "colspan")
+            actual_width = min(declared_width, available)
+            if actual_width != declared_width:
+                issues.append("NUMERIC_HEADER_SPAN_MISMATCH")
+            declared_height = span(cell, "rowspan")
+            actual_height = min(declared_height, len(header_rows) - row_index)
+            label = normalize_inline_text(cell.get_text(" ", strip=True))
+            for future_row in grid[row_index : row_index + actual_height]:
+                for column in free[:actual_width]:
+                    if future_row[column] is not None:
+                        issues.append("NUMERIC_HEADER_UNALIGNED")
+                    else:
+                        future_row[column] = label
+            cursor = free[actual_width - 1] + 1
+
+    # Legacy result tables may omit empty trailing unit cells.  Their first
+    # header row still names every data column, while the second starts with
+    # "單位" and supplies units only through the last non-empty unit.
+    # Treat only that exact, unspanned shape as omitted empty cells; a shorter
+    # grouped header remains ambiguous and must keep the alignment issue.
+    if (
+        len(header_rows) == 2
+        and len(header_rows[0]) == width
+        and 0 < len(header_rows[1]) < width
+        and all(
+            cell.get(attribute) in (None, "1", 1)
+            for cells in header_rows
+            for cell in cells
+            for attribute in ("colspan", "rowspan")
+        )
+        and normalize_inline_text(header_rows[0][0].get_text(" ", strip=True)) == "日期"
+        and normalize_inline_text(header_rows[1][0].get_text(" ", strip=True)) == "單位"
+    ):
+        for column in range(len(header_rows[1]), width):
+            grid[1][column] = ""
+
+    if any(label is None for row in grid for label in row):
+        issues.append("NUMERIC_HEADER_UNALIGNED")
+    if "NUMERIC_HEADER_UNALIGNED" in issues:
+        return (), tuple(dict.fromkeys(issues))
+
+    paths: list[tuple[str, ...]] = []
+    for column in range(width):
+        labels: list[str] = []
+        for row in grid:
+            label = row[column]
+            if label and (not labels or labels[-1] != label):
+                labels.append(label)
+        # Legacy laboratory tables put "單位" beneath "日期" as the label
+        # for the units row, not as a unit belonging to the date column.
+        if labels[:2] == ["日期", "單位"]:
+            labels.pop(1)
+        paths.append(tuple(labels))
+    if any(not path for path in paths):
+        issues.append("NUMERIC_HEADER_UNALIGNED")
+        return (), tuple(dict.fromkeys(issues))
+    return tuple(paths), tuple(dict.fromkeys(issues))
 
 
 def _labelled_fields(soup: BeautifulSoup) -> Mapping[str, str]:

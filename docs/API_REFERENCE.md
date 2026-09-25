@@ -25,13 +25,13 @@
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
-| `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；含到院日、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。 |
+| `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；保留同病人舊病歷號的原始就診連結與查詢號，含日期、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。 |
 | `prq.case_detail` | `get_case_detail(case: VisitCase) -> CaseDetail` | 單次就診的頁籤、連結與原始頁面。 |
 | `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要及明示的慢性處方服藥期限；保留原文與解析提示，見 [SOAP](SOAP.md)。僅支援 O 類別。 |
-| `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留原始單位及欄位。 |
+| `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留雙層表頭、可對齊的欄位路徑及原始數值，見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。 |
 | `prq.consults` | `get_consults(case: VisitCase) -> list[ConsultRecord]` | 該次就診的會診紀錄；合法空清單不視為例外。 |
 | `prq.treatments` | `get_treatments(case: VisitCase) -> list[TreatmentRecord]` | 該次就診的處置／治療清單。 |
-| `prq.numeric_history` | `get_numeric_history(mrn: str, filter: NumericHistoryFilter) -> NumericHistoryReport` | 指定期間的數值結果；與單次就診查詢分開。 |
+| `prq.numeric_history` | `get_numeric_history(mrn: str, filter: NumericHistoryFilter) -> NumericHistoryReport` | 指定期間的數值結果；與單次就診查詢分開，欄位對齊限制見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。 |
 | `prq.surgery_history` | `get_surgery_history(mrn: str, filter: SurgeryHistoryFilter) -> list[PatientSurgeryRecord]` | 病人的歷史手術清單及手術 PDF 參照／解析問題。 |
 | `prq.allergy` | `get_allergy(mrn: str) -> dict[str, Any]` | 病人的過敏旗標／資料，保留來源 JSON。 |
 | `prq.advance_directives` | `get_advance_directives(mrn: str) -> dict[str, Any]` | 預立醫療意願相關旗標／資料。 |
@@ -63,7 +63,7 @@
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
-| `oppl.surgery_schedule` | `get_schedule(card_no: str, start: date, end: date, **filters: str) -> list[SurgeryRecord]` | 醫師在日期區間內的手術排程，包含狀態與來源欄位。 |
+| `oppl.surgery_schedule` | `get_schedule(card_no: str, start: date, end: date, **filters: str) -> list[SurgeryRecord]` | 醫師在日期區間內的手術排程；欄位與原始來源鍵見 [SURGERY_SCHEDULE](SURGERY_SCHEDULE.md)。 |
 | `oppl.patient_info` | `get_patient_info(mrn: str) -> dict[str, Any]` | 手術系統的病人資料與現有排程，可提供開啟表單所需欄位。 |
 | `oppl.patient_consents` | `get_patient_consents(mrn: str) -> dict[str, Any]` | 病人既有同意書清單／狀態。 |
 | `oppl.request_numbers` | `get_request_numbers(mrn: str) -> dict[str, Any]` | 病人相關申請單號，供排程／同意書組合使用。 |

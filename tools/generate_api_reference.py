@@ -40,7 +40,7 @@ PURPOSES = {
     "prq.pacs_study": "開啟 JPG 檢視資料，列出圖片；按鈕存在仍可能回傳空清單。",
     "prq.pacs_image": "下載一張 JPG，驗證格式及完整結尾。",
     "prq.pdf_attachment": "下載一個 PRQ PDF 附件；共用於檢查、上傳文件及病人歷史手術。",
-    "prq.opd_patients": "指定醫師與日期的門診掛號清單；保留科別與回傳的醫師標示。",
+    "prq.opd_patients": "指定醫師與日期的門診掛號清單；保留掛號序號、科別與回傳的醫師標示。",
     "oppl.surgery_schedule": "醫師在日期區間內的手術排程；欄位與原始來源鍵見 [SURGERY_SCHEDULE](SURGERY_SCHEDULE.md)。",
     "audit.unsigned_records": "醫師指定期間的未完成／未簽病歷。",
     "prq.allergy": "病人的過敏旗標／資料，保留來源 JSON。",

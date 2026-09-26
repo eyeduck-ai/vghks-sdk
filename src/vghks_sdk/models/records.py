@@ -22,6 +22,7 @@ class OutpatientPatient:
     room: str = ""
     doctor_card: str = ""
     doctor_label_present: bool = False
+    sequence_no: str = ""
 
 
 @dataclass(frozen=True, slots=True)

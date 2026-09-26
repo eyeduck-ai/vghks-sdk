@@ -2,7 +2,7 @@ import unittest
 from datetime import date
 
 from vghks_sdk.core.errors import NotFoundError
-from vghks_sdk.models import VisitCase, VisitFilter
+from vghks_sdk.models import VisitCase, VisitFilter, to_jsonable
 from vghks_sdk.parsing.audit import parse_unsigned_records
 from vghks_sdk.parsing.oppl import parse_surgery_records
 from vghks_sdk.parsing.prq import (
@@ -69,6 +69,25 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(result[0].mrn, "00000000")
         self.assertEqual(result[0].name, "測試病人")
         self.assertEqual(result[0].section_code, "70")
+
+    def test_opd_registration_sequence_preserves_zeros_and_distinct_bookings(self) -> None:
+        html = """
+        <script>aryOpdSec[0]='70';aryOpdRoom[0]='01';aryOpdDoc[0]='D001';</script>
+        <script>
+          var labStr = '<span data-mrn="99999999"><img src="icon2.gif"></span>';
+          if (aryOpdSec[0] == '70') {
+            new KSCase('', labStr+'003 複診', 'TEST001', 'Patient', 'F', '30');
+            new KSCase('', '003 複診', 'TEST001', 'Patient', 'F', '30');
+            new KSCase('', '004', 'TEST001', 'Patient', 'F', '30');
+            new KSCase('', '待確認', 'TEST002', 'Patient', 'M', '40');
+          }
+        </script>
+        """
+        result = parse_opd_patients(html, visit_date=date(2026, 1, 2), doctor_card="D001")
+        self.assertEqual([(row.mrn, row.sequence_no) for row in result], [
+            ("TEST001", "003"), ("TEST001", "004"), ("TEST002", ""),
+        ])
+        self.assertEqual(to_jsonable(result)[0]["sequence_no"], "003")
 
     def test_visit_case_links_are_deduplicated_and_filterable(self) -> None:
         eye = (

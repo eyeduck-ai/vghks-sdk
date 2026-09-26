@@ -20,7 +20,7 @@
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
-| `prq.opd_patients` | `get_doctor_patients(card_no: str, visit_date: date) -> list[OutpatientPatient]` | 指定醫師與日期的門診掛號清單；保留科別與回傳的醫師標示。 |
+| `prq.opd_patients` | `get_doctor_patients(card_no: str, visit_date: date) -> list[OutpatientPatient]` | 指定醫師與日期的門診掛號清單；保留掛號序號、科別與回傳的醫師標示。 |
 ## sdk.records
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |

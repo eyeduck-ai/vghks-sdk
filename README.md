@@ -39,7 +39,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 | 入口 | 用途 |
 | --- | --- |
-| `patients`／`opd` | 基本資料、掛號、醫師每日門診清單 |
+| `patients`／`opd` | 基本資料、掛號、醫師每日門診清單與掛號序號 |
 | `records` | 就診、SOAP、數值、會診、歷史手術、各科報告、病人旗標 |
 | `orders`／`medications` | 單次就診與跨期間醫囑／藥囑、報告、PDF／JPG |
 | `surgery` | 手術案例、紀錄 PDF、排程、同意書與明確的異動命令 |
@@ -57,7 +57,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 `records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；0.20.3 另驗證一筆舊病歷號門診 SOAP，能以來源號碼取得 S／O／A+P 與診斷。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
 
-未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。門診清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
+未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
 ## 文件
 

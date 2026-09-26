@@ -40,8 +40,8 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.0-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.0.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.5-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.5.tar.gz
 ```
 
 Windows EXE 使用 Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4：
@@ -83,14 +83,14 @@ SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTT
 
 ```sh
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
-python -m pip install output/package/vghks_sdk-0.20.0-py3-none-any.whl
+python -m pip install output/package/vghks_sdk-0.20.5-py3-none-any.whl
 ```
 
 SDK wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線部署時，在與目標相符的 Python／OS 環境先準備 wheel 及依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.0-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.0
+python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.5-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.5
 ```
 
 ## 發布檢查

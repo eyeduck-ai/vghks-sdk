@@ -59,3 +59,16 @@ basic = sdk.queries.run("webmaas.basic_info", mrn=mrn)
 2026-09-20 的內網回傳已確認三項病人查詢可取得資料；合成測試另涵蓋空值、分頁、身分不符與登入過期。實際欄位會依病人與就醫狀態不同，不能把錄製樣本的筆數寫成程式假設。
 
 comprehensive 計畫包含病人查詢；雙擊採用建置時的 profile，登入專項不查病人。開發時只測此模組，可執行 `vghks-live-test.exe --config configs/patient-queries.example.json`。ZIP 的 `parsed/atomic/` 下分別有 `webmaas.basic_info/`、`webmaas.demographics/`、`webmaas.registration_query/`，每項獨立留下 HTTP capture 與結果。病歷號由 `--test-mrn`、設定、環境變數或自用 EXE 的內嵌預設提供；公開版沒有真實預設值，互動執行時會提示輸入。
+
+## 醫師指定日門診掛號清單
+
+`sdk.opd.get_doctor_patients(card_no, visit_date)` 回傳該醫師指定日期的 `list[OutpatientPatient]`。每筆的 `sequence_no` 是門診頁面顯示的掛號序號，型別為字串，保留前導零；來源沒有可辨識序號時為空字串。同一病人、同日、同科別與診間若有不同序號，會保留為不同掛號列。`section_code`、`room`、`doctor_card` 仍依當次清單回應保留。
+
+```python
+from datetime import date
+
+for patient in sdk.opd.get_doctor_patients(card_no, date(2026, 9, 21)):
+    print(patient.mrn, patient.sequence_no, patient.section_code, patient.room)
+```
+
+掛號序號來自門診清單，與 `VisitCase.case_no` 的就診識別不同。清單有掛號不代表當日實際就診；要確認就診仍需查 `sdk.records.get_visit_cases(patient.mrn)`。

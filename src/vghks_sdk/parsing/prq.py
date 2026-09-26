@@ -51,7 +51,7 @@ def parse_opd_patients(
         "doctor": _parse_indexed_string_array(html_text, "aryOpdDoc"),
     }
     patients: list[OutpatientPatient] = []
-    seen: set[tuple[str, date, str, str]] = set()
+    seen: set[tuple[str, date, str, str, str]] = set()
     allowed_variables = {"labStr", "hnamecStr", "hvip", "numStr", "numStr2"}
     for script_index, script in enumerate(soup.find_all("script")):
         if script.get("src"):
@@ -71,9 +71,21 @@ def parse_opd_patients(
             mrn = normalize_inline_text(values[2]) if values[2] is not None else ""
             if values[2] is None or (mrn and not _MRN_RE.fullmatch(mrn)):
                 continue
+            # The second KSCase argument is the displayed registration label.
+            # Its leading digits are the queue number; trailing status text
+            # and markup are not part of that number.
+            label = strip_markup(values[1] or "")
+            sequence_match = re.match(r"^(\d+)(?=\D|$)", label)
+            sequence_no = sequence_match.group(1) if sequence_match else ""
             # New registrations may not have an MRN yet. Keep each such row
             # for debugging, while deduplicating its alternate JS branches.
-            identity = (mrn or f"missing-mrn-script-{script_index}", visit_date, section, room)
+            identity = (
+                mrn or f"missing-mrn-script-{script_index}",
+                visit_date,
+                section,
+                room,
+                sequence_no,
+            )
             if identity in seen:
                 continue
             seen.add(identity)
@@ -90,6 +102,7 @@ def parse_opd_patients(
                     # fill it with the query account: that invents ownership.
                     doctor_card=normalize_inline_text(page_doctor),
                     doctor_label_present=room_index in indexed["doctor"],
+                    sequence_no=sequence_no,
                 )
             )
     return patients

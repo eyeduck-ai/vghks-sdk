@@ -52,7 +52,7 @@
 - Review VerifyCode 是審查結果；ApplyStatus、ApplyFinishFlag 不是核准狀態。
 - MIS HTML 可能含巢狀導覽表，必須保留主資料表自身的列；不要只保留最內層 table。
 - PDF／JPG 下載成功不等於已解析醫療數據；沒有 OCR 時要明說。
-- 門診掃描病歷有單次 SOAP 參照及歷年上傳清單兩條來源。歷年 `OPG` 可確認為眼科專用；`RECORD` 僅在同一 PDF 參照出現在已核對的眼科門診 SOAP 時歸為眼科。`collect_ophthalmology_scans` 預設查全部眼科門診並保留未分類項目與不完整狀態。0.20.5 院內掃描 EXE 回傳為 OK：六筆抽樣眼科 SOAP 均與歷年 RECORD 相符、另有一筆 OPG、四份抽樣 PDF 成功；其餘兩筆眼科就診未查 SOAP。0.20.6 組合流程尚未院內實測，詳見 docs/SCANNED_RECORDS.md。
+- 門診掃描病歷有單次 SOAP 參照及歷年上傳清單兩條來源。歷年頁先保存全部可解析 PDF 項目的表格、病歷類別、顯示日期、來源 subtype 與 PDF 參照，再按原始病歷類別篩選。`RECORD`／`OPG` 不是科別；0.20.5 院內原始頁重解析顯示 8 筆 `RECORD` 屬「門診-記錄-眼科紀錄-空白紀錄單」，1 筆 `OPG` 屬「同意書-手術/麻醉-術前標示(OPH)」。眼科便利入口以病歷類別辨識，未知類別保留在完整清單；`collect_ophthalmology_scans` 預設查全部眼科門診以對照 SOAP 連結，並保留其他類別、未分類項目及不完整狀態。0.20.5 院內掃描 EXE 回傳為 OK：六筆抽樣眼科 SOAP 均與歷年眼科 `RECORD` 相符，四份抽樣 PDF 成功；其餘兩筆眼科就診未查 SOAP。0.20.7 分類設計尚未院內實測，詳見 docs/SCANNED_RECORDS.md。
 - 異動必須經 SurgeryCommand，測試 EXE 排除所有異動。未知異動結果先讀回，不重送。
 
 ## 以 HAR 新增功能

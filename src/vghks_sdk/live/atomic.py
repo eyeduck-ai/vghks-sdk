@@ -730,7 +730,7 @@ def _query_inputs(
                 row.pdf_ref
                 for history in values.get("prq.upload_history", [])
                 for row in history.scanned_records
-                if row.record_type == "OPG"
+                if row.is_ophthalmology_record
             ]
             case_refs = [
                 ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs
@@ -749,7 +749,7 @@ def _query_inputs(
                 row.pdf_ref
                 for history in values.get("prq.upload_history", [])
                 for row in history.scanned_records
-                if row.record_type == "OPG"
+                if row.is_ophthalmology_record
             )
             refs.extend(ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs)
         refs.extend(

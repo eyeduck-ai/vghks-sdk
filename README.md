@@ -59,7 +59,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
-單次門診掃描 PDF 可由 `records.get_case_scanned_records(case)` 取得參照；歷年明確標為 `OPG` 的項目可由 `records.get_ophthalmology_scan_history(mrn)` 取得。`RECORD` 也可能屬於眼科；`workflows.collect_ophthalmology_scans(sdk, mrn)` 會查全數眼科門診、交叉核對歷年清單並保留無法分類的項目。用法及驗證範圍見 [SCANNED_RECORDS](docs/SCANNED_RECORDS.md)。
+單次門診掃描 PDF 可由 `records.get_case_scanned_records(case)` 取得參照。歷年完整清單在 `records.get_upload_history(mrn).scanned_records`，每筆保留病歷類別、日期與 PDF 參照，可依類別精確篩選。眼科便利入口 `get_ophthalmology_scan_history(mrn)` 使用畫面上的「門診-記錄-眼科紀錄」類別；`collect_ophthalmology_scans(sdk, mrn)` 可再與單次 SOAP 連結對照。用法見 [SCANNED_RECORDS](docs/SCANNED_RECORDS.md)。
 
 ## 文件
 

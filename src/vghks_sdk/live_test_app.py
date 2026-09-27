@@ -650,9 +650,9 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
     if config.profile == "scans":
-        print("\n眼科掃描病歷測試: 查詢眼科門診 SOAP 中的掃描連結與歷年 OPG 掃描清單。")
+        print("\n掃描病歷測試: 保存完整歷年清單與病歷類別, 並查眼科門診 SOAP 連結。")
         print(f"預設抽樣最近 {config.max_cases} 次眼科門診, 最多下載 {config.max_items} 份 PDF。")
-        print("歷年清單完整保存; PDF 下載優先各取一份歷年 OPG 與單次就診掃描。")
+        print("PDF 下載優先各取一份眼科紀錄類別與單次就診來源。")
         print("原始回應與結果 ZIP 存於 EXE 同目錄; ZIP 未加密。本計畫僅唯讀。")
         raw_date = input("單次門診日期 YYYY-MM-DD (Enter 使用最近眼科就診): ").strip()
         if raw_date:

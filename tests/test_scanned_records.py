@@ -25,23 +25,41 @@ MRN = "SYN001"
 ROOT = "//HFS01_3A0.vghks.gov.tw/EMRU/8"
 
 
-def scan_script(name: str, subtype: str) -> str:
+EYE_CATEGORY = "門診-記錄-眼科紀錄-空白紀錄單"
+CONSENT_CATEGORY = "同意書-手術/麻醉-術前標示(OPH)"
+OTHER_CATEGORY = "門診-記錄-皮膚科紀錄-一般紀錄單"
+
+
+def scan_script(name: str, subtype: str, shown_date: str | None = None) -> str:
+    shown = f" + '<span>{shown_date}</span>'" if shown_date else ""
     return (
         "<script>var filepath = encodeURIComponent('"
         + f"{ROOT}/{MRN}/{name}.pdf"
         + "'); var subtype = '"
         + subtype
-        + "'; document.write('showPDF.jsp?fileName=' + encodeURIComponent(filepath));</script>"
+        + "'; document.write('showPDF.jsp?fileName=' + encodeURIComponent(filepath)"
+        + shown
+        + ");</script>"
+    )
+
+
+def history_table(*rows: tuple[str, str]) -> str:
+    return (
+        '<table id="tbObj"><tr><th>Category</th></tr></table>'
+        '<table class="sortable"><tr><th>病歷類別</th><th>病歷日期</th></tr>'
+        + "".join(f"<tr><td>{category}</td><td>{links}</td></tr>" for category, links in rows)
+        + "</table>"
     )
 
 
 class ScannedRecordTests(unittest.TestCase):
     def test_workflow_joins_eye_case_links_to_record_history_without_guessing(self) -> None:
         history = parse_upload_history(
-            '<table id="tbObj"><tr><th>Category</th></tr></table>'
-            + scan_script("case", "RECORD")
-            + scan_script("unclassified", "RECORD")
-            + scan_script("eye", "OPG"),
+            history_table(
+                (EYE_CATEGORY, scan_script("case", "RECORD", "2026-09-21")),
+                (CONSENT_CATEGORY, scan_script("marking", "OPG", "2026-07-07")),
+                (OTHER_CATEGORY, scan_script("skin", "RECORD", "2026-06-01")),
+            ) + scan_script("unclassified", "RECORD"),
             MRN,
         )
         first = VisitCase(MRN, date(2026, 9, 21), "O", "C1", "70", "眼科")
@@ -49,6 +67,7 @@ class ScannedRecordTests(unittest.TestCase):
         other = VisitCase(MRN, date(2026, 9, 19), "O", "C3", "61", "皮膚科")
         case_ref = PdfAttachmentRef(MRN, f"{ROOT}/{MRN}/case.pdf")
         extra_ref = PdfAttachmentRef(MRN, f"{ROOT}/{MRN}/case-only.pdf")
+        consent_ref = PdfAttachmentRef(MRN, f"{ROOT}/{MRN}/marking.pdf")
         records = Mock(
             get_upload_history=Mock(return_value=history),
             get_visit_cases=Mock(return_value=[other, second, first]),
@@ -56,23 +75,26 @@ class ScannedRecordTests(unittest.TestCase):
                 side_effect=lambda case: (
                     ScannedRecord(None, case_ref),
                     ScannedRecord(None, case_ref),
-                ) if case.case_no == "C1" else (ScannedRecord(None, extra_ref),)
+                ) if case.case_no == "C1" else (
+                    ScannedRecord(None, extra_ref), ScannedRecord(None, consent_ref)
+                )
             ),
         )
         result = collect_ophthalmology_scans(Mock(records=records), MRN)
         self.assertTrue(result.complete)
         self.assertEqual(result.eye_case_count, 2)
         self.assertEqual(result.checked_case_count, 2)
-        self.assertEqual([row.record_type for row in result.scans], ["RECORD", "OPG", None])
-        self.assertEqual(len(result.case_links), 2)
+        self.assertEqual([row.record_type for row in result.scans], ["RECORD", None])
+        self.assertEqual(len(result.case_links), 3)
+        self.assertEqual(len(result.history_records), 4)
+        self.assertEqual([row.record_type for row in result.other_history], ["OPG", "RECORD"])
         self.assertEqual(len(result.unclassified_history), 1)
         self.assertEqual(result.unclassified_history[0].record_type, "RECORD")
         self.assertEqual(records.get_case_scanned_records.call_count, 2)
 
     def test_workflow_reports_partial_case_failure_and_bounded_sampling(self) -> None:
         history = parse_upload_history(
-            '<table id="tbObj"><tr><th>Category</th></tr></table>'
-            + scan_script("eye", "OPG"),
+            history_table((EYE_CATEGORY, scan_script("eye", "RECORD", "2026-09-21"))),
             MRN,
         )
         first = VisitCase(MRN, date(2026, 9, 21), "O", "C1", "70", "眼科")
@@ -88,7 +110,7 @@ class ScannedRecordTests(unittest.TestCase):
         self.assertFalse(result.complete)
         self.assertEqual(result.checked_case_count, 1)
         self.assertEqual([issue.error_code for issue in result.case_issues], ["SOAP_SCHEMA_CHANGED"])
-        self.assertEqual([row.record_type for row in result.scans], ["OPG"])
+        self.assertEqual([row.record_type for row in result.scans], ["RECORD"])
         records.get_case_scanned_records.side_effect = lambda case: ()
         bounded = collect_ophthalmology_scans(Mock(records=records), MRN, max_cases=1)
         self.assertFalse(bounded.complete)
@@ -141,21 +163,48 @@ class ScannedRecordTests(unittest.TestCase):
         )
         self.assertEqual(inputs, [{"ref": soap.scanned_pdf_refs[0]}])
 
-    def test_history_keeps_source_types_and_selects_opg(self) -> None:
-        html = (
-            '<table id="tbObj"><tr><th>Category</th></tr></table>'
-            + scan_script("ordinary", "RECORD    ")
-            + scan_script("eye", "OPG       ")
+    def test_history_lists_every_category_and_selects_the_exact_eye_records(self) -> None:
+        html = history_table(
+            (
+                EYE_CATEGORY,
+                scan_script("eye-one", "RECORD    ", "2026-04-28")
+                + scan_script("eye-two", "RECORD", "2026-05-12"),
+            ),
+            (
+                CONSENT_CATEGORY,
+                scan_script("marking-2026-06-30", "OPG       ", "2026-07-07"),
+            ),
+            (OTHER_CATEGORY, scan_script("skin", "RECORD", "2026-06-23")),
         )
         history = parse_upload_history(html, MRN)
-        self.assertEqual(len(history.pdf_refs), 2)
+        self.assertEqual(len(history.pdf_refs), 4)
         self.assertEqual(
-            [row.record_type for row in history.scanned_records], ["RECORD", "OPG"]
+            [row.record_type for row in history.scanned_records],
+            ["RECORD", "RECORD", "OPG", "RECORD"],
+        )
+        self.assertEqual(history.scanned_categories, (EYE_CATEGORY, CONSENT_CATEGORY, OTHER_CATEGORY))
+        self.assertEqual(history.select_scanned_records(), history.scanned_records)
+        self.assertEqual(
+            history.select_scanned_records(EYE_CATEGORY), history.scanned_records[:2]
+        )
+        self.assertEqual(
+            history.select_scanned_records(CONSENT_CATEGORY), history.scanned_records[2:3]
+        )
+        self.assertEqual(
+            history.select_scanned_records(section_label="病歷類別"), history.scanned_records
+        )
+        self.assertEqual(
+            [row.record_date for row in history.scanned_records],
+            [date(2026, 4, 28), date(2026, 5, 12), date(2026, 7, 7), date(2026, 6, 23)],
+        )
+        self.assertEqual(
+            [row.is_ophthalmology_record for row in history.scanned_records],
+            [True, True, False, False],
         )
         adapter = Mock(get_upload_history=Mock(return_value=history))
         service = RecordsService(adapter)
         selected = service.get_ophthalmology_scan_history(MRN)
-        self.assertEqual(selected, history.scanned_records[1:])
+        self.assertEqual(selected, history.scanned_records[:2])
         adapter.get_upload_history.assert_called_once_with(MRN, "", "*")
         case = VisitCase(MRN, date(2026, 9, 21), "O", "123", "70", "Eye")
         soap = parse_soap(
@@ -174,14 +223,20 @@ class ScannedRecordTests(unittest.TestCase):
         )
         self.assertEqual(
             inputs,
-            [{"ref": history.scanned_records[1].pdf_ref}, {"ref": soap.scanned_pdf_refs[0]}],
+            [
+                {"ref": history.scanned_records[0].pdf_ref},
+                {"ref": history.scanned_records[1].pdf_ref},
+            ],
         )
         scans = _query_inputs(
             query_spec("prq.pdf_attachment"),
             LiveTestConfig(profile="scans", test_mrn=MRN, max_items=2),
             {"prq.upload_history": [history], "prq.soap": [soap]},
         )
-        self.assertEqual(scans, inputs)
+        self.assertEqual(
+            scans,
+            [{"ref": history.scanned_records[0].pdf_ref}, {"ref": soap.scanned_pdf_refs[0]}],
+        )
 
     def test_empty_history_is_distinct_from_unknown_structure(self) -> None:
         empty = parse_upload_history('<table id="tbObj"><tr><th>Category</th></tr></table>', MRN)
@@ -190,6 +245,41 @@ class ScannedRecordTests(unittest.TestCase):
         with self.assertRaises(ParseError) as caught:
             parse_upload_history("<html>unrecognized page</html>", MRN)
         self.assertEqual(caught.exception.info.code, "UPLOAD_HISTORY_STRUCTURE_MISSING")
+
+    def test_eform_section_is_preserved_without_becoming_an_eye_scan(self) -> None:
+        html = (
+            '<table id="tbObj"><tr><th>病歷類別(E化表單)</th><th>病歷日期</th></tr>'
+            + f"<tr><td>{EYE_CATEGORY}</td><td>"
+            + scan_script("eform", "RECORD", "2026-04-01")
+            + "</td></tr></table>"
+            + history_table((EYE_CATEGORY, scan_script("scan", "RECORD", "2026-04-02")))
+        )
+        records = parse_upload_history(html, MRN).scanned_records
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0].section_label, "病歷類別(E化表單)")
+        self.assertFalse(records[0].is_ophthalmology_record)
+        self.assertEqual(records[1].section_label, "病歷類別")
+        self.assertTrue(records[1].is_ophthalmology_record)
+
+    def test_missing_category_in_a_labelled_scan_row_is_an_error(self) -> None:
+        html = history_table(("", scan_script("scan", "RECORD", "2026-04-02")))
+        with self.assertRaises(ParseError) as caught:
+            parse_upload_history(html, MRN)
+        self.assertEqual(caught.exception.info.code, "SCAN_CATEGORY_MISSING")
+
+    def test_new_category_without_pdf_subtype_remains_selectable(self) -> None:
+        script = (
+            "<script>var filepath = encodeURIComponent('"
+            + f"{ROOT}/{MRN}/other.pdf"
+            + "'); document.write('showPDF.jsp' + '<span>2026-03-15</span>');</script>"
+        )
+        history = parse_upload_history(history_table((OTHER_CATEGORY, script)), MRN)
+        self.assertEqual(len(history.scanned_records), 1)
+        self.assertIsNone(history.scanned_records[0].record_type)
+        self.assertEqual(history.scanned_records[0].record_date, date(2026, 3, 15))
+        self.assertEqual(
+            history.select_scanned_records(OTHER_CATEGORY), history.scanned_records
+        )
 
     def test_pdf_sources_remain_bound_to_patient_and_allowed_host(self) -> None:
         for source, expected in (

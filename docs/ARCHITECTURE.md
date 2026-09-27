@@ -44,6 +44,6 @@ Requests Session（鎖、節流、retry、capture）
 
 **SOAP 結構化屬於純解析**：`parsing/soap.py` 依標籤、rowspan 及摘要標頭處理同一個 SOAP 回應；`parsing/prq.py` 保留原解析器匯入入口。SoapRecord 保留原有 blocks／full_text，新增分段、SoapDiagnosis／SoapOrder／SoapMedication，以及明示「服藥期限」的 SoapChronicPrescriptionPeriod。醫囑與藥囑是頁面列印摘要，不含報告參照；取詳細醫囑及報告仍由 orders／medications 原子操作負責。未知列保留原文及 parsing_issues，不能猜測醫療含義。
 
-**掃描病歷的跨來源歸屬在 workflow**：單次 SOAP 與歷年上傳頁各自由 Parser／Adapter／Service 處理；`collect_ophthalmology_scans` 才查全數眼科就診、比對 PDF 參照並去重。歷年 `RECORD` 只有與已核對眼科就診連結相同時才歸為眼科；未分類項目與查詢不完整狀態分開保留。
+**歷年掃描病歷先完整列出再篩選**：Parser 依歷年頁的表格列保存每個 PDF 的病歷類別、顯示日期、表格來源及 subtype；`UploadHistory` 提供完整清單和類別精確篩選。眼科便利入口依「門診-記錄-眼科紀錄」病歷類別選取，不能把 subtype `OPG` 當成科別。單次 SOAP 的掃描參照由獨立 Parser／Adapter／Service 處理；`collect_ophthalmology_scans` 再查眼科就診、比對參照並去重，保留其他類別、未分類項目及查詢不完整狀態。
 
 修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。

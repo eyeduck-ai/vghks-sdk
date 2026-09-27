@@ -25,7 +25,7 @@ class EyeScanCaseIssue:
 
 @dataclass(frozen=True, slots=True)
 class OphthalmologyScansResult:
-    """All identifiable eye scans; unresolved RECORD rows remain separate."""
+    """Eye records, other history categories and unresolved source links."""
 
     scans: tuple[ScannedRecord, ...]
     case_links: tuple[EyeScanCaseLink, ...]
@@ -35,6 +35,8 @@ class OphthalmologyScansResult:
     case_issues: tuple[EyeScanCaseIssue, ...] = ()
     history_error_code: str = ""
     visits_error_code: str = ""
+    history_records: tuple[ScannedRecord, ...] = ()
+    other_history: tuple[ScannedRecord, ...] = ()
 
     @property
     def complete(self) -> bool:
@@ -54,11 +56,11 @@ def collect_ophthalmology_scans(
     *,
     max_cases: int | None = None,
 ) -> OphthalmologyScansResult:
-    """Collect OPG history plus every PDF linked by eye outpatient visits.
+    """Select eye-category history and reconcile links from eye visits.
 
-    A RECORD row is counted as an eye scan only when its PDF also occurs on a
-    verified eye visit. The remaining RECORD rows are returned separately and
-    may belong to other departments. No PDF bytes are downloaded.
+    Displayed categories determine historical record type; RECORD/OPG are
+    source PDF subtypes. A SOAP-only link is included when it does not already
+    belong to a known different history category. No PDF bytes are downloaded.
     """
 
     if not isinstance(mrn, str) or not mrn.strip():
@@ -116,16 +118,22 @@ def collect_ophthalmology_scans(
     case_refs = {link.pdf_ref for link in links}
     scans: list[ScannedRecord] = []
     unclassified: list[ScannedRecord] = []
+    other_history: list[ScannedRecord] = []
     seen_refs: set[PdfAttachmentRef] = set()
     for record in history_records:
-        if record.record_type != "OPG" and record.pdf_ref not in case_refs:
+        if record.is_ophthalmology_record or (
+            record.category_label is None and record.pdf_ref in case_refs
+        ):
+            if record.pdf_ref not in seen_refs:
+                scans.append(record)
+                seen_refs.add(record.pdf_ref)
+        elif record.category_label is None:
             unclassified.append(record)
-            continue
-        if record.pdf_ref not in seen_refs:
-            scans.append(record)
-            seen_refs.add(record.pdf_ref)
+        else:
+            other_history.append(record)
+    other_refs = {record.pdf_ref for record in other_history}
     for link in links:
-        if link.pdf_ref not in seen_refs:
+        if link.pdf_ref not in seen_refs and link.pdf_ref not in other_refs:
             scans.append(ScannedRecord(None, link.pdf_ref))
             seen_refs.add(link.pdf_ref)
 
@@ -138,4 +146,6 @@ def collect_ophthalmology_scans(
         tuple(issues),
         history_error_code,
         visits_error_code,
+        history_records,
+        tuple(other_history),
     )

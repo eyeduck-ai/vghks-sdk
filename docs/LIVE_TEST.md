@@ -2,15 +2,15 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機 EXE 均為 0.20.6；EXE 內建 `scans` 計畫。2026-09-27 的 0.20.5 `scans` EXE 已取得院內 PDF 回傳，資料與抽樣範圍見 [VALIDATION](VALIDATION.md)。0.20.6 新增跨來源組合流程，仍待院內實測；本機 EXE 的合成 localhost 驗證不能取代該證據。
+目前 SDK 原始碼與本機 EXE 均為 0.20.7；EXE 內建 `scans` 計畫。2026-09-27 的 0.20.5 `scans` EXE 已取得院內 PDF 回傳，資料與抽樣範圍見 [VALIDATION](VALIDATION.md)。0.20.7 新增歷年病歷類別辨識及完整分類欄位，仍待院內實測；本機 EXE 的合成 localhost 驗證不能取代該證據。
 
 ## 本次：單次門診與歷年眼科掃描病歷
 
-只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，保留每筆 `RECORD`／`OPG` 來源類別；歷年眼科專用掃描只認明確標為 `OPG` 的項目。最多下載四份 PDF，優先各抽一份歷年 `OPG` 與單次就診掃描。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；全數可確認眼科掃描由 `collect_ophthalmology_scans` 組合流程查詢。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
+只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 
 此計畫只執行 PRQ 就診清單、SOAP、歷年掃描清單與 PDF 下載，以及必要的 Portal／PRQ 登入；不做異動、錯誤密碼、薪資或其他報告查詢。結果 ZIP 直接存於 EXE 同目錄，未加密，僅留本機。帶回新產生的時間命名 ZIP 供分析即可，不需要 CMD 或設定檔。
 
-0.20.5 院內結果為 `OK`：48 筆就診中有 8 筆眼科門診，預設上限下的 6 筆 SOAP 均有掃描連結，且與歷年 `RECORD` 對應；歷年清單有 8 筆 `RECORD` 和 1 筆 `OPG`，四份抽樣 PDF 均為完整 PDF。其餘兩筆眼科就診未在本輪查 SOAP，不能把 `RECORD` 全部自動歸類為眼科。
+0.20.5 院內結果為 `OK`：48 筆就診中有 8 筆眼科門診，預設上限下的 6 筆 SOAP 均有掃描連結，且與歷年眼科類別中的 `RECORD` 對應；歷年清單有 8 筆眼科 `RECORD` 和 1 筆術前標示 `OPG`，四份抽樣 PDF 均為完整 PDF。其餘兩筆眼科就診未在本輪查 SOAP；其歷年 PDF 可由病歷類別辨識。
 
 ```sh
 python tools/build_live_test_exe.py --default-profile scans

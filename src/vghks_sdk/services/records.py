@@ -62,9 +62,9 @@ class RecordsService:
     def get_ophthalmology_scan_history(
         self, mrn: str, days: str = "*"
     ) -> tuple[ScannedRecord, ...]:
-        """Find every OPG eye-specific scan in the requested history window."""
+        """Select outpatient eye-record entries by their displayed category."""
         history = self.get_upload_history(mrn, days=days)
-        return tuple(row for row in history.scanned_records if row.record_type == "OPG")
+        return tuple(row for row in history.scanned_records if row.is_ophthalmology_record)
 
     def get_visit_cases(
         self, mrn: str | None = None, *, national_id: str | None = None

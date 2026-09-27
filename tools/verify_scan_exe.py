@@ -23,13 +23,21 @@ PDF_ROOT = f"//HFS01_3A0.vghks.gov.tw/EMRU/8/{MRN}"
 PDF = "%PDF-1.4\n% synthetic PDF\n%%EOF\n"
 
 
-def scan_script(name: str, subtype: str) -> str:
+EYE_CATEGORY = "門診-記錄-眼科紀錄-空白紀錄單"
+CONSENT_CATEGORY = "同意書-手術/麻醉-術前標示(OPH)"
+OTHER_CATEGORY = "門診-記錄-皮膚科紀錄-一般紀錄單"
+
+
+def scan_script(name: str, subtype: str, shown_date: str | None = None) -> str:
+    shown = f" + '<span>{shown_date}</span>'" if shown_date else ""
     return (
         "<script>var filepath = encodeURIComponent('"
         + f"{PDF_ROOT}/{name}.pdf"
         + "'); var subtype = '"
         + subtype
-        + "'; document.write('showPDF.jsp?fileName=' + encodeURIComponent(filepath));</script>"
+        + "'; document.write('showPDF.jsp?fileName=' + encodeURIComponent(filepath)"
+        + shown
+        + ");</script>"
     )
 
 
@@ -56,9 +64,17 @@ class ScanIntranet(SyntheticIntranet):
             state["history_requests"] += 1
             return self.reply(
                 '<table id="tbObj"><tr><th>Category</th></tr></table>'
-                + scan_script("ordinary", "RECORD")
-                + scan_script("eye-one", "OPG")
-                + scan_script("eye-two", "OPG")
+                '<table class="sortable"><tr><th>病歷類別</th><th>病歷日期</th></tr>'
+                + f'<tr><td>{EYE_CATEGORY}</td><td>'
+                + scan_script("eye-one", "RECORD", "2026-04-28")
+                + scan_script("eye-two", "RECORD", "2026-05-12")
+                + '</td></tr>'
+                + f'<tr><td>{CONSENT_CATEGORY}</td><td>'
+                + scan_script("marking-2026-06-30", "OPG", "2026-07-07")
+                + '</td></tr>'
+                + f'<tr><td>{OTHER_CATEGORY}</td><td>'
+                + scan_script("ordinary", "RECORD", "2026-06-23")
+                + '</td></tr></table>'
             )
         if address.path == "/PRQWeb/Page/JSP/showPDF.jsp":
             params = dict(parse_qsl(address.query))
@@ -150,7 +166,13 @@ def main() -> int:
                 assert summary["profile"] == "scans" and summary["status"] == "OK"
                 history = json.loads(archive.read("parsed/atomic/prq.upload_history/0001.json"))
                 assert [row["record_type"] for row in history["scanned_records"]] == [
-                    "RECORD", "OPG", "OPG"
+                    "RECORD", "RECORD", "OPG", "RECORD"
+                ]
+                assert [row["category_label"] for row in history["scanned_records"]] == [
+                    EYE_CATEGORY, EYE_CATEGORY, CONSENT_CATEGORY, OTHER_CATEGORY
+                ]
+                assert [row["record_date"] for row in history["scanned_records"]] == [
+                    "2026-04-28", "2026-05-12", "2026-07-07", "2026-06-23"
                 ]
                 soap = json.loads(archive.read("parsed/atomic/prq.soap/0001.json"))
                 assert len(soap["scanned_pdf_refs"]) == 1

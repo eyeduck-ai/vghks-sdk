@@ -41,6 +41,18 @@ NOT_EXECUTED 通常沒有報告，組合流程保留原醫囑後跳過。PDF、�
 
 `records.get_text_report_history` 是各科報告入口。眼科完整項目宜由醫囑清單發現；可以將兩個入口按參照去重，但不能假設涵蓋相同檢查。
 
+## 眼科掃描病歷
+
+```python
+from vghks_sdk.workflows import collect_ophthalmology_scans
+
+result = collect_ophthalmology_scans(sdk, mrn)
+for record in result.scans:
+    pdf = sdk.orders.download_pdf(record.pdf_ref)
+```
+
+此流程預設查所有眼科門診，將單次 SOAP 的 PDF 參照與歷年掃描清單交叉核對。`result.scans` 包含明確的 `OPG`，以及已由眼科就診證實的 `RECORD`；`unclassified_history` 保留其餘歷年項目，不能逕稱為眼科。`case_links` 保留就診對應，`complete` 表示歷年頁與全數眼科就診均查詢成功；若需限制請求，可設定 `max_cases`，此時 `complete` 會反映抽樣尚未涵蓋全部就診。流程只回傳參照，PDF bytes 需明確呼叫下載。
+
 ## 最近七天門診與 SOAP
 
 ```python

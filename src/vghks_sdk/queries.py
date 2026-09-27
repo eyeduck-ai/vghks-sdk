@@ -111,7 +111,7 @@ QUERY_SPECS = (
         "download_pdf",
         "pdf",
         ("ref",),
-        ("prq.order_report", "prq.upload_history", "prq.text_report"),
+        ("prq.order_report", "prq.upload_history", "prq.text_report", "prq.soap"),
     ),
     QuerySpec(
         "prq.opd_patients",

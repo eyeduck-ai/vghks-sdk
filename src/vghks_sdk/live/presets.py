@@ -10,6 +10,13 @@ REGRESSION_QUERIES = (
     "oppl.surgery_schedule",
 )
 
+SCAN_RECORD_QUERIES = (
+    "prq.visit_cases",
+    "prq.soap",
+    "prq.upload_history",
+    "prq.pdf_attachment",
+)
+
 
 def login_test_round() -> dict:
     return {
@@ -55,6 +62,19 @@ def regression_round() -> dict:
         "max_cases": 2,
         "max_items": 2,
         "only_operations": list(REGRESSION_QUERIES),
+    }
+
+
+def scan_record_round() -> dict:
+    """Read-only case and historical eye-scan checks for one patient."""
+    return {
+        "profile": "scans",
+        "weekly_opd_soap": False,
+        "include_earnings": False,
+        "download_assets": True,
+        "max_cases": 6,
+        "max_items": 4,
+        "only_operations": list(SCAN_RECORD_QUERIES),
     }
 
 

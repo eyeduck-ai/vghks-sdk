@@ -34,12 +34,13 @@ from ..models import (
     to_jsonable,
 )
 from ..models.personnel import personnel_employee_id
-from ..queries import QUERY_SPECS, QuerySpec, resolve_queries, run_query
+from ..queries import QUERY_SPECS, QuerySpec, query_spec, resolve_queries, run_query
 from ..search import DoctorOpdPatientSource
 from ..workflows.opd_soap import scan_opd_soap
 from ..workflows.patient_records import select_asset_orders
 from .config import LiveTestConfig
 from .preflight import independent_readiness, run_network_checks
+from .presets import SCAN_RECORD_QUERIES
 from .profile import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
@@ -94,11 +95,14 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
             for key in OPHTHALMOLOGY_QUERIES
             if config.download_assets or key not in {"prq.pdf_attachment", "prq.pacs_image"}
         )
-    specs = (
-        resolve_queries(requested)
-        if config.profile in {"atomic", "comprehensive", "ophthalmology", "regression"}
-        else ()
-    )
+    if config.profile == "scans":
+        # The PDF query has several alternative producers. This focused plan
+        # needs only SOAP and upload history, so avoid unrelated report queries.
+        specs = tuple(query_spec(key) for key in SCAN_RECORD_QUERIES)
+    elif config.profile in {"atomic", "comprehensive", "ophthalmology", "regression"}:
+        specs = resolve_queries(requested)
+    else:
+        specs = ()
     targets = tuple(dict.fromkeys(spec.app for spec in specs)) or ("prq", "webmaas")
     if config.profile == "auth" or (
         config.profile == "comprehensive" and not config.only_operations
@@ -184,7 +188,11 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
                 "sdk_method": spec.sdk_method,
                 "scope": spec.scope,
                 "inputs": list(spec.inputs),
-                "dependencies": list(spec.dependencies),
+                "dependencies": list(
+                    ("prq.upload_history", "prq.soap")
+                    if config.profile == "scans" and spec.key == "prq.pdf_attachment"
+                    else spec.dependencies
+                ),
                 "requested": spec.key in requested,
                 "input_available": bool(
                     config.doctor_card
@@ -277,7 +285,11 @@ def run_atomic_test(
             **common,
         )
         fatal = isinstance(error, AuthenticationError) or not _target_ready(report, "portal")
-    specs = resolve_queries(tuple(row["key"] for row in plan["operations"]))
+    specs = (
+        tuple(query_spec(row["key"]) for row in plan["operations"])
+        if config.profile == "scans"
+        else resolve_queries(tuple(row["key"] for row in plan["operations"]))
+    )
     for spec in specs:
         values[spec.key] = []
         if fatal or not _target_ready(report, spec.app):
@@ -306,19 +318,24 @@ def run_atomic_test(
                 )
                 continue
             if not inputs:
+                dependencies = (
+                    ("prq.upload_history", "prq.soap")
+                    if config.profile == "scans" and spec.key == "prq.pdf_attachment"
+                    else spec.dependencies
+                )
                 dependency_failed = any(
-                    step.operation in spec.dependencies and step.status in {"ERROR", "BLOCKED"}
+                    step.operation in dependencies and step.status in {"ERROR", "BLOCKED"}
                     for step in steps
                 )
                 no_sample = (
-                    bool(spec.dependencies)
+                    bool(dependencies)
                     and not dependency_failed
                     and all(
                         any(
                             step.operation == key and step.status in {"OK", "EMPTY", "NO_SAMPLE"}
                             for step in steps
                         )
-                        for key in spec.dependencies
+                        for key in dependencies
                     )
                     and not spec.scope.startswith("doctor_")
                 )
@@ -707,13 +724,42 @@ def _query_inputs(
     else:
         # Prefer the explicit surgery-history source in a focused retest.
         # The same download operation also accepts report/upload attachments.
-        refs = [
+        refs = []
+        if config.profile == "scans":
+            eye_refs = [
+                row.pdf_ref
+                for history in values.get("prq.upload_history", [])
+                for row in history.scanned_records
+                if row.record_type == "OPG"
+            ]
+            case_refs = [
+                ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs
+            ]
+            refs.extend([*eye_refs[:1], *case_refs[:1], *eye_refs[1:], *case_refs[1:]])
+            unique = list(dict.fromkeys(ref for ref in refs if ref is not None))
+            return [{"ref": ref} for ref in unique[: config.max_items]]
+        elif config.profile == "atomic" and {
+            "prq.soap",
+            "prq.upload_history",
+            "prq.pdf_attachment",
+        }.issubset(config.only_operations):
+            # Keep the existing atomic sampling behavior for callers that
+            # explicitly select these three operations.
+            refs.extend(
+                row.pdf_ref
+                for history in values.get("prq.upload_history", [])
+                for row in history.scanned_records
+                if row.record_type == "OPG"
+            )
+            refs.extend(ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs)
+        refs.extend(
             ref
             for history in values.get("prq.surgery_history", [])
             for row in history
             for ref in row.surgery_record_refs
-        ]
+        )
         refs.extend(ref for report in reports for ref in report.pdf_refs)
+        refs.extend(ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs)
         refs.extend(
             ref for report in values.get("prq.upload_history", []) for ref in report.pdf_refs
         )

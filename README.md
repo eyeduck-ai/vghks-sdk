@@ -59,6 +59,8 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
+單次門診掃描 PDF 可由 `records.get_case_scanned_records(case)` 取得參照；歷年明確標為 `OPG` 的項目可由 `records.get_ophthalmology_scan_history(mrn)` 取得。`RECORD` 也可能屬於眼科；`workflows.collect_ophthalmology_scans(sdk, mrn)` 會查全數眼科門診、交叉核對歷年清單並保留無法分類的項目。用法及驗證範圍見 [SCANNED_RECORDS](docs/SCANNED_RECORDS.md)。
+
 ## 文件
 
 | 閱讀需求 | 文件 |
@@ -95,7 +97,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 `regression` EXE 內建私有測試病歷號，重點檢查就診清單、眼科 SOAP／數值表格與醫師手術排程；原始頁面保存在結果 ZIP，以追查特定病歷號的異常。計畫選擇、登入負向測試與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `scans` 計畫，啟動時詢問授權病歷號與 Portal 帳密，測試單次眼科門診掃描連結、歷年眼科掃描清單及 PDF 抽樣下載；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

@@ -43,6 +43,7 @@ from .live.presets import (
     combined_round,
     login_test_round,
     regression_round,
+    scan_record_round,
     soap_test_round,
     visit_search_round,
 )
@@ -72,7 +73,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -235,7 +236,7 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans"}:
             raise ConfigurationError(
                 "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits or soap profile"
             )
@@ -367,6 +368,8 @@ def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         return soap_test_round()
     if getattr(args, "bundled_regression", False):
         return regression_round()
+    if getattr(args, "bundled_scans", False):
+        return scan_record_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -387,6 +390,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.bundled_login = args.profile == "login"
         args.bundled_soap = args.profile == "soap"
         args.bundled_regression = args.profile == "regression"
+        args.bundled_scans = args.profile == "scans"
         args.bundled_round = args.profile == "comprehensive"
     exit_code = 2
     try:
@@ -645,6 +649,18 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "scans":
+        print("\n眼科掃描病歷測試: 查詢眼科門診 SOAP 中的掃描連結與歷年 OPG 掃描清單。")
+        print(f"預設抽樣最近 {config.max_cases} 次眼科門診, 最多下載 {config.max_items} 份 PDF。")
+        print("歷年清單完整保存; PDF 下載優先各取一份歷年 OPG 與單次就診掃描。")
+        print("原始回應與結果 ZIP 存於 EXE 同目錄; ZIP 未加密。本計畫僅唯讀。")
+        raw_date = input("單次門診日期 YYYY-MM-DD (Enter 使用最近眼科就診): ").strip()
+        if raw_date:
+            try:
+                return replace(config, visit_date=date.fromisoformat(raw_date))
+            except ValueError as exc:
+                raise ConfigurationError("單次門診日期須為 YYYY-MM-DD") from exc
+        return config
     if config.profile == "regression":
         print("\n本輪增量測試: 指定病歷號的病人資料、歷次就診、最多兩次眼科 SOAP 與數值報告。")
         print("即使就診清單失敗, 仍繼續查詢該病人的數值報告歷史與醫師手術排程。")

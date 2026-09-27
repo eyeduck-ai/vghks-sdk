@@ -19,6 +19,7 @@ from ..models import (
     VisitCase,
 )
 from .common import direct_rows, normalize_multiline_text
+from .scanned_records import parse_case_scanned_pdf_refs
 
 _LABELS = {
     "S": "S",
@@ -233,6 +234,7 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
         raise ParseError(
             "SOAP response did not contain its data container", code="PRQ_SOAP_CONTAINER_MISSING"
         )
+    scanned_pdf_refs = parse_case_scanned_pdf_refs(html_text, case.mrn)
     nodes = container.select(".soap pre")
     if not nodes:
         visible = re.sub(r"\s+", "", container.get_text()).strip("!\uff01。")
@@ -240,7 +242,7 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
             raise ParseError(
                 "SOAP response structure was unrecognized", code="PRQ_SOAP_STRUCTURE_UNRECOGNIZED"
             )
-        return SoapRecord(case, ())
+        return SoapRecord(case, (), scanned_pdf_refs=scanned_pdf_refs)
 
     labels = _table_labels(container)
     texts: dict[str, list[str]] = {}
@@ -335,4 +337,5 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
         unclassified_blocks=tuple(unclassified),
         parsing_issues=tuple(dict.fromkeys(issues)),
         chronic_prescription_periods=tuple(chronic_periods),
+        scanned_pdf_refs=scanned_pdf_refs,
     )

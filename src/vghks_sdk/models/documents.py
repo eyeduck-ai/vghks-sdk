@@ -43,10 +43,19 @@ class TextReportHistory:
 
 
 @dataclass(frozen=True, slots=True)
+class ScannedRecord:
+    """A scanned PDF; None means the source page supplied no subtype."""
+
+    record_type: str | None
+    pdf_ref: PdfAttachmentRef
+
+
+@dataclass(frozen=True, slots=True)
 class UploadHistory:
     mrn: str
     document: HtmlDocument
     pdf_refs: tuple[PdfAttachmentRef, ...]
+    scanned_records: tuple[ScannedRecord, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

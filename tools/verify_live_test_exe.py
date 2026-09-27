@@ -263,7 +263,10 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
         if path == "/PRQWeb/QueryPatientRecord.do":
             state["mrn"] = params.get("queryPtID") or params.get("id") or ""
             state["queried_mrns"].add(state["mrn"])
-            return self.reply("patient context")
+            return self.reply(
+                '<frameset><frame src="/PRQWeb/Page/JSP/KS_Patient.jsp">'
+                '<frame src="/PRQWeb/QueryCaseList.do"></frameset>'
+            )
         if path == "/PRQWeb/QueryCaseList.do":
             mrn = state.get("mrn", "")
             body = '<div id="typeO"></div>'

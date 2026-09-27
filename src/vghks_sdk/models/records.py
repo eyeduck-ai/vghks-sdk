@@ -9,6 +9,7 @@ from datetime import date
 
 from ..core.errors import ConfigurationError, ErrorInfo
 from ._validation import _history_lookback, _normalize_code, _safe_filter_value, _unique_normalized
+from .assets import PdfAttachmentRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +235,7 @@ class SoapRecord:
     unclassified_blocks: tuple[str, ...] = ()
     parsing_issues: tuple[str, ...] = ()
     chronic_prescription_periods: tuple[SoapChronicPrescriptionPeriod, ...] = ()
+    scanned_pdf_refs: tuple[PdfAttachmentRef, ...] = ()
 
     @property
     def full_text(self) -> str:

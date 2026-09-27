@@ -8,6 +8,7 @@ from .documents import (
     FormSnapshot,
     HtmlDocument,
     HtmlTable,
+    ScannedRecord,
     TextReportHistory,
     UploadHistory,
 )
@@ -98,6 +99,7 @@ __all__ = [
     "ReviewCasePart",
     "ReviewCaseRef",
     "ReviewLoginInfo",
+    "ScannedRecord",
     "SoapChronicPrescriptionPeriod",
     "SoapDiagnosis",
     "SoapMedication",

@@ -15,6 +15,7 @@ from ..models import (
     OrderReportRef,
     PatientSurgeryRecord,
     PdfAttachmentRef,
+    ScannedRecord,
     SoapRecord,
     SurgeryHistoryFilter,
     TextReportHistory,
@@ -58,6 +59,13 @@ class RecordsService:
     def get_upload_history(self, mrn: str, main_type: str = "", days: str = "*") -> UploadHistory:
         return self._adapter.get_upload_history(mrn, main_type, days)
 
+    def get_ophthalmology_scan_history(
+        self, mrn: str, days: str = "*"
+    ) -> tuple[ScannedRecord, ...]:
+        """Find every OPG eye-specific scan in the requested history window."""
+        history = self.get_upload_history(mrn, days=days)
+        return tuple(row for row in history.scanned_records if row.record_type == "OPG")
+
     def get_visit_cases(
         self, mrn: str | None = None, *, national_id: str | None = None
     ) -> list[VisitCase]:
@@ -88,6 +96,12 @@ class RecordsService:
         extraction; printed summaries do not replace navigable case orders.
         """
         return self._adapter.get_soap(case)
+
+    def get_case_scanned_records(self, case: VisitCase) -> tuple[ScannedRecord, ...]:
+        """Find scanned PDFs linked from this outpatient SOAP page."""
+        return tuple(
+            ScannedRecord(None, ref) for ref in self.get_soap(case).scanned_pdf_refs
+        )
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport:
         return self._adapter.get_numeric_report(case)

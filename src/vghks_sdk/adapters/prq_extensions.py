@@ -12,6 +12,7 @@ from ..core.operations import operation_spec
 from ..models import OrderReportRef, PdfAttachmentRef, TextReportHistory, UploadHistory
 from ..parsing.clinical import _pdf_candidates, parse_order_report
 from ..parsing.documents import parse_document
+from ..parsing.scanned_records import parse_history_scanned_records
 
 
 class PrqExtendedOperations:
@@ -200,4 +201,9 @@ def parse_upload_history(text: str, mrn: str) -> UploadHistory:
             "upload history structure missing", code="UPLOAD_HISTORY_STRUCTURE_MISSING"
         )
     refs = tuple(dict.fromkeys(PdfAttachmentRef(mrn, path) for path in _pdf_candidates(text)))
-    return UploadHistory(mrn, parse_document(text), refs)
+    return UploadHistory(
+        mrn,
+        parse_document(text),
+        refs,
+        parse_history_scanned_records(text, mrn),
+    )

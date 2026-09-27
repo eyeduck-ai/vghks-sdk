@@ -27,7 +27,7 @@
 | --- | --- | --- |
 | `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；保留同病人舊病歷號的原始就診連結與查詢號，含日期、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。 |
 | `prq.case_detail` | `get_case_detail(case: VisitCase) -> CaseDetail` | 單次就診的頁籤、連結與原始頁面。 |
-| `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要及明示的慢性處方服藥期限；保留原文與解析提示，見 [SOAP](SOAP.md)。僅支援 O 類別。 |
+| `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、明示的慢性處方服藥期限及掃描 PDF 參照；見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。 |
 | `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留雙層表頭、可對齊的欄位路徑及原始數值，見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。 |
 | `prq.consults` | `get_consults(case: VisitCase) -> list[ConsultRecord]` | 該次就診的會診紀錄；合法空清單不視為例外。 |
 | `prq.treatments` | `get_treatments(case: VisitCase) -> list[TreatmentRecord]` | 該次就診的處置／治療清單。 |
@@ -38,7 +38,7 @@
 | `prq.research_flags` | `get_research_flags(mrn: str) -> dict[str, Any]` | 研究／臨床試驗相關旗標。 |
 | `prq.bed_transfers` | `get_bed_transfers(mrn: str) -> dict[str, Any]` | 轉床及床位異動歷史。 |
 | `prq.care_cases` | `get_care_cases(mrn: str) -> dict[str, Any]` | 照護個案相關清單。 |
-| `prq.upload_history` | `get_upload_history(mrn: str, main_type: str = , days: str = *) -> UploadHistory` | 上傳文件清單與 PDF 參照；可按類型及天數查詢。 |
+| `prq.upload_history` | `get_upload_history(mrn: str, main_type: str = , days: str = *) -> UploadHistory` | 上傳文件清單與 PDF 參照，另保留掃描病歷的 RECORD／OPG 來源類別；可按類型及天數查詢。見 [SCANNED_RECORDS](SCANNED_RECORDS.md)。 |
 | `prq.upload_types` | `get_upload_types() -> list[dict[str, str]]` | 上傳文件類型目錄，供 upload_history 使用。 |
 | `prq.text_report_history` | `get_text_report_history(mrn: str, department: str, days: int = 3650) -> TextReportHistory` | 各科報告清單；PATH／RAD／CHK 與醫囑路徑分開。 |
 | `prq.text_report` | `get_text_report(ref: OrderReportRef) -> OrderReport` | 讀取各科報告的正文與附件參照；眼科完整檢查宜由醫囑路徑發現。 |
@@ -52,7 +52,7 @@
 | `prq.order_report` | `get_order_report(ref: OrderReportRef) -> OrderReport` | 醫囑路徑的文字、PDF 及 JPG 參照；正文狀態另行判定。 |
 | `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 開啟 JPG 檢視資料，列出圖片；按鈕存在仍可能回傳空清單。 |
 | `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 下載一張 JPG，驗證格式及完整結尾。 |
-| `prq.pdf_attachment` | `download_pdf(ref: PdfAttachmentRef) -> BinaryAsset` | 下載一個 PRQ PDF 附件；共用於檢查、上傳文件及病人歷史手術。 |
+| `prq.pdf_attachment` | `download_pdf(ref: PdfAttachmentRef) -> BinaryAsset` | 下載一個 PRQ PDF 附件；共用於檢查、掃描病歷、上傳文件及病人歷史手術。 |
 ## sdk.medications
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -115,6 +115,9 @@
 | `sdk.earnings.open_bonus(credentials)` | 取得專勤工作獎金 context；此功能不代表完整薪資系統。 |
 | `sdk.earnings.get_report(context, period=None)` | 取得所選月份的 HtmlDocument；表單可選月份是唯一允許值。 |
 | `sdk.records.download_surgery_record(ref)` | PRQ 歷史手術 PDF 的語意入口，使用相同 PDF 附件下載。 |
+| `sdk.records.get_case_scanned_records(case)` | 從單次門診 SOAP 頁取得掃描紀錄 PDF 參照；來源未提供類別時 record_type 為 None。 |
+| `sdk.records.get_ophthalmology_scan_history(mrn, days='*')` | 取得歷年掃描病歷中明確標為 OPG 的眼科專用 PDF 參照；其他 RECORD 類別保留在 upload_history.scanned_records。 |
+| `collect_ophthalmology_scans(sdk, mrn)` | 由 `vghks_sdk.workflows` 查全數眼科門診，將 SOAP 掃描連結與歷年 RECORD／OPG 對照；回傳可確認的眼科參照、未分類項目及查詢完整性。 |
 | `sdk.records.find_visit_cases(mrn=None, visit_filter=..., national_id=None)` | 查一位病人的就診清單並套用 VisitFilter；病歷號／身分證二擇一。 |
 | `VisitFilter(...).select(cases)` | 對已取得清單依日期、類別、科別、醫師篩選、去重、排序，不發 HTTP。 |
 | `sdk.personnel.get_by_card(card_no)` | 用員工帳號或已知四碼帳號 + F 別名查找精確匹配；回 PersonnelRecord 或 None；其 name 可接 VisitFilter.doctor_names，不使用醫師章號作為帳號。 |

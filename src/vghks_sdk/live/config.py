@@ -22,7 +22,7 @@ from ..models import ReviewCaseFilter, SurgeryCaseFilter, VisitFilter, to_jsonab
 from ..queries import query_spec
 from ..search import SoapSearch
 from .defaults import default_test_mrn
-from .presets import REGRESSION_QUERIES
+from .presets import REGRESSION_QUERIES, SCAN_RECORD_QUERIES
 
 LIVE_CONFIG_SCHEMA_VERSION = 6
 DEFAULT_SOAP_TEST_DATE = date(2026, 9, 21)
@@ -189,11 +189,12 @@ class LiveTestConfig:
             "visits",
             "soap",
             "regression",
+            "scans",
             "core",
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, core or full"
             )
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
@@ -207,6 +208,8 @@ class LiveTestConfig:
                 if profile == "soap"
                 else 3
                 if profile == "visits"
+                else 6
+                if profile == "scans"
                 else 1,
             )
         if self.max_items is None:
@@ -236,11 +239,15 @@ class LiveTestConfig:
         operations = tuple(dict.fromkeys(self.only_operations))
         if profile == "regression" and not operations:
             operations = REGRESSION_QUERIES
+        if profile == "scans" and not operations:
+            operations = SCAN_RECORD_QUERIES
+        if profile == "scans" and operations != SCAN_RECORD_QUERIES:
+            raise ConfigurationError("scans profile requires its four read-only scan queries")
         for key in operations:
             query_spec(key)
         object.__setattr__(self, "only_operations", operations)
-        if operations and profile not in {"atomic", "comprehensive", "regression"}:
-            raise ConfigurationError("only_operations requires atomic, comprehensive or regression profile")
+        if operations and profile not in {"atomic", "comprehensive", "regression", "scans"}:
+            raise ConfigurationError("only_operations requires atomic, comprehensive, regression or scans profile")
         for limit in (self.max_cases, self.max_items):
             if type(limit) is not int or not 1 <= limit <= 100:
                 raise ConfigurationError("test limits must be integers between 1 and 100")
@@ -249,7 +256,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")

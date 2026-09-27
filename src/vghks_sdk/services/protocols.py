@@ -41,12 +41,14 @@ from ..models import (
     PdfAttachmentRef,
     PersonnelRecord,
     RegistrationRecord,
+    ScannedRecord,
     SoapRecord,
     SurgeryCommand,
     SurgeryHistoryFilter,
     SurgeryRecord,
     TreatmentRecord,
     UnsignedRecord,
+    UploadHistory,
     VisitCase,
     VisitFilter,
 )
@@ -86,6 +88,10 @@ class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
     def get_case_detail(self, case: VisitCase) -> CaseDetail: ...
 
     def get_soap(self, case: VisitCase) -> SoapRecord: ...
+
+    def get_case_scanned_records(self, case: VisitCase) -> tuple[ScannedRecord, ...]: ...
+
+    def get_upload_history(self, mrn: str, main_type: str = "", days: str = "*") -> UploadHistory: ...
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport: ...
 

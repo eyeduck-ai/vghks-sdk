@@ -5,6 +5,12 @@ from .opd_soap import (
     scan_opd_soap,
     select_registration_visits,
 )
+from .ophthalmology_scans import (
+    EyeScanCaseIssue,
+    EyeScanCaseLink,
+    OphthalmologyScansResult,
+    collect_ophthalmology_scans,
+)
 from .order_reports import OrderReportsResult, collect_order_reports, matching_order_terms
 from .patient_records import (
     DEFAULT_ASSET_TERMS,
@@ -19,14 +25,18 @@ from .visit_history import VisitHistoryResult, export_visit_history
 
 __all__ = [
     "DEFAULT_ASSET_TERMS",
+    "EyeScanCaseIssue",
+    "EyeScanCaseLink",
     "LatestRecordsResult",
     "OpdSoapResult",
+    "OphthalmologyScansResult",
     "OrderReportsResult",
     "PatientRecordsResult",
     "SoapScanResult",
     "SurgeryCollectionResult",
     "VisitHistoryResult",
     "classify_opd_registration",
+    "collect_ophthalmology_scans",
     "collect_order_reports",
     "collect_surgery_records",
     "download_order_assets",

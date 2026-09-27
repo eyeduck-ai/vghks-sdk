@@ -57,7 +57,7 @@ class PdfAttachmentRef:
         is_recorded_unc = bool(
             re.match(
                 r"^(?://|\\\\)(?:hfs\d+_[A-Za-z0-9]+[/\\]+REPORT|"
-                r"(?:HFS01_1A0(?:\.vghks\.gov\.tw)?|nfs01p(?:\.vghks\.gov\.tw)?)[/\\]+EMRU|"
+                r"(?:HFS01_(?:1A0|3A0)(?:\.vghks\.gov\.tw)?|nfs01p(?:\.vghks\.gov\.tw)?)[/\\]+EMRU|"
                 r"HFS01_1A0(?:\.vghks\.gov\.tw)?[/\\]+OPG)[/\\]+",
                 decoded,
                 re.IGNORECASE,

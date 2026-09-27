@@ -1,12 +1,26 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼為 0.20.5，本機 EXE 仍為 0.20.4，內建 `regression` 增量計畫。0.20.5 的門診掛號序號欄位已有合成及既有 HAR 只讀驗證，尚未以新版 EXE 在內網重新執行。0.20.1 院內回傳取得 71 筆手術排程與 23 張跨期間數值表；4 張短單位表頭已於 0.20.2 修正。使用者確認同輪就診清單中的較早病歷號屬同一人後，0.20.3 的院內回傳取得完整 38 筆新舊號就診，並以舊號成功查得一筆門診 SOAP。0.20.4 院內回傳為 `OK`：同一清單與 SOAP 仍成功，眼科表格的兩個過大合併欄保留來源警示且沒有欄位對齊錯誤；舊號單次數值頁面仍為空清單。證據與限制見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機 EXE 均為 0.20.6；EXE 內建 `scans` 計畫。2026-09-27 的 0.20.5 `scans` EXE 已取得院內 PDF 回傳，資料與抽樣範圍見 [VALIDATION](VALIDATION.md)。0.20.6 新增跨來源組合流程，仍待院內實測；本機 EXE 的合成 localhost 驗證不能取代該證據。
 
-## 本次：指定病歷號、數值報告與手術排程增量測試
+## 本次：單次門診與歷年眼科掃描病歷
 
-本機現行 EXE 已內建授權測試病歷號。雙擊後輸入 Portal 帳號與密碼，毋須搬設定檔或再填病歷號。若需換病人，可從命令列用 `--test-mrn` 覆寫。此計畫不做錯誤密碼、薪資、附件或異動操作；請求仍依 SDK 預設循序及隨機節流。
+只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，保留每筆 `RECORD`／`OPG` 來源類別；歷年眼科專用掃描只認明確標為 `OPG` 的項目。最多下載四份 PDF，優先各抽一份歷年 `OPG` 與單次就診掃描。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；全數可確認眼科掃描由 `collect_ophthalmology_scans` 組合流程查詢。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
+
+此計畫只執行 PRQ 就診清單、SOAP、歷年掃描清單與 PDF 下載，以及必要的 Portal／PRQ 登入；不做異動、錯誤密碼、薪資或其他報告查詢。結果 ZIP 直接存於 EXE 同目錄，未加密，僅留本機。帶回新產生的時間命名 ZIP 供分析即可，不需要 CMD 或設定檔。
+
+0.20.5 院內結果為 `OK`：48 筆就診中有 8 筆眼科門診，預設上限下的 6 筆 SOAP 均有掃描連結，且與歷年 `RECORD` 對應；歷年清單有 8 筆 `RECORD` 和 1 筆 `OPG`，四份抽樣 PDF 均為完整 PDF。其餘兩筆眼科就診未在本輪查 SOAP，不能把 `RECORD` 全部自動歸類為眼科。
+
+```sh
+python tools/build_live_test_exe.py --default-profile scans
+dist/vghks-live-test.exe --plan
+python tools/verify_scan_exe.py
+```
+
+## 先前：指定病歷號、數值報告與手術排程增量測試
+
+先前 `regression` 專項 EXE 已內建授權測試病歷號。雙擊後輸入 Portal 帳號與密碼，毋須搬設定檔或再填病歷號。若需換病人，可從命令列用 `--test-mrn` 覆寫。此計畫不做錯誤密碼、薪資、附件或異動操作；請求仍依 SDK 預設循序及隨機節流。
 
 測試依序取得病人基本資料、完整就診清單，並抽最多兩次眼科門診就診查結構化 SOAP 與單次數值報告；若清單有舊病歷號的眼科門診，保留一筆近期就診，另一筆改抽最近的舊號就診。每筆 `VisitCase.mrn` 和 `lookup_mrn` 一起存入結果，步驟摘要另列不同來源病歷號數及舊號就診筆數。同一病人的跨期間數值報告及登入醫師的手術排程另行執行。排程預設範圍為測試當日前 29 天至後 30 天，只有一次排程清單查詢。數值結果保留雙層表頭、欄位路徑、原始值與解析問題；步驟摘要分列 `numeric_warning_count` 與 `numeric_error_count`，只有無法確定欄位對應的問題使步驟標 `NUMERIC_TABLE_PARSING_ISSUES`。手術排程保留網頁可見欄位、完整來源列與 `TF` 未定時間狀態。
 

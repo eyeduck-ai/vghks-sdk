@@ -99,7 +99,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `regression` 計畫，啟動時詢問高榮帳號、授權病歷號及可選的調閱原因代碼；也可輸入聯合醫院帳號與病歷號，比對兩組掛號流程。原有歷次就診與抽樣 SOAP 仍由高榮帳號測試；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `regression` 計畫，啟動時詢問高榮帳號與授權病歷號；也可輸入聯合醫院帳號與病歷號，比對兩組掛號流程。符合條件的調閱審查由 SDK 自動處理，不需輸入原因代碼。歷次就診與抽樣 SOAP 仍由高榮帳號測試；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

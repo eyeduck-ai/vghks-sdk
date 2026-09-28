@@ -51,4 +51,4 @@ for record in result.scans:
 
 同日的 0.20.5 院內 EXE ZIP 記錄 `OK`：48 筆就診中有 8 筆眼科門診，抽樣的 6 筆 SOAP 各有 1 個掃描參照且皆對應歷年眼科類別中的 `RECORD`；4 份抽樣 PDF 通過檔頭與結尾檢查，其中 1 份是術前標示 `OPG`。另 2 筆眼科就診未查 SOAP，但其歷年 `RECORD` 可由病歷類別辨識。原 ZIP 與 PDF 僅留本機。0.20.7 的分類與組合流程通過合成及原始 ZIP 的只讀重解析；新版 EXE 的 localhost 驗證不能當作內網實測。
 
-院內測試只需一個 `dist/vghks-live-test.exe`；`scans` 計畫啟動後輸入授權病歷號及 Portal 帳密，可選填單次門診日期。它保存完整歷年清單，預設抽最多六次眼科門診，並按病歷類別優先抽眼科 PDF 與單次 SOAP PDF，最多下載四份。EXE 是抽樣驗證工具；應用程式可直接遍歷 `history.scanned_records`，自行逐筆選擇要下載的 PDF。
+要測掃描流程，須先以 `--default-profile scans` 重新建置 `dist/vghks-live-test.exe`；目前本機檔案內建的是 `regression` 計畫。`scans` 版只需搬一個 EXE，啟動後輸入授權病歷號及 Portal 帳密，可選填單次門診日期。它保存完整歷年清單，預設抽最多六次眼科門診，並按病歷類別優先抽眼科 PDF 與單次 SOAP PDF，最多下載四份。EXE 是抽樣驗證工具；應用程式可直接遍歷 `history.scanned_records`，自行逐筆選擇要下載的 PDF。

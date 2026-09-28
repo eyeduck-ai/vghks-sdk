@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
@@ -51,6 +52,7 @@ _CREDENTIAL_KEYS = {
 _TOP_LEVEL_KEYS = {
     "login_negative_attempts",
     "test_mrn",
+    "access_review_reason",
     "schema_version",
     "weekly_opd_soap",
     "weekly_opd_end",
@@ -90,6 +92,7 @@ class LiveTestConfig:
     profile: str = "full"
     login_negative_attempts: int = 2
     test_mrn: str = field(default_factory=default_test_mrn)
+    access_review_reason: str | None = None
     output_root: Path | None = None
     visit_filter: VisitFilter = field(
         default_factory=lambda: VisitFilter(section_name_contains=("眼科",))
@@ -125,6 +128,11 @@ class LiveTestConfig:
         if not isinstance(self.test_mrn, str) or not self.test_mrn.strip():
             raise ConfigurationError("test_mrn must be nonempty", code="TEST_MRN_REQUIRED")
         object.__setattr__(self, "test_mrn", self.test_mrn.strip())
+        if self.access_review_reason is not None and (
+            not isinstance(self.access_review_reason, str)
+            or not re.fullmatch(r"[A-Za-z0-9]{1,4}", self.access_review_reason)
+        ):
+            raise ConfigurationError("access_review_reason must be an offered reason code")
         if not isinstance(self.review_query, Mapping) or set(self.review_query) - {
             "doctor_card",
             "department",
@@ -379,6 +387,7 @@ class LiveTestConfig:
 
         return {
             "test_mrn": self.test_mrn,
+            "access_review_reason": self.access_review_reason,
             "surgery_query": to_jsonable(self.surgery_query),
             "review_query": to_jsonable(self.review_query),
             "schema_version": LIVE_CONFIG_SCHEMA_VERSION,
@@ -617,6 +626,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         raise ConfigurationError("live-test asset_terms must be an array")
     return LiveTestConfig(
         test_mrn=values.get("test_mrn", default_test_mrn()),
+        access_review_reason=values.get("access_review_reason"),
         profile=str(values.get("profile", "full")),
         login_negative_attempts=values.get("login_negative_attempts", 2),
         output_root=Path(str(values["output_root"])) if values.get("output_root") else None,

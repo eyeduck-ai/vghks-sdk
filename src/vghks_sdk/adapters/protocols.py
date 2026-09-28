@@ -65,12 +65,18 @@ class PrqAdapterProtocol(PatientQueriesProtocol, Protocol):
     ) -> list[OutpatientPatient]: ...
 
     def get_visit_cases(
-        self, mrn: str | None = None, *, national_id: str | None = None
+        self,
+        mrn: str | None = None,
+        *,
+        national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]: ...
 
     def get_case_detail(self, case: VisitCase) -> CaseDetail: ...
 
-    def get_soap(self, case: VisitCase) -> SoapRecord: ...
+    def get_soap(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> SoapRecord: ...
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport: ...
 

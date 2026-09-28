@@ -34,6 +34,8 @@ class WebMaasAdapter:
 
         def operation() -> PatientDemographics:
             self.runtime.auth.ensure_webmaas_page("RSV11W001")
+            # CHECK_PAT may change server-side form state; a later query reads a new form.
+            self.runtime.auth.take_webmaas_landing("RSV11W001")
             return self._get_demographics_raw(mrn)
 
         return self.runtime.execute(
@@ -49,7 +51,9 @@ class WebMaasAdapter:
             self.runtime.auth.ensure_webmaas_page("QUY15W001")
             base = self.runtime.settings.webmaas_base_url.rstrip("/")
             url = f"{base}/QUY/QUY15W001.do"
-            landing = self.runtime.request_text(_BASIC_INFO_LANDING, url)
+            landing = self.runtime.auth.take_webmaas_landing("QUY15W001")
+            if not landing:
+                landing = self.runtime.request_text(_BASIC_INFO_LANDING, url)
             payload = parse_query_form(landing, "QUY15WForm")
             self._get_demographics_raw(mrn, page_id="QUY15W001")
             payload.update(
@@ -86,7 +90,9 @@ class WebMaasAdapter:
             self.runtime.auth.ensure_webmaas_page("RSV11W001")
             base = self.runtime.settings.webmaas_base_url.rstrip("/")
             landing_url = f"{base}/RSV/RSV11W001.do"
-            landing = self.runtime.request_text(_REGISTRATION_LANDING, landing_url)
+            landing = self.runtime.auth.take_webmaas_landing("RSV11W001")
+            if not landing:
+                landing = self.runtime.request_text(_REGISTRATION_LANDING, landing_url)
             hidden = parse_query_form(landing, "RSV11WForm")
             demographics = self._get_demographics_raw(mrn)
             token_name = "org.apache.struts.taglib.html.TOKEN"

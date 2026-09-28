@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.20.8
+
+- PRQ 病人查詢遇到院方病歷調閱審查時，回傳 `AccessReviewRequiredError`。`get_visit_cases`、`get_soap` 與單次掃描參照可由呼叫端明確提供 `access_review_reason`；SDK 核對當前表單的病歷號、登入 HID、目標及可選原因後只送出一次，未確認結果不繼續讀取，亦不自動重送。2026-09-28 HAR 的審查送出、後續就診與 SOAP 已離線重解析；新版內網執行仍待驗證。
+- 聯合醫院掛號 HAR 顯示 WebMAAS SSO 轉址後的第一頁已有查詢表單與 token。SDK 首次使用該頁，後續查詢才 GET 新表單；解決方案針對應用回報的 `WEBMAAS_QUERY_FORM_MISSING`。HAR 掛號結果離線解析 12 筆；原 debug 沒有失敗頁內容，因此新版內網結果仍待確認。
+- 回歸 EXE 增加掛號查詢與可選的病歷調閱原因；原因未提供時不送審查 POST。補合成請求順序、離線 HAR 與 localhost EXE 驗證，保留 raw capture 僅供本機使用。
+
 ## 0.20.7
 
 - 歷年掃描病歷改為先列出完整 PDF 清單；每筆 `ScannedRecord` 保留頁面表格、原始病歷類別、顯示日期、來源 subtype 與受病人約束的 PDF 參照。`UploadHistory.scanned_categories` 及 `select_scanned_records` 提供類別目錄與精確篩選，方便由類別選到單一 PDF。

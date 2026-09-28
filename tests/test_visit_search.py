@@ -14,7 +14,14 @@ from unittest.mock import Mock, patch
 from urllib.parse import urlencode
 
 from vghks_sdk.adapters.prq import PrqAdapter
-from vghks_sdk.core.errors import AuthExpiredError, ConfigurationError, ParseError
+from vghks_sdk.core.errors import (
+    AccessReviewRequiredError,
+    AuthExpiredError,
+    AuthorizationError,
+    ConfigurationError,
+    ParseError,
+)
+from vghks_sdk.live.atomic import _query_inputs, build_test_plan
 from vghks_sdk.live.config import LiveTestConfig, resolve_live_test_config
 from vghks_sdk.models import VisitCase, VisitFilter
 from vghks_sdk.offline.replay import identify_operation, replay_hars, replay_response
@@ -32,6 +39,31 @@ CONTEXT = """<frameset id="hFrameset">
 EMPTY_LIST = (
     '<input id="typeO"><input id="typeA"><input id="typeE"><script>var aryCase=[];</script>'
 )
+
+
+def access_review_form(mrn=MRN, hid="CURRENT-HID", action="../../../EMRProcess.do"):
+    fields = {
+        "reqCode": "saveAccessCause",
+        "value(status)": "01",
+        "value(smr_hid)": hid,
+        "value(smr_hhisnum)": mrn,
+        "value(smr_Flg)": "Case1",
+        "value(inCaseFlg)": "N",
+        "value(bgnDt)": "2026-01-01",
+        "value(endDt)": "2026-12-31",
+        "value(causeOther1)": "",
+    }
+    hidden = "".join(
+        f'<input type="hidden" name="{name}" value="{value}">'
+        for name, value in fields.items()
+    )
+    return (
+        f'<form id="addForm" method="post" action="{action}">'
+        + hidden
+        + '<input type="checkbox" name="valueA(cause)" value="1A">了解病情'
+        + '<input type="checkbox" name="valueA(cause)" value="2B">其他原因'
+        + "</form>"
+    )
 
 
 def patient_header(mrn=MRN, identifier=NATIONAL_ID):
@@ -341,6 +373,137 @@ class VisitLookupTests(unittest.TestCase):
             self.records.get_visit_cases(MRN)
         self.assertEqual(caught.exception.info.code, "PRQ_PATIENT_CONTEXT_UNCONFIRMED")
         self.assertEqual(self.operation_keys(), ["prq.patient_context"])
+
+    def test_access_review_requires_explicit_reason_and_preserves_context(self):
+        self.replies["prq.patient_context"] = access_review_form()
+        with self.assertRaises(AccessReviewRequiredError) as caught:
+            self.records.get_visit_cases(MRN)
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REQUIRED")
+        self.assertEqual(self.operation_keys(), ["prq.patient_context"])
+
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.access_review"] = CONTEXT
+        rows = self.records.get_visit_cases(MRN, access_review_reason="1A")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(
+            self.operation_keys(),
+            ["prq.patient_context", "prq.access_review", "prq.visit_cases"],
+        )
+        review_call = self.runtime.request_text.call_args_list[1]
+        self.assertTrue(review_call.args[0].mutates)
+        self.assertEqual(review_call.args[1], "https://internal.test/PRQWeb/EMRProcess.do")
+        submitted = dict(review_call.kwargs["data"])
+        self.assertEqual(submitted["valueA(cause)"], "1A")
+        self.assertEqual(submitted["value(smr_hhisnum)"], MRN)
+        self.assertEqual(submitted["value(smr_hid)"], "CURRENT-HID")
+        self.assertEqual(
+            len(run_query(
+                SimpleNamespace(records=self.records),
+                "prq.visit_cases",
+                mrn=MRN,
+                access_review_reason="1A",
+            )),
+            1,
+        )
+
+    def test_access_review_rejects_mismatched_patient_login_target_and_reason(self):
+        for form, code in (
+            (access_review_form(mrn="OTHER"), "PRQ_ACCESS_REVIEW_PATIENT_MISMATCH"),
+            (access_review_form(hid="OTHER"), "PRQ_ACCESS_REVIEW_HID_MISMATCH"),
+            (access_review_form(action="https://outside.test/EMRProcess.do"),
+             "PRQ_ACCESS_REVIEW_FORM_INVALID"),
+        ):
+            with self.subTest(code=code):
+                self.runtime.request_text.reset_mock()
+                self.replies["prq.patient_context"] = form
+                with self.assertRaises(ParseError) as caught:
+                    self.records.get_visit_cases(MRN, access_review_reason="1A")
+                self.assertEqual(caught.exception.info.code, code)
+                self.assertEqual(self.operation_keys(), ["prq.patient_context"])
+        self.replies["prq.patient_context"] = access_review_form()
+        with self.assertRaises(ConfigurationError) as caught:
+            self.records.get_visit_cases(MRN, access_review_reason="9Z")
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REASON_UNAVAILABLE")
+        with self.assertRaises(ConfigurationError) as caught:
+            self.records.get_visit_cases(national_id=NATIONAL_ID, access_review_reason="1A")
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_INPUT_INVALID")
+
+    def test_access_review_failure_is_not_reposted_or_treated_as_success(self):
+        self.replies["prq.patient_context"] = access_review_form()
+        self.replies["prq.access_review"] = "<html>not confirmed</html>"
+        with self.assertRaises(AuthorizationError) as caught:
+            self.records.get_visit_cases(MRN, access_review_reason="1A")
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_NOT_ACCEPTED")
+        self.assertEqual(self.operation_keys(), ["prq.patient_context", "prq.access_review"])
+        self.runtime.auth.login.assert_not_called()
+
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.access_review"] = AuthExpiredError("synthetic expired")
+        with self.assertRaises(AuthExpiredError):
+            self.records.get_visit_cases(MRN, access_review_reason="1A")
+        self.assertEqual(self.operation_keys(), ["prq.patient_context", "prq.access_review"])
+        self.runtime.auth.login.assert_not_called()
+
+    def test_soap_can_complete_patient_review_before_loading_case(self):
+        case = self.records.get_visit_cases(MRN)[0]
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.patient_context"] = access_review_form()
+        self.replies["prq.access_review"] = CONTEXT
+        soap = self.records.get_soap(case, access_review_reason="1A")
+        self.assertIsNotNone(soap)
+        self.assertEqual(
+            self.operation_keys(),
+            ["prq.patient_context", "prq.access_review", "prq.case_detail",
+             "prq.key_preflight", "prq.soap"],
+        )
+        review_call = self.runtime.request_text.call_args_list[1]
+        self.assertEqual(dict(review_call.kwargs["data"])["valueA(cause)"], "1A")
+
+        self.runtime.request_text.reset_mock()
+        self.assertIsNotNone(run_query(
+            SimpleNamespace(records=self.records), "prq.soap", case=case,
+            access_review_reason="1A",
+        ))
+
+    def test_soap_reports_access_review_without_submitting_a_reason(self):
+        case = self.records.get_visit_cases(MRN)[0]
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.soap"] = access_review_form()
+        with self.assertRaises(AccessReviewRequiredError) as caught:
+            self.records.get_soap(case)
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REQUIRED")
+        self.assertNotIn("prq.access_review", self.operation_keys())
+
+    def test_offline_review_ack_requires_matching_patient_and_login(self):
+        payload = {"value(smr_hhisnum)": MRN, "value(smr_hid)": "CURRENT-HID"}
+        confirmed = replay_response(
+            "prq.access_review", CONTEXT.encode(), payload,
+            context_mrn=MRN, context_hid="CURRENT-HID",
+        )
+        self.assertEqual(confirmed["status"], "RECORDED_ACK")
+        mismatched = replay_response(
+            "prq.access_review", CONTEXT.encode(), payload,
+            context_mrn=MRN, context_hid="OTHER-HID",
+        )
+        self.assertEqual(mismatched["error_code"], "PRQ_ACCESS_REVIEW_HID_MISMATCH")
+
+    def test_live_query_inputs_carry_explicit_review_reason(self):
+        config = resolve_live_test_config(json_values=LiveTestConfig(
+            profile="regression", test_mrn=MRN, access_review_reason="1A",
+            max_cases=1,
+        ).to_safe_dict())
+        case = self.records.get_visit_cases(MRN)[0]
+        self.assertEqual(
+            _query_inputs(query_spec("prq.visit_cases"), config, {}),
+            [{"mrn": MRN, "access_review_reason": "1A"}],
+        )
+        self.assertEqual(
+            _query_inputs(query_spec("prq.soap"), config, {"prq.visit_cases": [[case]]}),
+            [{"case": case, "access_review_reason": "1A"}],
+        )
+        plan = build_test_plan(config)
+        self.assertTrue(plan["conditional_access_review"])
+        self.assertNotIn("prq.access_review", plan["excluded_write_operations"])
 
     def test_legacy_case_uses_source_mrn_for_detail_and_soap(self):
         self.replies["prq.visit_cases"] = visit_page(

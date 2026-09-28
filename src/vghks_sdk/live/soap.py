@@ -38,7 +38,11 @@ def build_soap_plan(config: Any) -> dict[str, Any]:
         "auth_targets": ["portal", "prq"],
         "network_checks": ["dns", "tcp", "https"],
         "continue_independent_checks": True,
-        "excluded_write_operations": [spec.key for spec in OPERATIONS if spec.mutates],
+        "excluded_write_operations": [
+            spec.key for spec in OPERATIONS
+            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+        ],
+        "conditional_access_review": bool(config.access_review_reason),
         "operations": [
             {
                 "key": key,
@@ -171,7 +175,11 @@ def run_soap_test(
         cases, error = _run_step(
             steps, name=f"soap.patient_{index:04d}.visits",
             operation_key="prq.visit_cases",
-            operation=lambda mrn=patient.mrn: run_query(sdk, "prq.visit_cases", mrn=mrn),
+            operation=lambda mrn=patient.mrn: run_query(
+                sdk, "prq.visit_cases", mrn=mrn,
+                **({"access_review_reason": config.access_review_reason}
+                   if config.access_review_reason else {}),
+            ),
             output_path=patient_dir / "visit_cases.json",
             classify=lambda rows: "OK" if rows else "EMPTY",
             summarize=lambda rows: {"visit_count": len(rows)}, **common,
@@ -202,7 +210,11 @@ def run_soap_test(
             record, error = _run_step(
                 steps, name=f"soap.patient_{index:04d}.case_{case_index:04d}",
                 operation_key="prq.soap",
-                operation=lambda case=case: run_query(sdk, "prq.soap", case=case),
+                operation=lambda case=case: run_query(
+                    sdk, "prq.soap", case=case,
+                    **({"access_review_reason": config.access_review_reason}
+                       if config.access_review_reason else {}),
+                ),
                 output_path=patient_dir / f"soap_{case_index:04d}.json",
                 classify=_soap_status, summarize=_soap_counts,
                 classified_error_code="SOAP_PARTIAL_PARSE",

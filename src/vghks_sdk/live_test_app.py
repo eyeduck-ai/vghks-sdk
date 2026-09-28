@@ -69,6 +69,10 @@ def add_live_test_arguments(
     parser.add_argument("--config", type=Path, help="credential-free live-test JSON")
     parser.add_argument("--test-mrn", help="authorized patient identifier for live queries")
     parser.add_argument(
+        "--access-review-reason",
+        help="PRQ review reason code offered on the access page; submitted only when required",
+    )
+    parser.add_argument(
         "--patient-national-id", help="visits profile: patient ID; omitted = read from basic info"
     )
     parser.add_argument(
@@ -534,6 +538,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for key in (
         "test_mrn",
+        "access_review_reason",
         "profile",
         "login_negative_attempts",
         "output_root",
@@ -662,11 +667,14 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
                 raise ConfigurationError("單次門診日期須為 YYYY-MM-DD") from exc
         return config
     if config.profile == "regression":
-        print("\n本輪增量測試: 指定病歷號的病人資料、歷次就診、最多兩次眼科 SOAP 與數值報告。")
+        print("\n本輪增量測試: 指定病歷號的病人資料、掛號清單、歷次就診、最多兩次眼科 SOAP 與數值報告。")
         print("即使就診清單失敗, 仍繼續查詢該病人的數值報告歷史與醫師手術排程。")
         print("原始 HTTP 回應與逐步結果會存入 EXE 同目錄的時間命名 ZIP; ZIP 未加密。")
-        print("本計畫僅唯讀, 不測錯誤密碼或異動。")
-        return config
+        print("若提供審查原因, 僅在院方頁面要求時提交一次; 不測錯誤密碼或其他異動。")
+        reason = input(
+            "若病歷調閱需要審查, 請輸入當前頁面提供的原因代碼 (Enter 不提交): "
+        ).strip()
+        return replace(config, access_review_reason=reason or config.access_review_reason)
     if config.profile == "soap":
         print(f"\n結構化 SOAP 測試: {config.soap_date} 登入醫師專屬門診清單。")
         print(f"最多選 {config.max_cases} 個不同病歷號, 每人最多 {config.max_items} 次當日門診就診。")

@@ -194,6 +194,16 @@ OPERATIONS: tuple[OperationSpec, ...] = (
         values=(("Use", "Case"),),
     ),
     _spec(
+        "prq.access_review",
+        "prq",
+        "POST",
+        "/PRQWeb/EMRProcess.do",
+        form=("reqCode", "value(smr_hid)", "value(smr_hhisnum)", "valueA(cause)"),
+        values=(("reqCode", "saveAccessCause"),),
+        contract_required=False,
+        mutates=True,
+    ),
+    _spec(
         "prq.patient_history_context",
         "prq",
         "GET",

@@ -16,7 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "tools")]
 
 from test_tls import LegacyAesLoopbackTests  # noqa: E402
-from test_visit_search import visit_link, visit_page, visit_row  # noqa: E402
+from test_visit_search import (  # noqa: E402
+    CONTEXT,
+    access_review_form,
+    visit_link,
+    visit_page,
+    visit_row,
+)
 from verify_visit_exe import MRN, VisitIntranet, test_state  # noqa: E402
 
 LEGACY_MRN = "11111111"
@@ -38,6 +44,34 @@ class RegressionIntranet(VisitIntranet):
     def dispatch(self):
         path = urlsplit(self.path).path
         state = self.server.test_state
+        if state["mode"] == "review":
+            if path == "/webmaas/WPSAutoLogon" and self.command == "GET":
+                roles = dict(parse_qsl(urlsplit(self.path).query)).get("externalRoles")
+                if roles == "maas_RSV11":
+                    state["rsv_landing_gets"] = 0
+            if path == "/webmaas/RSV/RSV11W001.do" and self.command == "GET" and not urlsplit(self.path).query:
+                state["rsv_landing_gets"] += 1
+                if state["rsv_landing_gets"] > 1:
+                    return self.reply("<html>synthetic second GET has no query form</html>")
+            if (path == "/PRQWeb/QueryPatientRecord.do"
+                    and self.command == "POST" and not state["review_requests"]):
+                body = dict(parse_qsl(
+                    self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode(),
+                    keep_blank_values=True,
+                ))
+                assert body["queryPtID"] == MRN
+                return self.reply(access_review_form(mrn=MRN, hid="SYNTHETIC-HID"))
+            if path == "/PRQWeb/EMRProcess.do" and self.command == "POST":
+                body = dict(parse_qsl(
+                    self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode(),
+                    keep_blank_values=True,
+                ))
+                assert body["reqCode"] == "saveAccessCause"
+                assert body["valueA(cause)"] == "1A"
+                assert body["value(smr_hhisnum)"] == MRN
+                assert body["value(smr_hid)"] == "SYNTHETIC-HID"
+                state["review_requests"] += 1
+                return self.reply(CONTEXT)
         if path == "/PRQWeb/QueryPatientRecord.do" and self.command == "GET":
             params = dict(parse_qsl(urlsplit(self.path).query, keep_blank_values=True))
             assert params["Use"] == "Dur" and params["id"] == MRN
@@ -127,6 +161,8 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
         mutation_attempts=0,
         numeric_requests=0,
         schedule_requests=0,
+        review_requests=0,
+        rsv_landing_gets=0,
     )
     helper.server.test_state = state
     with tempfile.TemporaryDirectory(prefix="regression-exe-", dir=ROOT / "output") as temporary:
@@ -169,7 +205,8 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
         }.items():
             environment[f"VGHKS_{app.upper()}_BASE_URL"] = origin + path
         process = subprocess.run(
-            [str(copy)],
+            [str(copy), *(["--profile", "regression", "--access-review-reason", "1A", "--non-interactive"]
+                          if mode == "review" else [])],
             cwd=directory,
             env=environment,
             input="\n",
@@ -208,6 +245,10 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
             assert steps["prq.numeric_history.0001"]["details"]["numeric_warning_count"] == 1
             assert steps["prq.numeric_history.0001"]["details"]["numeric_error_count"] == 0
             assert steps["oppl.surgery_schedule.0001"]["status"] == "OK"
+            if mode == "review":
+                assert state["review_requests"] == 1
+                assert state["rsv_landing_gets"] == 1
+                assert steps["webmaas.registration_query.0001"]["status"] == "OK"
             if mode == "unscoped":
                 assert summary["status"] == "COMPLETED_WITH_ERRORS"
                 assert steps["prq.visit_cases.0001"]["issue"]["code"] == "PRQ_CASE_PATIENT_MISMATCH"
@@ -266,7 +307,7 @@ def main() -> int:
     try:
         results = [
             verify_mode(executable, helper, origin, mode)
-            for mode in ("related", "unscoped", "valid")
+            for mode in ("related", "unscoped", "valid", "review")
         ]
     finally:
         helper.tearDown()

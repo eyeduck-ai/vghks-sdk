@@ -39,7 +39,11 @@ def build_visit_plan(config: Any, *, automatic_id: bool = True) -> dict[str, Any
         "max_items_per_operation": 0,
         "network_checks": ["dns", "tcp", "https"],
         "continue_independent_checks": True,
-        "excluded_write_operations": [spec.key for spec in OPERATIONS if spec.mutates],
+        "excluded_write_operations": [
+            spec.key for spec in OPERATIONS
+            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+        ],
+        "conditional_access_review": bool(config.access_review_reason),
         "automatic_patient_id": automatic_id,
         "visit_checks": [
             "mrn_lookup",
@@ -237,7 +241,10 @@ def run_visit_test(
         )
         return value
 
-    by_mrn = query("by_mrn", "prq.visit_cases", {"mrn": mrn})
+    mrn_inputs = {"mrn": mrn}
+    if config.access_review_reason:
+        mrn_inputs["access_review_reason"] = config.access_review_reason
+    by_mrn = query("by_mrn", "prq.visit_cases", mrn_inputs)
     if not patient_national_id:
         basic = query("identity_source", "webmaas.basic_info", {"mrn": mrn})
         if basic is not None:
@@ -362,7 +369,10 @@ def run_visit_test(
         for label, key in (("soap", "prq.soap"), ("orders", "prq.case_orders")):
             if positive[label]:
                 continue
-            value = query(f"followup/{index:02d}_{label}", key, {"case": case})
+            arguments = {"case": case}
+            if key == "prq.soap" and config.access_review_reason:
+                arguments["access_review_reason"] = config.access_review_reason
+            value = query(f"followup/{index:02d}_{label}", key, arguments)
             if value is not None and _counts(value).get("record_count", 0) > 0:
                 positive[label] = True
         if all(positive.values()):

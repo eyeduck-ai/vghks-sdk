@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING
 from ._version import __version__
 from .core.config import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
 from .core.errors import (
+    AccessReviewRequiredError,
     AuthenticationError,
     AuthExpiredError,
+    AuthorizationError,
     ConfigurationError,
     ErrorInfo,
     LoginRejectedError,
@@ -105,10 +107,12 @@ def __getattr__(name: str):
 
 
 __all__ = [
+    "AccessReviewRequiredError",
     "AuthCheckReport",
     "AuthCheckTarget",
     "AuthExpiredError",
     "AuthenticationError",
+    "AuthorizationError",
     "BinaryAsset",
     "CaseDetail",
     "ClinicalOrder",

@@ -110,6 +110,19 @@ class LoginRejectedError(AuthenticationError):
     code = "AUTH_LOGIN_REJECTED"
 
 
+class AuthorizationError(SDKError):
+    """A clinical access decision is required or was not accepted."""
+
+    code = "AUTHORIZATION_ERROR"
+    category = "AUTHORIZATION"
+
+
+class AccessReviewRequiredError(AuthorizationError):
+    """The PRQ patient page requires an explicit access-review reason."""
+
+    code = "PRQ_ACCESS_REVIEW_REQUIRED"
+
+
 class RequestError(SDKError):
     code = "REQUEST_ERROR"
     category = "NETWORK"

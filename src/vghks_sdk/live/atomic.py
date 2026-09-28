@@ -161,7 +161,13 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
             "independent_branches": ["report_text", "pdf", "jpg"],
         },
         "report_data_validation": "Report text is assessed independently of binary attachment downloads.",
-        "excluded_write_operations": [spec.key for spec in OPERATIONS if spec.mutates],
+        "excluded_write_operations": [
+            spec.key for spec in OPERATIONS
+            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+        ],
+        "conditional_access_review": bool(config.access_review_reason and any(
+            spec.key in {"prq.visit_cases", "prq.soap"} for spec in specs
+        )),
         "earnings_reports": {
             "enabled": config.include_earnings,
             "requires_secondary_password": True,
@@ -621,6 +627,9 @@ def _query_inputs(
                         result.append({"name": name, "department": department})
         return result[: config.max_items]
     if spec.scope == "patient":
+        if spec.key == "prq.visit_cases" and config.access_review_reason:
+            return [{"mrn": config.test_mrn,
+                     "access_review_reason": config.access_review_reason}]
         return [{"mrn": config.test_mrn}]
     if spec.scope == "history":
         if config.profile == "comprehensive":
@@ -657,6 +666,9 @@ def _query_inputs(
             if related is not None and related not in selected:
                 selected = [*selected[: config.max_cases - 1], related]
             cases = selected
+        if spec.key == "prq.soap" and config.access_review_reason:
+            return [{"case": case, "access_review_reason": config.access_review_reason}
+                    for case in cases[: config.max_cases]]
         return [{"case": case} for case in cases[: config.max_cases]]
     if spec.scope.startswith("doctor_") and not config.doctor_card:
         return []

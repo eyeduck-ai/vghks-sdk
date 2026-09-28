@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | `webmaas.demographics` | `get_demographics(mrn: str) -> PatientDemographics` | 精簡身分與聯絡資訊；供清單補充欄位。 |
 | `webmaas.basic_info` | `get_basic_info(mrn: str) -> PatientBasicInfo` | 完整基本資料、住院／出院提示；保留來源欄位。 |
-| `webmaas.registration_query` | `get_registration_history(mrn: str) -> list[RegistrationRecord]` | 掛號紀錄與狀態；有掛號不等於已就診。 |
+| `webmaas.registration_query` | `get_registration_history(mrn: str) -> list[RegistrationRecord]` | 掛號紀錄與狀態；SSO 轉址頁的當次 token 可直接用於首次查詢，有掛號不等於已就診。 |
 ## sdk.opd
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -25,9 +25,9 @@
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
-| `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；保留同病人舊病歷號的原始就診連結與查詢號，含日期、類別、科別、醫師。參照 [VISITS](VISITS.md) 篩選並串接。 |
+| `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None, access_review_reason: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；病歷號路徑可明確提供 access_review_reason 處理院方調閱審查。保留同病人舊病歷號的原始連結與查詢號，含日期、類別、科別、醫師。見 [VISITS](VISITS.md)。 |
 | `prq.case_detail` | `get_case_detail(case: VisitCase) -> CaseDetail` | 單次就診的頁籤、連結與原始頁面。 |
-| `prq.soap` | `get_soap(case: VisitCase) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、明示的慢性處方服藥期限及掃描 PDF 參照；見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。 |
+| `prq.soap` | `get_soap(case: VisitCase, *, access_review_reason: str &#124; None = None) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、慢性處方服藥期限及掃描 PDF 參照；可明確提供 access_review_reason。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。 |
 | `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留雙層表頭、可對齊的欄位路徑及原始數值，見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。 |
 | `prq.consults` | `get_consults(case: VisitCase) -> list[ConsultRecord]` | 該次就診的會診紀錄；合法空清單不視為例外。 |
 | `prq.treatments` | `get_treatments(case: VisitCase) -> list[TreatmentRecord]` | 該次就診的處置／治療清單。 |
@@ -115,11 +115,11 @@
 | `sdk.earnings.open_bonus(credentials)` | 取得專勤工作獎金 context；此功能不代表完整薪資系統。 |
 | `sdk.earnings.get_report(context, period=None)` | 取得所選月份的 HtmlDocument；表單可選月份是唯一允許值。 |
 | `sdk.records.download_surgery_record(ref)` | PRQ 歷史手術 PDF 的語意入口，使用相同 PDF 附件下載。 |
-| `sdk.records.get_case_scanned_records(case)` | 從單次門診 SOAP 頁取得掃描紀錄 PDF 參照；來源未提供類別時 record_type 為 None。 |
+| `sdk.records.get_case_scanned_records(case, access_review_reason=None)` | 從單次門診 SOAP 頁取得掃描紀錄 PDF 參照；來源未提供類別時 record_type 為 None。 |
 | `UploadHistory.scanned_records`／`scanned_categories`／`select_scanned_records(category_label, section_label=...)` | 列出歷年頁全部 PDF 項目、病歷類別目錄，並依畫面原始病歷類別與表格精確篩選；單筆 `ScannedRecord.pdf_ref` 可下載。 |
 | `sdk.records.get_ophthalmology_scan_history(mrn, days='*')` | 依歷年頁的「門診-記錄-眼科紀錄」病歷類別取得眼科掃描參照；不以 RECORD／OPG subtype 判斷科別。 |
 | `collect_ophthalmology_scans(sdk, mrn)` | 由 `vghks_sdk.workflows` 對照眼科 SOAP 連結與完整歷年分類清單；保留其他類別、未分類項目及查詢完整性。 |
-| `sdk.records.find_visit_cases(mrn=None, visit_filter=..., national_id=None)` | 查一位病人的就診清單並套用 VisitFilter；病歷號／身分證二擇一。 |
+| `sdk.records.find_visit_cases(mrn=None, visit_filter=..., national_id=None, access_review_reason=None)` | 查一位病人的就診清單並套用 VisitFilter；病歷號／身分證二擇一，調閱審查原因僅適用病歷號。 |
 | `VisitFilter(...).select(cases)` | 對已取得清單依日期、類別、科別、醫師篩選、去重、排序，不發 HTTP。 |
 | `sdk.personnel.get_by_card(card_no)` | 用員工帳號或已知四碼帳號 + F 別名查找精確匹配；回 PersonnelRecord 或 None；其 name 可接 VisitFilter.doctor_names，不使用醫師章號作為帳號。 |
 | `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設抽樣。 |
@@ -145,6 +145,7 @@ PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數
 `to_jsonable` 只轉成可儲存結構，不會去除個資。
 SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。
 `LoginRejectedError` 表示登入遭拒，與 `AuthExpiredError` 分開；兩者均繼承 AuthenticationError。
+`AccessReviewRequiredError` 表示 PRQ 要求病歷調閱審查；呼叫端確認院方頁面提供的原因後，才以 access_review_reason 重試。原因送出不會自動重送。
 一般查詢過期最多自動恢復一次；登入遭拒、原因未明的登入失敗與 MIS 二次驗證不盲目重送密碼。
 錯誤碼與呼叫端範例見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。
 

@@ -130,6 +130,7 @@ def adapter_with(*responses):
     session.request = MagicMock(side_effect=responses)
     auth = MagicMock(spec=AuthenticationAdapter)
     auth.assert_not_expired = MagicMock()
+    auth.take_webmaas_landing.return_value = ""
     auth.credentials = PortalCredentials("SYNTHETIC", "TEST-SECRET")
     policy = RequestPolicy(min_delay_seconds=0, max_delay_seconds=0, max_attempts=1)
     transport = SafeSessionTransport(policy=policy, session=session, sleeper=lambda _: None)
@@ -207,6 +208,24 @@ class WebMaasParserTests(unittest.TestCase):
 
 
 class WebMaasAdapterTests(unittest.TestCase):
+    def test_registration_uses_sso_landing_once_without_an_extra_get(self):
+        adapter, session, auth = adapter_with(
+            identity(), response(registration()),
+            response(landing("RSV11WForm", token="second-token")),
+            identity(), response(registration()),
+        )
+        auth.take_webmaas_landing.side_effect = [
+            landing("RSV11WForm", token="sso-token"), "",
+        ]
+        self.assertEqual(len(adapter.get_registration_history(MRN)), 1)
+        self.assertEqual([call.args[0] for call in session.request.call_args_list],
+                         ["POST", "POST"])
+        self.assertEqual(session.request.call_args_list[1].kwargs["data"][TOKEN], "sso-token")
+        self.assertEqual(len(adapter.get_registration_history(MRN)), 1)
+        self.assertEqual([call.args[0] for call in session.request.call_args_list],
+                         ["POST", "POST", "GET", "POST", "POST"])
+        self.assertEqual(session.request.call_args_list[4].kwargs["data"][TOKEN], "second-token")
+
     def test_basic_info_uses_fresh_form_and_quy_patient_check(self):
         adapter, session, auth = adapter_with(
             response(landing()), identity(), response(basic_info())
@@ -284,6 +303,34 @@ class WebMaasAdapterTests(unittest.TestCase):
 
 
 class WebMaasRoleTests(unittest.TestCase):
+    def test_sso_landing_is_consumed_only_once(self):
+        settings = SDKSettings(
+            webmaas_base_url="https://synthetic.test/webmaas",
+            sectord_base_url="https://synthetic.test/SectOrdWeb",
+        )
+        transport = MagicMock(spec=SafeSessionTransport)
+        transport.text.side_effect = lambda value: value.text
+
+        def request(_method, url, **kwargs):
+            if url.endswith("/so.do"):
+                return response("ssID=fresh&keyOne=1&keyTwo=2&keyThree=3")
+            result = response(landing("RSV11WForm", token="private-token"))
+            result.url = kwargs["params"]["targetURL"]
+            return result
+
+        transport.request.side_effect = request
+        auth = AuthenticationAdapter(
+            settings=settings,
+            credentials=PortalCredentials("SYNTHETIC", "SECRET"),
+            transport=transport,
+        )
+        auth._portal_authenticated = True
+        auth._apps["sectord"] = AppSession("sectord", "FRESH-HID", settings.sectord_base_url)
+        current = auth.ensure_webmaas_page("RSV11W001")
+        self.assertNotIn("private-token", repr(current))
+        self.assertIn("private-token", auth.take_webmaas_landing("RSV11W001"))
+        self.assertEqual(auth.take_webmaas_landing("RSV11W001"), "")
+
     def test_sso_switches_recorded_roles_with_fresh_keys_and_caches_only_current_role(self):
         settings = SDKSettings(
             webmaas_base_url="https://synthetic.test/webmaas",

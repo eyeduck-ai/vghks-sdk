@@ -3,6 +3,7 @@
 
 REGRESSION_QUERIES = (
     "webmaas.basic_info",
+    "webmaas.registration_query",
     "prq.visit_cases",
     "prq.soap",
     "prq.numeric",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import date
 from urllib.parse import parse_qsl, quote, urlencode
@@ -9,7 +10,12 @@ from urllib.parse import parse_qsl, quote, urlencode
 from bs4 import BeautifulSoup
 
 from ..core.browser_headers import IMAGE_ACCEPT
-from ..core.errors import ConfigurationError, ParseError
+from ..core.errors import (
+    AccessReviewRequiredError,
+    AuthorizationError,
+    ConfigurationError,
+    ParseError,
+)
 from ..core.operations import operation_spec
 from ..identifiers import normalize_mrn, normalize_national_id
 from ..models import (
@@ -59,12 +65,14 @@ from ..parsing.prq import (
     parse_visit_cases,
     require_patient_context,
 )
+from ..parsing.prq_access_review import parse_patient_access_review_form
 from ..runtime import SDKRuntime
 from .prq_extensions import PrqExtendedOperations
 
 _OPD_LANDING = operation_spec("prq.opd_landing")
 _OPD_PATIENTS = operation_spec("prq.opd_patients")
 _PATIENT_CONTEXT = operation_spec("prq.patient_context")
+_ACCESS_REVIEW = operation_spec("prq.access_review")
 _PATIENT_IDENTITY = operation_spec("prq.patient_identity")
 _VISIT_CASES = operation_spec("prq.visit_cases")
 _CASE_DETAIL = operation_spec("prq.case_detail")
@@ -165,6 +173,7 @@ class PrqAdapter(PrqExtendedOperations):
         mrn: str | None = None,
         *,
         national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]:
         if (mrn is None) == (national_id is None):
             raise ConfigurationError(
@@ -172,22 +181,18 @@ class PrqAdapter(PrqExtendedOperations):
             )
         mrn = normalize_mrn(mrn) if mrn is not None else ""
         national_id = normalize_national_id(national_id) if national_id is not None else ""
+        if access_review_reason is not None and (
+            national_id or not isinstance(access_review_reason, str)
+            or not re.fullmatch(r"[A-Za-z0-9]{1,4}", access_review_reason)
+        ):
+            raise ConfigurationError(
+                "an access-review reason requires an MRN and an offered reason code",
+                code="PRQ_ACCESS_REVIEW_INPUT_INVALID",
+            )
 
         def operation() -> list[VisitCase]:
-            hid = self.runtime.auth.hid_for("prq")
             base = self.runtime.settings.prq_base_url.rstrip("/")
-            context_html = self.runtime.request_text(
-                _PATIENT_CONTEXT,
-                f"{base}/QueryPatientRecord.do",
-                params={"Use": "Case", "hid": hid},
-                data={
-                    "id": national_id or mrn,
-                    "queryID": national_id,
-                    "queryPtID": mrn,
-                    "type": "2" if national_id else "1",
-                },
-            )
-            require_patient_context(context_html)
+            self._establish_patient_context_raw(mrn, national_id, access_review_reason)
             resolved_mrn = mrn
             if national_id:
                 patient_html = self.runtime.request_text(
@@ -216,7 +221,7 @@ class PrqAdapter(PrqExtendedOperations):
             return cases
 
         return self.runtime.execute(
-            _VISIT_CASES,
+            _ACCESS_REVIEW if access_review_reason is not None else _VISIT_CASES,
             operation,
             operation_name="get_visit_cases",
         )
@@ -228,10 +233,24 @@ class PrqAdapter(PrqExtendedOperations):
             operation_name="get_case_detail",
         )
 
-    def get_soap(self, case: VisitCase) -> SoapRecord:
+    def get_soap(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> SoapRecord:
         self._validate_outpatient_case(case)
+        if access_review_reason is not None and (
+            not isinstance(access_review_reason, str)
+            or not re.fullmatch(r"[A-Za-z0-9]{1,4}", access_review_reason)
+        ):
+            raise ConfigurationError(
+                "access-review reason must be an offered reason code",
+                code="PRQ_ACCESS_REVIEW_INPUT_INVALID",
+            )
 
         def operation() -> SoapRecord:
+            if access_review_reason is not None:
+                self._establish_patient_context_raw(
+                    normalize_mrn(case.patient_mrn), "", access_review_reason
+                )
             self._get_case_detail_raw(case)
             self._prime_key_raw()
             hid = self.runtime.auth.hid_for("prq")
@@ -252,13 +271,31 @@ class PrqAdapter(PrqExtendedOperations):
                 },
             )
             if BeautifulSoup(html_text, "html.parser").find(id="data") is None:
+                review = parse_patient_access_review_form(
+                    html_text,
+                    expected_mrn=normalize_mrn(case.patient_mrn),
+                    expected_hid=hid,
+                )
+                if review is not None:
+                    if access_review_reason is not None:
+                        raise AuthorizationError(
+                            "PRQ still requires patient-access review after submission",
+                            code="PRQ_ACCESS_REVIEW_NOT_ACCEPTED",
+                        )
+                    raise AccessReviewRequiredError(
+                        "PRQ requires patient-access review before SOAP"
+                    )
                 raise ParseError(
                     "SOAP response did not contain its data container",
                     code="PRQ_SOAP_CONTAINER_MISSING",
                 )
             return parse_soap(html_text, case)
 
-        return self.runtime.execute(_SOAP, operation, operation_name="get_soap")
+        return self.runtime.execute(
+            _ACCESS_REVIEW if access_review_reason is not None else _SOAP,
+            operation,
+            operation_name="get_soap",
+        )
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport:
         def operation() -> NumericReport:
@@ -760,6 +797,56 @@ class PrqAdapter(PrqExtendedOperations):
             operation,
             operation_name="download_pdf",
         )
+
+    def _establish_patient_context_raw(
+        self,
+        mrn: str,
+        national_id: str,
+        access_review_reason: str | None,
+    ) -> None:
+        hid = self.runtime.auth.hid_for("prq")
+        base = self.runtime.settings.prq_base_url.rstrip("/")
+        context_html = self.runtime.request_text(
+            _PATIENT_CONTEXT,
+            f"{base}/QueryPatientRecord.do",
+            params={"Use": "Case", "hid": hid},
+            data={
+                "id": national_id or mrn,
+                "queryID": national_id,
+                "queryPtID": mrn,
+                "type": "2" if national_id else "1",
+            },
+        )
+        if national_id and BeautifulSoup(context_html, "html.parser").find("form", id="addForm"):
+            raise AuthorizationError(
+                "access review needs a verified patient MRN",
+                code="PRQ_ACCESS_REVIEW_MRN_REQUIRED",
+            )
+        review = parse_patient_access_review_form(
+            context_html,
+            expected_mrn=mrn,
+            expected_hid=hid,
+        )
+        if review is None:
+            require_patient_context(context_html)
+            return
+        if access_review_reason is None:
+            raise AccessReviewRequiredError(
+                "PRQ requires an explicit patient-access review reason"
+            )
+        response = self.runtime.request_text(
+            _ACCESS_REVIEW,
+            f"{base}/EMRProcess.do",
+            data=review.payload_for(access_review_reason),
+            headers={"Referer": f"{base}/QueryPatientRecord.do"},
+        )
+        try:
+            require_patient_context(response)
+        except ParseError as exc:
+            raise AuthorizationError(
+                "PRQ did not confirm the access-review decision",
+                code="PRQ_ACCESS_REVIEW_NOT_ACCEPTED",
+            ) from exc
 
     def _get_case_detail_raw(self, case: VisitCase) -> CaseDetail:
         hid = self.runtime.auth.hid_for("prq")

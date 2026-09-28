@@ -114,6 +114,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     summary = reader.json("run_summary.json")
     context_mrn = str(summary.get("test_mrn") or "")
     context_national_id = ""
+    context_hid = ""
     visit_context_ready = False
     results: list[dict[str, Any]] = []
     portal_base = "https://portal.vghks.gov.tw"
@@ -128,6 +129,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         params = {**query, **form}
         if path.endswith("/QueryPatientRecord.do"):
             visit_context_ready = False
+            context_hid = params.get("hid", "")
             context_national_id = (
                 (params.get("queryID") or params.get("id", "")) if params.get("type") == "2" else ""
             )
@@ -149,6 +151,14 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         if (
             path.endswith("/QueryPatientRecord.do")
             and params.get("Use") == "Case"
+            and 200 <= int(response.get("status_code", 0)) < 300
+            and row.get("response_file")
+        ) or (
+            operation == "prq.access_review"
+            and context_mrn
+            and context_hid
+            and params.get("value(smr_hhisnum)") == context_mrn
+            and params.get("value(smr_hid)") == context_hid
             and 200 <= int(response.get("status_code", 0)) < 300
             and row.get("response_file")
         ):
@@ -206,7 +216,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
-            or operation == "prq.patient_identity"
+            or operation in {"prq.patient_identity", "prq.access_review"}
         ):
             body_path = row.get("response_file")
             if not body_path:
@@ -224,6 +234,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         params,
                         mime=mime,
                         context_mrn=context_mrn,
+                        context_hid=context_hid,
                         context_national_id=context_national_id,
                         trusted_visit_context=visit_context_ready,
                         response_url=str(request.get("url", "")),
@@ -264,6 +275,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
         raw_entries = json.loads(path.read_text(encoding="utf-8-sig"))["log"]["entries"]
         context_mrn = ""
         context_national_id = ""
+        context_hid = ""
         visit_context_ready = False
         for index, (entry, raw) in enumerate(zip(archive.entries, raw_entries), 1):
             original = raw["request"]
@@ -277,6 +289,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
             params = {**query, **form}
             if request_path.endswith("/QueryPatientRecord.do"):
                 visit_context_ready = False
+                context_hid = params.get("hid", "")
                 context_national_id = (
                     (params.get("queryID") or params.get("id", ""))
                     if params.get("type") == "2"
@@ -294,6 +307,19 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                         entry.response_body,
                         entry.response_mime_type,
                     )
+            elif (
+                operation == "prq.access_review"
+                and context_mrn
+                and context_hid
+                and params.get("value(smr_hhisnum)") == context_mrn
+                and params.get("value(smr_hid)") == context_hid
+                and 200 <= entry.response_status < 300
+                and entry.response_body
+            ):
+                visit_context_ready = _patient_context_confirmed(
+                    entry.response_body,
+                    entry.response_mime_type,
+                )
             if params.get("hhisnum") or params.get("patno"):
                 context_mrn = params.get("hhisnum") or params["patno"]
             if operation not in QUERY_BY_KEY and not (
@@ -334,6 +360,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                     params,
                     mime=mime,
                     context_mrn=context_mrn,
+                    context_hid=context_hid,
                     context_national_id=context_national_id,
                     trusted_visit_context=visit_context_ready,
                 )
@@ -379,6 +406,7 @@ def replay_response(
     *,
     mime: str = "",
     context_mrn: str = "",
+    context_hid: str = "",
     context_national_id: str = "",
     trusted_visit_context: bool = False,
     response_url: str = "",
@@ -396,6 +424,17 @@ def replay_response(
         if operation == "prq.patient_identity":
             parsing.parse_patient_identity(text, expected_national_id=context_national_id)
             return {"status": "PARSED", "error_code": "", "record_count": 1}
+        if operation == "prq.access_review":
+            _require(
+                bool(context_mrn) and params.get("value(smr_hhisnum)") == context_mrn,
+                "PRQ_ACCESS_REVIEW_PATIENT_MISMATCH",
+            )
+            _require(
+                bool(context_hid) and params.get("value(smr_hid)") == context_hid,
+                "PRQ_ACCESS_REVIEW_HID_MISMATCH",
+            )
+            require_patient_context(text)
+            return {"status": "RECORDED_ACK", "error_code": "", "record_count": None}
         if operation in OPERATION_BY_KEY and OPERATION_BY_KEY[operation].mutates:
             value = (
                 json.loads(text)

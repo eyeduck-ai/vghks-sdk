@@ -2,9 +2,22 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機 EXE 均為 0.20.7；EXE 內建 `scans` 計畫。2026-09-27 的 0.20.5 `scans` EXE 已取得院內 PDF 回傳，資料與抽樣範圍見 [VALIDATION](VALIDATION.md)。0.20.7 新增歷年病歷類別辨識及完整分類欄位，仍待院內實測；本機 EXE 的合成 localhost 驗證不能取代該證據。
+目前 SDK 原始碼與本機 EXE 均為 0.20.8；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP。兩項 2026-09-28 修正已通過 HAR 離線重解析與 localhost 合成驗證，尚待新版內網回傳；本機驗證不能取代院內證據。
 
-## 本次：單次門診與歷年眼科掃描病歷
+## 本次：掛號清單與病歷調閱審查
+
+只需搬 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳密；若院方要求病歷調閱審查，另輸入當前審查頁提供的原因代碼，直接 Enter 則不送出原因。錄製頁的 `1A` 標示「了解病情」，應依實際用途與當次可選項確認。EXE 只在遇到審查頁時送出一次，並核對病歷號與登入 HID；不重送結果不明的審查請求。
+
+此 `regression` 計畫取得病人基本資料、掛號清單、完整就診清單、最多兩份眼科 SOAP 與數值報告，以及數值歷史、登入醫師手術排程。逐步結果和原始 HTTP 回應保存在 EXE 同目錄的時間命名 ZIP；ZIP 未加密，僅留本機。請帶回新 ZIP 供分析，毋須 CMD 或設定檔。新增的 `--access-review-reason` 只供自動執行或開發時指定，雙擊可在畫面輸入。
+
+```sh
+python tools/build_live_test_exe.py --default-profile regression
+python tools/verify_regression_exe.py
+```
+
+## 先前：單次門診與歷年眼科掃描病歷
+
+以下流程需先重新建置 `scans` profile；本機現行 EXE 是上節的 `regression` profile。
 
 只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 
@@ -18,9 +31,9 @@ dist/vghks-live-test.exe --plan
 python tools/verify_scan_exe.py
 ```
 
-## 先前：指定病歷號、數值報告與手術排程增量測試
+## 回歸計畫的其他檢查
 
-先前 `regression` 專項 EXE 已內建授權測試病歷號。雙擊後輸入 Portal 帳號與密碼，毋須搬設定檔或再填病歷號。若需換病人，可從命令列用 `--test-mrn` 覆寫。此計畫不做錯誤密碼、薪資、附件或異動操作；請求仍依 SDK 預設循序及隨機節流。
+`regression` 可用 `--defaults private/regression-test-defaults.json` 建置自用版本，只內嵌授權測試病歷號。雙擊後輸入 Portal 帳號與密碼，毋須搬設定檔；若未內嵌則啟動時輸入病歷號。若需換病人，可從命令列用 `--test-mrn` 覆寫。此計畫不做錯誤密碼、薪資或附件下載；審查原因只有明確提供時才會送出。請求仍依 SDK 預設循序及隨機節流。
 
 測試依序取得病人基本資料、完整就診清單，並抽最多兩次眼科門診就診查結構化 SOAP 與單次數值報告；若清單有舊病歷號的眼科門診，保留一筆近期就診，另一筆改抽最近的舊號就診。每筆 `VisitCase.mrn` 和 `lookup_mrn` 一起存入結果，步驟摘要另列不同來源病歷號數及舊號就診筆數。同一病人的跨期間數值報告及登入醫師的手術排程另行執行。排程預設範圍為測試當日前 29 天至後 30 天，只有一次排程清單查詢。數值結果保留雙層表頭、欄位路徑、原始值與解析問題；步驟摘要分列 `numeric_warning_count` 與 `numeric_error_count`，只有無法確定欄位對應的問題使步驟標 `NUMERIC_TABLE_PARSING_ISSUES`。手術排程保留網頁可見欄位、完整來源列與 `TF` 未定時間狀態。
 

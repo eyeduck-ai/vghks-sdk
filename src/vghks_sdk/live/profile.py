@@ -108,6 +108,7 @@ def run_live_test(
     output_dir: Path,
     test_mrn: str = LIVE_TEST_MRN,
     profile: str = "full",
+    access_review_reason: str | None = None,
     doctor_card: str | None = None,
     probe_date: date | None = None,
     include_surgery: bool = False,
@@ -227,7 +228,11 @@ def run_live_test(
         visit_cases, error = _run_step(
             steps,
             name="visit_cases",
-            operation=lambda: sdk.records.get_visit_cases(test_mrn),
+            operation=lambda: (
+                sdk.records.get_visit_cases(
+                    test_mrn, access_review_reason=access_review_reason
+                ) if access_review_reason else sdk.records.get_visit_cases(test_mrn)
+            ),
             output_path=parsed_dir / "visit_cases.json",
             root=root,
             raw_capture=raw_capture,
@@ -261,6 +266,7 @@ def run_live_test(
                 case,
                 index=index,
                 profile=profile,
+                access_review_reason=access_review_reason,
                 steps=steps,
                 parsed_dir=parsed_dir,
                 root=root,
@@ -502,6 +508,7 @@ def _fetch_case(
     *,
     index: int,
     profile: str,
+    access_review_reason: str | None,
     steps: list[LiveTestStep],
     parsed_dir: Path,
     root: Path,
@@ -542,7 +549,10 @@ def _fetch_case(
     item.soap, soap_error = _run_step(
         steps,
         name=f"{prefix}_soap",
-        operation=lambda: sdk.records.get_soap(case),
+        operation=lambda: (
+            sdk.records.get_soap(case, access_review_reason=access_review_reason)
+            if access_review_reason else sdk.records.get_soap(case)
+        ),
         output_path=soap_path,
         root=root,
         raw_capture=raw_capture,

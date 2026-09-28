@@ -87,9 +87,13 @@ def schedule_fields():
 
 
 class AtomicRecordedTests(unittest.TestCase):
-    def test_mutations_never_enter_default_or_selected_query_tests(self):
+    def test_direct_write_operations_are_not_query_specs(self):
         writes = {spec.key for spec in OPERATIONS if spec.mutates}
-        self.assertEqual(len(writes), 4)
+        self.assertEqual(writes, {
+            "prq.access_review",
+            "oppl.create_schedule", "oppl.edit_schedule",
+            "oppl.cancel_schedule", "oppl.create_consent",
+        })
         self.assertFalse(writes & {spec.key for spec in QUERY_SPECS})
         self.assertEqual(
             set(

@@ -67,9 +67,19 @@ class RecordsService:
         return tuple(row for row in history.scanned_records if row.is_ophthalmology_record)
 
     def get_visit_cases(
-        self, mrn: str | None = None, *, national_id: str | None = None
+        self,
+        mrn: str | None = None,
+        *,
+        national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]:
-        """Fetch every returned visit by exactly one patient identifier."""
+        """Fetch visits; an access-review reason is submitted only if requested by PRQ."""
+        if access_review_reason is not None:
+            return self._adapter.get_visit_cases(
+                mrn,
+                national_id=national_id,
+                access_review_reason=access_review_reason,
+            )
         if national_id is not None:
             return self._adapter.get_visit_cases(mrn, national_id=national_id)
         return self._adapter.get_visit_cases(mrn)
@@ -80,27 +90,41 @@ class RecordsService:
         visit_filter: VisitFilter | None = None,
         *,
         national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]:
         """Fetch a patient list, then apply a reusable local selector."""
         if not isinstance(visit_filter, VisitFilter):
             raise ConfigurationError("find_visit_cases requires a VisitFilter")
-        return visit_filter.select(self.get_visit_cases(mrn, national_id=national_id))
+        return visit_filter.select(self.get_visit_cases(
+            mrn,
+            national_id=national_id,
+            access_review_reason=access_review_reason,
+        ))
 
     def get_case_detail(self, case: VisitCase) -> CaseDetail:
         return self._adapter.get_case_detail(case)
 
-    def get_soap(self, case: VisitCase) -> SoapRecord:
+    def get_soap(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> SoapRecord:
         """Return labelled SOAP, diagnoses and printed order/prescription summaries.
 
         The original blocks remain available. Inspect parsing_issues for partial
         extraction; printed summaries do not replace navigable case orders.
         """
+        if access_review_reason is not None:
+            return self._adapter.get_soap(case, access_review_reason=access_review_reason)
         return self._adapter.get_soap(case)
 
-    def get_case_scanned_records(self, case: VisitCase) -> tuple[ScannedRecord, ...]:
+    def get_case_scanned_records(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> tuple[ScannedRecord, ...]:
         """Find scanned PDFs linked from this outpatient SOAP page."""
         return tuple(
-            ScannedRecord(None, ref) for ref in self.get_soap(case).scanned_pdf_refs
+            ScannedRecord(None, ref)
+            for ref in self.get_soap(
+                case, access_review_reason=access_review_reason
+            ).scanned_pdf_refs
         )
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport:

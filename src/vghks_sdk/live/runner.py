@@ -246,6 +246,7 @@ def execute_live_test(
                     test_mrn=config.test_mrn,
                     output_dir=manager.run_directory,
                     profile=config.profile,
+                    access_review_reason=config.access_review_reason,
                     doctor_card=config.doctor_card,
                     probe_date=config.opd_date,
                     include_surgery=config.include_surgery,

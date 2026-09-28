@@ -45,12 +45,15 @@ QUERY_SPECS = (
         "get_visit_cases",
         "patient",
         ("mrn",),
-        alternative_inputs=(("national_id",),),
+        alternative_inputs=(("national_id",), ("mrn", "access_review_reason")),
     ),
     QuerySpec(
         "prq.case_detail", "records", "get_case_detail", "case", ("case",), ("prq.visit_cases",)
     ),
-    QuerySpec("prq.soap", "records", "get_soap", "case", ("case",), ("prq.visit_cases",)),
+    QuerySpec(
+        "prq.soap", "records", "get_soap", "case", ("case",),
+        ("prq.visit_cases",), alternative_inputs=(("case", "access_review_reason"),),
+    ),
     QuerySpec(
         "prq.numeric", "records", "get_numeric_report", "case", ("case",), ("prq.visit_cases",)
     ),

@@ -57,6 +57,8 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 `records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；0.20.3 另驗證一筆舊病歷號門診 SOAP，能以來源號碼取得 S／O／A+P 與診斷。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
 
+院方要求病歷調閱審查時，SDK 回傳 `AccessReviewRequiredError`；呼叫端確認頁面提供的原因後，可對 `get_visit_cases` 或 `get_soap` 明確傳入 `access_review_reason`，SDK 才會送出一次審查表單。聯合醫院掛號查詢會直接使用 WebMAAS SSO 回傳的首次表單與 token。兩項修正已依 2026-09-28 HAR 與合成情境驗證，尚待新版內網 EXE 回傳；詳見 [VISITS](docs/VISITS.md) 與 [PATIENTS](docs/PATIENTS.md)。
+
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 
 單次門診掃描 PDF 可由 `records.get_case_scanned_records(case)` 取得參照。歷年完整清單在 `records.get_upload_history(mrn).scanned_records`，每筆保留病歷類別、日期與 PDF 參照，可依類別精確篩選。眼科便利入口 `get_ophthalmology_scan_history(mrn)` 使用畫面上的「門診-記錄-眼科紀錄」類別；`collect_ophthalmology_scans(sdk, mrn)` 可再與單次 SOAP 連結對照。用法見 [SCANNED_RECORDS](docs/SCANNED_RECORDS.md)。
@@ -97,7 +99,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `scans` 計畫，啟動時詢問授權病歷號與 Portal 帳密，測試單次眼科門診掃描連結、歷年眼科掃描清單及 PDF 抽樣下載；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `regression` 計畫，啟動時詢問授權病歷號、Portal 帳密及可選的調閱原因代碼，測試掛號清單、歷次就診、抽樣 SOAP 等功能；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |

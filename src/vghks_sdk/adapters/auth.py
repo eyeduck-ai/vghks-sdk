@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
@@ -67,7 +67,7 @@ class AppSession:
     key: str
     hid: str
     landing_url: str
-    landing_html: str = ""
+    landing_html: str = field(default="", repr=False)
     authentication_mode: str = ""
 
 
@@ -337,6 +337,16 @@ class AuthenticationAdapter:
             return self._apps["webmaas"]
         return self._open_webmaas(page_id)
 
+    def take_webmaas_landing(self, page_id: str) -> str:
+        """Use the SSO redirect's query page once, including its fresh form token."""
+        if self._webmaas_page != page_id:
+            return ""
+        session = self._apps.get("webmaas")
+        if session is None or not session.landing_html:
+            return ""
+        self._apps["webmaas"] = replace(session, landing_html="")
+        return session.landing_html
+
     def assert_not_expired(self, text: str, response_url: str) -> None:
         path = urlsplit(response_url).path.lower()
         if path.endswith("/login.do") or "syserrorexception.jsp" in path:
@@ -491,7 +501,10 @@ class AuthenticationAdapter:
         self.assert_valid_landing(landing_text, posted.url)
         self._validate_host(posted.url, self.settings.webmaas_base_url, "webmaas landing")
         self._validate_base_path(posted.url, self.settings.webmaas_base_url, "webmaas landing")
-        session = AppSession("webmaas", sectord.hid, posted.url)
+        landing_html = (
+            landing_text if urlsplit(posted.url).path == urlsplit(target_url).path else ""
+        )
+        session = AppSession("webmaas", sectord.hid, posted.url, landing_html)
         self._apps["webmaas"] = session
         self._webmaas_page = page_id
         return session

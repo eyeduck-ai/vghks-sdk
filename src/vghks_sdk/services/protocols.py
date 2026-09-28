@@ -74,7 +74,11 @@ class OpdServiceProtocol(Protocol):
 
 class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
     def get_visit_cases(
-        self, mrn: str | None = None, *, national_id: str | None = None
+        self,
+        mrn: str | None = None,
+        *,
+        national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]: ...
 
     def find_visit_cases(
@@ -83,13 +87,18 @@ class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
         visit_filter: VisitFilter | None = None,
         *,
         national_id: str | None = None,
+        access_review_reason: str | None = None,
     ) -> list[VisitCase]: ...
 
     def get_case_detail(self, case: VisitCase) -> CaseDetail: ...
 
-    def get_soap(self, case: VisitCase) -> SoapRecord: ...
+    def get_soap(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> SoapRecord: ...
 
-    def get_case_scanned_records(self, case: VisitCase) -> tuple[ScannedRecord, ...]: ...
+    def get_case_scanned_records(
+        self, case: VisitCase, *, access_review_reason: str | None = None
+    ) -> tuple[ScannedRecord, ...]: ...
 
     def get_upload_history(self, mrn: str, main_type: str = "", days: str = "*") -> UploadHistory: ...
 

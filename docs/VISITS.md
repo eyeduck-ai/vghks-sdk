@@ -10,6 +10,23 @@ cases = sdk.records.get_visit_cases(mrn)
 cases_by_id = sdk.records.get_visit_cases(national_id=national_id)
 ```
 
+## 院方要求病歷調閱審查時
+
+若 PRQ 在建立病人查詢狀態時顯示調閱原因頁，預設會拋出 `AccessReviewRequiredError`（`PRQ_ACCESS_REVIEW_REQUIRED`），不代替使用者選原因。確認當前頁面提供的原因代碼後，可用病歷號重新呼叫：
+
+```python
+from vghks_sdk import AccessReviewRequiredError
+
+try:
+    cases = sdk.records.get_visit_cases(mrn)
+except AccessReviewRequiredError:
+    cases = sdk.records.get_visit_cases(mrn, access_review_reason="1A")  # 僅為錄製頁提供的範例代碼
+```
+
+錄製的審查頁提供 `1A`，旁邊標示「了解病情」；實際選擇應符合當次用途及院方頁面可選項。SDK 逐次核對表單的病歷號、登入 HID、固定送出位置與原因選項，僅在頁面要求時送出一次 `saveAccessCause`。送出後須取得可辨識的病人頁框才繼續讀取就診清單；未知回應不當成成功。審查送出不經一般讀取重試或重新登入自動重送。身分證路徑遇到審查時會要求先取得已核對的病歷號；原因參數不可與 `national_id` 合用。
+
+若已有 `VisitCase`，`get_soap(case, access_review_reason="1A")` 可先用 `case.patient_mrn` 建立病人查詢狀態，再以 `case.mrn` 查該次 SOAP。`get_case_scanned_records` 亦可傳入相同參數。這是 2026-09-28 HAR 所見流程；新版尚待內網 EXE 複驗。
+
 病歷號沿用已驗證的查詢路徑。身分證路徑依 HAR 錄到的前端表單使用 `type=2`，自動轉大寫並建立病人 context；接著核對病人標頭的身分證及實際病歷號，再取就診清單。後續 VisitCase.mrn 使用病歷號，不會把身分證當成病歷號。兩個參數同時提供、皆未提供、空字串或不合法字元，會在連線前報錯。
 
 同一病人的歷史就診可能使用舊病歷號。SDK 先以指定病歷號或身分證建立可辨識的病人查詢狀態，再讀取該狀態下的正式就診列；若列出的明細使用舊病歷號，也會保留在同一份結果。`VisitCase.mrn` 是**該次就診連結的原始病歷號**，供 SOAP、醫囑及就診明細使用；`VisitCase.lookup_mrn` 是**本次清單查詢所解析出的病歷號**，`VisitCase.patient_mrn` 是其便利屬性。不要把舊號覆寫成新號，否則下游連結可能失效。

@@ -168,6 +168,12 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         "conditional_access_review": bool(config.access_review_reason and any(
             spec.key in {"prq.visit_cases", "prq.soap"} for spec in specs
         )),
+        "registration_comparison": {
+            "enabled_when_second_account_provided": config.profile == "regression",
+            "flows_per_account": ["direct", "demographics_then_registration"]
+            if config.profile == "regression" else [],
+            "sessions": "separate_per_account_and_flow",
+        },
         "earnings_reports": {
             "enabled": config.include_earnings,
             "requires_secondary_password": True,

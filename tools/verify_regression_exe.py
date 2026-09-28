@@ -44,6 +44,35 @@ class RegressionIntranet(VisitIntranet):
     def dispatch(self):
         path = urlsplit(self.path).path
         state = self.server.test_state
+        if state["mode"] in {"comparison", "comparison_rejected"}:
+            if path == "/login.do" and self.command == "POST":
+                body = dict(parse_qsl(
+                    self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode(),
+                    keep_blank_values=True,
+                ))
+                account = body["muid"]
+                assert account in {"SYNTHETIC", "SYNTHETIC-UNION"}
+                assert body["mpassword"] == (
+                    "SYNTHETIC-ONLY" if account == "SYNTHETIC" else "UNION-ONLY"
+                )
+                state["login_posts"] += 1
+                state["login_accounts"].append(account)
+                state["active_account"] = account
+                if state["mode"] == "comparison_rejected" and account == "SYNTHETIC-UNION":
+                    return self.reply("synthetic second-account login rejection", 501)
+                return self.reply(
+                    "<script>var targetUrl='myPortal.do?thetime=1';</script>", cookie=True
+                )
+            if path == "/webmaas/WPSAutoLogon" and self.command == "GET":
+                roles = dict(parse_qsl(urlsplit(self.path).query)).get("externalRoles")
+                if roles == "maas_RSV11":
+                    state["account_rsv_gets"] = 0
+            if path == "/webmaas/RSV/RSV11W001.do" and self.command == "GET" and not urlsplit(self.path).query:
+                state["account_rsv_gets"] += 1
+                if state["active_account"] == "SYNTHETIC" and state["account_rsv_gets"] == 1:
+                    return self.reply("<html>synthetic SSO transition without a form</html>")
+                if state["active_account"] == "SYNTHETIC-UNION" and state["account_rsv_gets"] > 1:
+                    return self.reply("<html>synthetic repeated GET without a form</html>")
         if state["mode"] == "review":
             if path == "/webmaas/WPSAutoLogon" and self.command == "GET":
                 roles = dict(parse_qsl(urlsplit(self.path).query)).get("externalRoles")
@@ -163,6 +192,10 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
         schedule_requests=0,
         review_requests=0,
         rsv_landing_gets=0,
+        active_account="",
+        account_rsv_gets=0,
+        login_accounts=[],
+        single_rsv_landing=False,
     )
     helper.server.test_state = state
     with tempfile.TemporaryDirectory(prefix="regression-exe-", dir=ROOT / "output") as temporary:
@@ -196,6 +229,12 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
             VGHKS_READ_TIMEOUT="2",
             NO_PROXY="localhost,127.0.0.1",
         )
+        if mode in {"comparison", "comparison_rejected"}:
+            environment.update(
+                VGHKS_COMPARISON_USERNAME="SYNTHETIC-UNION",
+                VGHKS_COMPARISON_PASSWORD="UNION-ONLY",
+                VGHKS_COMPARISON_MRN=MRN,
+            )
         for app, path in {
             "portal": "",
             "prq": "/PRQWeb",
@@ -206,10 +245,11 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
             environment[f"VGHKS_{app.upper()}_BASE_URL"] = origin + path
         process = subprocess.run(
             [str(copy), *(["--profile", "regression", "--access-review-reason", "1A", "--non-interactive"]
-                          if mode == "review" else [])],
+                          if mode == "review" else ["--profile", "regression", "--non-interactive"]
+                          if mode == "comparison" else [])],
             cwd=directory,
             env=environment,
-            input="\n",
+            input="\n\n",
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -249,6 +289,31 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
                 assert state["review_requests"] == 1
                 assert state["rsv_landing_gets"] == 1
                 assert steps["webmaas.registration_query.0001"]["status"] == "OK"
+            if mode in {"comparison", "comparison_rejected"}:
+                report = json.loads(archive.read("registration_comparison.json"))
+                accounts = report["accounts"]
+                expected_accounts = [
+                    "SYNTHETIC", "SYNTHETIC", "SYNTHETIC", "SYNTHETIC-UNION",
+                ]
+                if mode == "comparison":
+                    expected_accounts.append("SYNTHETIC-UNION")
+                assert state["login_accounts"] == expected_accounts
+                for label in (("vghks", "union") if mode == "comparison" else ("vghks",)):
+                    assert accounts[label]["direct"]["status"] == "OK"
+                    assert accounts[label]["after_demographics"]["status"] == "OK"
+                    assert accounts[label]["direct"]["record_count"] == 2
+                    assert accounts[label]["after_demographics"]["record_count"] == 2
+                assert accounts["vghks"]["direct"]["requests"]["form_get"] == 2, accounts
+                assert accounts["vghks"]["after_demographics"]["requests"]["form_get"] == 1
+                if mode == "comparison":
+                    assert accounts["union"]["direct"]["requests"]["form_get"] == 1
+                    assert accounts["union"]["after_demographics"]["requests"].get("form_get", 0) == 0
+                else:
+                    assert summary["status"] == "COMPLETED_WITH_ERRORS"
+                    assert accounts["union"]["login"]["status"] == "ERROR"
+                    assert accounts["union"]["direct"]["status"] == "BLOCKED"
+                    assert accounts["union"]["demographics"]["status"] == "BLOCKED"
+                    assert accounts["union"]["after_demographics"]["status"] == "BLOCKED"
             if mode == "unscoped":
                 assert summary["status"] == "COMPLETED_WITH_ERRORS"
                 assert steps["prq.visit_cases.0001"]["issue"]["code"] == "PRQ_CASE_PATIENT_MISMATCH"
@@ -267,7 +332,7 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
                 assert list_rows
                 assert "UNSCOPED" in archive.read(list_rows[-1]["response_file"]).decode()
                 assert not state["soap_cases"]
-            else:
+            elif mode != "comparison_rejected":
                 assert summary["status"] == "OK", (
                     summary["status"],
                     [(name, row["status"]) for name, row in steps.items()],
@@ -284,7 +349,7 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
                     assert "LEGACY" in state["soap_cases"]
                     assert steps["prq.soap.0002"]["status"] == "OK"
                     assert steps["prq.numeric.0002"]["status"] == "OK"
-        assert process.returncode == (1 if mode == "unscoped" else 0), process.returncode
+        assert process.returncode == (1 if mode in {"unscoped", "comparison_rejected"} else 0), process.returncode
         assert state["mutation_attempts"] == 0
         return {
             "mode": mode,
@@ -307,7 +372,7 @@ def main() -> int:
     try:
         results = [
             verify_mode(executable, helper, origin, mode)
-            for mode in ("related", "unscoped", "valid", "review")
+            for mode in ("related", "unscoped", "valid", "review", "comparison", "comparison_rejected")
         ]
     finally:
         helper.tearDown()

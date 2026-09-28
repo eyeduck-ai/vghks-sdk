@@ -7,7 +7,8 @@ from datetime import date
 from pathlib import Path
 
 from vghks_sdk.core.readiness import make_auth_report
-from vghks_sdk.live.profile import run_live_test
+from vghks_sdk.live.profile import LiveTestResult, LiveTestStep, run_live_test
+from vghks_sdk.live.registration_compare import _primary_portal_failed
 from vghks_sdk.models import (
     AuthCheckTarget,
     CaseDetail,
@@ -25,6 +26,25 @@ from vghks_sdk.search import SoapSearch
 def _target(key: str) -> AuthCheckTarget:
     dependencies = () if key == "portal" else ("portal",)
     return AuthCheckTarget(key, (key,), f"/{key}", key != "portal", 2, 1.0, dependencies, "OK")
+
+
+class RegistrationComparisonReadinessTests(unittest.TestCase):
+    def test_other_subsystem_failure_does_not_suppress_primary_registration(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            report = root / "parsed" / "readiness.json"
+            report.parent.mkdir()
+            report.write_text(json.dumps({"targets": [
+                {"target": "portal", "status": "OK"},
+                {"target": "oppl", "status": "ERROR"},
+            ]}), encoding="utf-8")
+            result = LiveTestResult(
+                "COMPLETED_WITH_ERRORS", (LiveTestStep("auth_check", "ERROR"),),
+                root / "run_summary.json",
+            )
+            self.assertFalse(_primary_portal_failed(result, root))
+            report.unlink()
+            self.assertTrue(_primary_portal_failed(result, root))
 
 
 class ProfileSDK:

@@ -144,6 +144,8 @@ def execute_live_test(
     config: LiveTestConfig,
     credentials: PortalCredentials,
     *,
+    comparison_credentials: PortalCredentials | None = None,
+    comparison_mrn: str | None = None,
     earnings_credentials: EarningsCredentials | None = None,
     patient_national_id: str | None = None,
     output_dir: Path | None = None,
@@ -264,6 +266,21 @@ def execute_live_test(
                     diagnostics=diagnostics,
                     run_id=manager.run_id,
                 )
+        if config.profile == "regression" and comparison_credentials is not None:
+            from .registration_compare import append_registration_comparison
+
+            result = append_registration_comparison(
+                result,
+                primary_credentials=credentials,
+                primary_mrn=config.test_mrn,
+                secondary_credentials=comparison_credentials.validate(),
+                secondary_mrn=comparison_mrn or config.test_mrn,
+                settings=settings,
+                output_dir=manager.run_directory,
+                raw_capture=raw_capture,
+                manifest_path=raw_capture.manifest_path,
+                diagnostics=diagnostics,
+            )
         status = result.status
         exit_code = 0 if status in {"OK", "COMPLETED_WITH_GAPS"} else 1
     except KeyboardInterrupt as exc:

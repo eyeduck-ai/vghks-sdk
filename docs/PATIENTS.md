@@ -10,6 +10,8 @@
 
 2026-09-28 聯合醫院帳號錄製的掛號流程，WebMAAS SSO 轉址直接回傳帶有 `RSV11WForm` 與 token 的查詢頁。SDK 首次掛號查詢會一次性使用這份頁面；後續查詢才重新 GET 表單，避免多餘的第二次 GET。HAR 在首次表單與掛號 POST 之間執行 `CHECK_PAT`，因此獨立呼叫 `get_demographics` 後也保留這份尚未提交的表單，供緊接的掛號查詢使用。這是根據 HAR 與應用錯誤碼 `WEBMAAS_QUERY_FORM_MISSING` 所做的修正；錯誤 debug 未包含失敗頁原始回應，因此第二次 GET 的實際院內內容仍待新版 EXE 回傳確認。錄製掛號結果可由目前 Parser 離線解析出 12 筆，不能當成新版 SDK 已在內網成功。
 
+高榮帳號先前能取得掛號，但沒有與聯合醫院同輪錄製的成功頁，兩種帳號是否回傳不同 SSO 頁尚不能確定。0.20.10 起先解析 SSO 頁；若該頁沒有表單或 token，才向同一固定掛號頁 GET 一次。兩條路徑均保持病人 AJAX 核對、token 及掛號結果解析，掛號 POST 不因表單問題重送。單一 `regression` EXE 可用兩組獨立帳號比較直接查詢與先查 `CHECK_PAT` 的流程，詳見 [LIVE_TEST](LIVE_TEST.md)。
+
 以病人身分證找就診清單請用 `sdk.records.get_visit_cases(national_id=...)`；每筆 VisitCase 的 `mrn` 是已核對的病歷號，可以再交給上述病人方法。身分證不能直接填進這些方法的 `mrn` 參數。就診欄位與篩選方式見 [VISITS](VISITS.md)。
 
 ```python

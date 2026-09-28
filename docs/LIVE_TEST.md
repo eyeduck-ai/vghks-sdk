@@ -2,13 +2,15 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機 EXE 均為 0.20.9；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP。兩項 2026-09-28 修正及先查 `CHECK_PAT` 再查掛號的順序已通過 HAR 離線重解析與 localhost 合成驗證，尚待新版內網回傳；本機驗證不能取代院內證據。
+目前 SDK 原始碼與本機 EXE 均為 0.20.10；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP，並可用第二組帳號比較掛號流程。聯合醫院 HAR、合成與 localhost EXE 驗證已完成；新版尚待院內回傳，本機驗證不能取代院內證據。
 
-## 本次：掛號清單與病歷調閱審查
+## 本次：高榮與聯合醫院掛號比較、病歷調閱審查
 
-只需搬 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳密；若院方要求病歷調閱審查，另輸入當前審查頁提供的原因代碼，直接 Enter 則不送出原因。錄製頁的 `1A` 標示「了解病情」，應依實際用途與當次可選項確認。EXE 只在遇到審查頁時送出一次，並核對病歷號與登入 HID；不重送結果不明的審查請求。
+只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
-此 `regression` 計畫取得病人基本資料、掛號清單、完整就診清單、最多兩份眼科 SOAP 與數值報告，以及數值歷史、登入醫師手術排程。逐步結果和原始 HTTP 回應保存在 EXE 同目錄的時間命名 ZIP；ZIP 未加密，僅留本機。請帶回新 ZIP 供分析，毋須 CMD 或設定檔。新增的 `--access-review-reason` 只供自動執行或開發時指定，雙擊可在畫面輸入。
+若院方要求病歷調閱審查，另輸入當前審查頁提供的原因代碼，直接 Enter 則不送出原因。錄製頁的 `1A` 標示「了解病情」，應依實際用途與當次可選項確認。EXE 只在遇到審查頁時送出一次，並核對病歷號與登入 HID；不重送結果不明的審查請求。
+
+此 `regression` 計畫仍以高榮帳號取得病人基本資料、掛號清單、完整就診清單、最多兩份眼科 SOAP 與數值報告，以及數值歷史、登入醫師手術排程。聯合醫院帳號只做掛號比較；若其中一組登入失敗，另一組仍繼續，該帳號不會再重送密碼。逐步結果和原始 HTTP 回應保存在 EXE 同目錄的時間命名 ZIP；ZIP 未加密，僅留本機。請帶回新 ZIP 供分析，毋須 CMD 或設定檔。`--access-review-reason` 只供自動執行或開發時指定，雙擊可在畫面輸入。
 
 ```sh
 python tools/build_live_test_exe.py --default-profile regression

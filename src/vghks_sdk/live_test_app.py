@@ -69,6 +69,10 @@ def add_live_test_arguments(
     parser.add_argument("--config", type=Path, help="credential-free live-test JSON")
     parser.add_argument("--test-mrn", help="authorized patient identifier for live queries")
     parser.add_argument(
+        "--comparison-mrn",
+        help="regression profile: authorized patient MRN for the second account",
+    )
+    parser.add_argument(
         "--access-review-reason",
         help="PRQ review reason code offered on the access page; submitted only when required",
     )
@@ -306,11 +310,40 @@ def run_live_test_namespace(
             archive_directory=executable_directory,
         )
         if interactive:
+            if config.profile == "regression":
+                print("\n高榮帳號: 執行原有回歸測試及掛號查詢比較。")
             credentials = _interactive_credentials()
             config = config.with_default_doctor(credentials.username)
             config = _interactive_wizard(config, quick=force_interactive)
         else:
             credentials = _noninteractive_credentials()
+
+        comparison_credentials = None
+        comparison_mrn = None
+        if config.profile == "regression":
+            comparison_user = os.getenv("VGHKS_COMPARISON_USERNAME", "").strip()
+            comparison_password = os.getenv("VGHKS_COMPARISON_PASSWORD", "")
+            if interactive and not (comparison_user and comparison_password):
+                print("\n聯合醫院帳號: 用獨立 Session 比對掛號流程; 直接 Enter 可略過。")
+                comparison_user = input("聯合醫院 Portal 帳號 (Enter 略過): ").strip()
+                comparison_password = (
+                    getpass.getpass("聯合醫院 Portal 密碼: ") if comparison_user else ""
+                )
+            if comparison_user or comparison_password:
+                if not comparison_user or not comparison_password:
+                    raise ConfigurationError("comparison account requires both username and password")
+                comparison_credentials = PortalCredentials(
+                    comparison_user, comparison_password
+                ).validate()
+                comparison_mrn = (
+                    getattr(args, "comparison_mrn", None)
+                    or os.getenv("VGHKS_COMPARISON_MRN")
+                )
+                if interactive and not comparison_mrn:
+                    comparison_mrn = input(
+                        "聯合醫院測試病歷號 (Enter 沿用高榮病歷號): "
+                    ).strip()
+                comparison_mrn = comparison_mrn or config.test_mrn
 
         patient_national_id = None
         if config.profile == "visits":
@@ -341,6 +374,8 @@ def run_live_test_namespace(
         execution = execute_live_test(
             config,
             credentials,
+            comparison_credentials=comparison_credentials,
+            comparison_mrn=comparison_mrn,
             executable_directory=executable_directory,
             bundle_manager=manager,
             earnings_credentials=earnings_credentials,
@@ -669,6 +704,7 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
     if config.profile == "regression":
         print("\n本輪增量測試: 指定病歷號的病人資料、掛號清單、歷次就診、最多兩次眼科 SOAP 與數值報告。")
         print("即使就診清單失敗, 仍繼續查詢該病人的數值報告歷史與醫師手術排程。")
+        print("稍後可輸入聯合醫院帳號; 兩組帳號各以獨立 Session 測直接掛號及先查 CHECK_PAT 再掛號。")
         print("原始 HTTP 回應與逐步結果會存入 EXE 同目錄的時間命名 ZIP; ZIP 未加密。")
         print("若提供審查原因, 僅在院方頁面要求時提交一次; 不測錯誤密碼或其他異動。")
         reason = input(

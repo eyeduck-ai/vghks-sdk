@@ -36,7 +36,7 @@ Requests Session（鎖、節流、retry、capture）
 
 **病歷調閱審查是明確送出**：`parsing/prq_access_review.py` 只解析錄製表單及可選原因，PRQ Adapter 核對病歷號與當前 HID 後，僅在呼叫端提供 `access_review_reason` 時提交一次。`prq.access_review` 登錄為不可重試的寫入型底層操作；`prq.visit_cases`／`prq.soap` 仍是唯讀結果 QuerySpec，原因是同一結果的替代輸入。失敗或回應不明時不重送審查 POST。
 
-**WebMAAS SSO 頁面可供首次查詢**：SSO 轉址若已到達指定查詢頁，AuthenticationAdapter 將其 HTML 限一次交給 WebMAAS Adapter 使用；下次查詢再 GET 新表單。角色切換與重新登入會建立新 AppSession，舊 token 不跨 Session 使用。
+**WebMAAS SSO 頁面可供首次查詢**：SSO 轉址若已到達指定查詢頁，AuthenticationAdapter 將其 HTML 限一次交給 WebMAAS Adapter 使用；缺表單或 token 才對固定頁面 GET 一次。單獨 `CHECK_PAT` 不消耗未提交的首次表單；下次送出掛號後再 GET 新表單。角色切換與重新登入會建立新 AppSession，舊 token 不跨 Session 使用。回歸 EXE 的雙帳號比較另為每個帳號及查詢順序建立獨立 SDK Session。
 
 **登入失敗不等於 Session 過期**：AuthExpiredError 才代表可嘗試恢復的既有登入；LoginRejectedError 為 AuthenticationError 的另一個子類別，不能進入重登入迴圈。Adapter 區分登入建立階段與查詢階段的回應，Runtime 在重登入遭拒時保留原錯誤。原子查詢最多恢復一次；MIS 二次驗證與異動不套用這個自動重做機制。詳見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。
 

@@ -208,6 +208,28 @@ class WebMaasParserTests(unittest.TestCase):
 
 
 class WebMaasAdapterTests(unittest.TestCase):
+    def test_registration_falls_back_to_one_get_when_sso_page_has_no_form(self):
+        adapter, session, auth = adapter_with(
+            response(landing("RSV11WForm", token="fresh-get-token")),
+            identity(), response(registration()),
+        )
+        auth.take_webmaas_landing.return_value = "<html>SSO transition page</html>"
+
+        self.assertEqual(len(adapter.get_registration_history(MRN)), 1)
+        self.assertEqual([call.args[0] for call in session.request.call_args_list],
+                         ["GET", "POST", "POST"])
+        self.assertEqual(session.request.call_args_list[-1].kwargs["data"][TOKEN],
+                         "fresh-get-token")
+
+    def test_registration_rejects_two_pages_without_a_query_form(self):
+        adapter, session, auth = adapter_with(response("<html>no form</html>"))
+        auth.take_webmaas_landing.return_value = "<html>SSO transition page</html>"
+
+        with self.assertRaises(ParseError) as caught:
+            adapter.get_registration_history(MRN)
+        self.assertEqual(caught.exception.info.code, "WEBMAAS_QUERY_FORM_MISSING")
+        self.assertEqual([call.args[0] for call in session.request.call_args_list], ["GET"])
+
     def test_demographics_keeps_sso_form_for_following_registration(self):
         adapter, session, auth = adapter_with(
             identity(), identity(), response(registration()),
@@ -253,6 +275,19 @@ class WebMaasAdapterTests(unittest.TestCase):
         self.assertEqual(payload[TOKEN], "fresh-token")
         self.assertEqual((payload["patno"], payload["hcaseno"], payload["type"]), (MRN, "", "A"))
         self.assertTrue(calls[2].kwargs["headers"]["Referer"].endswith("/QUY/QUY15W001.do"))
+
+    def test_basic_info_falls_back_when_sso_page_has_no_form(self):
+        adapter, session, auth = adapter_with(
+            response(landing("QUY15WForm", token="fresh-get-token")),
+            identity(), response(basic_info()),
+        )
+        auth.take_webmaas_landing.return_value = "<html>SSO transition page</html>"
+
+        self.assertEqual(adapter.get_basic_info(MRN).mrn, MRN)
+        self.assertEqual([call.args[0] for call in session.request.call_args_list],
+                         ["GET", "POST", "POST"])
+        self.assertEqual(session.request.call_args_list[-1].kwargs["data"][TOKEN],
+                         "fresh-get-token")
 
     def test_reauthentication_rebuilds_token_and_patient_context(self):
         adapter, session, auth = adapter_with(

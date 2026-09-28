@@ -6,7 +6,7 @@ import time
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 from ..core.errors import ParseError
-from ..core.operations import operation_spec
+from ..core.operations import OperationSpec, operation_spec
 from ..identifiers import normalize_mrn
 from ..models import PatientBasicInfo, PatientDemographics, RegistrationRecord
 from ..parsing.webmaas import (
@@ -52,9 +52,7 @@ class WebMaasAdapter:
             base = self.runtime.settings.webmaas_base_url.rstrip("/")
             url = f"{base}/QUY/QUY15W001.do"
             landing = self.runtime.auth.take_webmaas_landing("QUY15W001")
-            if not landing:
-                landing = self.runtime.request_text(_BASIC_INFO_LANDING, url)
-            payload = parse_query_form(landing, "QUY15WForm")
+            payload = self._query_form(landing, "QUY15WForm", _BASIC_INFO_LANDING, url)
             self._get_demographics_raw(mrn, page_id="QUY15W001")
             payload.update(
                 {
@@ -91,9 +89,9 @@ class WebMaasAdapter:
             base = self.runtime.settings.webmaas_base_url.rstrip("/")
             landing_url = f"{base}/RSV/RSV11W001.do"
             landing = self.runtime.auth.take_webmaas_landing("RSV11W001")
-            if not landing:
-                landing = self.runtime.request_text(_REGISTRATION_LANDING, landing_url)
-            hidden = parse_query_form(landing, "RSV11WForm")
+            hidden = self._query_form(
+                landing, "RSV11WForm", _REGISTRATION_LANDING, landing_url
+            )
             demographics = self._get_demographics_raw(mrn)
             token_name = "org.apache.struts.taglib.html.TOKEN"
             payload = {
@@ -164,6 +162,20 @@ class WebMaasAdapter:
             operation,
             operation_name="get_registration_history",
         )
+
+    def _query_form(
+        self, landing: str, form_id: str, spec: OperationSpec, url: str
+    ) -> dict[str, str]:
+        if landing:
+            try:
+                return parse_query_form(landing, form_id)
+            except ParseError as exc:
+                if exc.info.code not in {
+                    "WEBMAAS_QUERY_FORM_MISSING", "WEBMAAS_QUERY_TOKEN_MISSING"
+                }:
+                    raise
+        fresh = self.runtime.request_text(spec, url)
+        return parse_query_form(fresh, form_id)
 
     def _get_demographics_raw(self, mrn: str, *, page_id: str = "RSV11W001") -> PatientDemographics:
         base = self.runtime.settings.webmaas_base_url.rstrip("/")

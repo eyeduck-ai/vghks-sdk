@@ -244,9 +244,8 @@ def verify_mode(executable: Path, helper: LegacyAesLoopbackTests, origin: str, m
         }.items():
             environment[f"VGHKS_{app.upper()}_BASE_URL"] = origin + path
         process = subprocess.run(
-            [str(copy), *(["--profile", "regression", "--access-review-reason", "1A", "--non-interactive"]
-                          if mode == "review" else ["--profile", "regression", "--non-interactive"]
-                          if mode == "comparison" else [])],
+            [str(copy), *(["--profile", "regression", "--non-interactive"]
+                          if mode in {"review", "comparison"} else [])],
             cwd=directory,
             env=environment,
             input="\n\n",

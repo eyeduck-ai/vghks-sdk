@@ -74,7 +74,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--access-review-reason",
-        help="PRQ review reason code offered on the access page; submitted only when required",
+        help="optional PRQ review reason override; default uses recorded clinical-care code 1A",
     )
     parser.add_argument(
         "--patient-national-id", help="visits profile: patient ID; omitted = read from basic info"
@@ -706,11 +706,8 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
         print("即使就診清單失敗, 仍繼續查詢該病人的數值報告歷史與醫師手術排程。")
         print("稍後可輸入聯合醫院帳號; 兩組帳號各以獨立 Session 測直接掛號及先查 CHECK_PAT 再掛號。")
         print("原始 HTTP 回應與逐步結果會存入 EXE 同目錄的時間命名 ZIP; ZIP 未加密。")
-        print("若提供審查原因, 僅在院方頁面要求時提交一次; 不測錯誤密碼或其他異動。")
-        reason = input(
-            "若病歷調閱需要審查, 請輸入當前頁面提供的原因代碼 (Enter 不提交): "
-        ).strip()
-        return replace(config, access_review_reason=reason or config.access_review_reason)
+        print("病歷調閱審查出現時會自動提交錄製的照護原因一次; 不測錯誤密碼或其他異動。")
+        return config
     if config.profile == "soap":
         print(f"\n結構化 SOAP 測試: {config.soap_date} 登入醫師專屬門診清單。")
         print(f"最多選 {config.max_cases} 個不同病歷號, 每人最多 {config.max_items} 次當日門診就診。")

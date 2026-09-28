@@ -163,11 +163,11 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         "report_data_validation": "Report text is assessed independently of binary attachment downloads.",
         "excluded_write_operations": [
             spec.key for spec in OPERATIONS
-            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+            if spec.mutates and (spec.key != "prq.access_review" or not any(
+                item.key.startswith("prq.") for item in specs
+            ))
         ],
-        "conditional_access_review": bool(config.access_review_reason and any(
-            spec.key in {"prq.visit_cases", "prq.soap"} for spec in specs
-        )),
+        "conditional_access_review": any(item.key.startswith("prq.") for item in specs),
         "registration_comparison": {
             "enabled_when_second_account_provided": config.profile == "regression",
             "flows_per_account": ["direct", "demographics_then_registration"]

@@ -34,7 +34,7 @@ Requests Session（鎖、節流、retry、capture）
 
 **就診清單可含歷史病歷號**：PRQ Adapter 建立並辨識病人 context 後，Parser 才接受正式啟用就診列中的舊號。`VisitCase.mrn` 是該列明細連結的來源號碼，`lookup_mrn` 是取得整份清單的號碼；門診組合以 `patient_mrn` 對應掛號，單次 SOAP／醫囑仍使用來源號碼。獨立解析或來源不明連結維持嚴格檢查。
 
-**病歷調閱審查是明確送出**：`parsing/prq_access_review.py` 只解析錄製表單及可選原因，PRQ Adapter 核對病歷號與當前 HID 後，僅在呼叫端提供 `access_review_reason` 時提交一次。`prq.access_review` 登錄為不可重試的寫入型底層操作；`prq.visit_cases`／`prq.soap` 仍是唯讀結果 QuerySpec，原因是同一結果的替代輸入。失敗或回應不明時不重送審查 POST。
+**病歷調閱審查自動處理**：`parsing/prq_access_review.py` 只解析錄製表單及可選原因；PRQ Adapter 核對病歷號與當前 HID，當頁確實提供錄製的照護原因 `1A` 時自動提交一次。`access_review_reason` 保留為明確覆寫。`prq.access_review` 登錄為不可重試的寫入型底層操作；`prq.visit_cases`／`prq.soap` 仍是唯讀結果 QuerySpec。Runtime 記住同一操作中曾嘗試寫入，失敗或回應不明時不重新登入重跑整個操作，也不重送審查 POST。
 
 **WebMAAS SSO 頁面可供首次查詢**：SSO 轉址若已到達指定查詢頁，AuthenticationAdapter 將其 HTML 限一次交給 WebMAAS Adapter 使用；缺表單或 token 才對固定頁面 GET 一次。單獨 `CHECK_PAT` 不消耗未提交的首次表單；下次送出掛號後再 GET 新表單。角色切換與重新登入會建立新 AppSession，舊 token 不跨 Session 使用。回歸 EXE 的雙帳號比較另為每個帳號及查詢順序建立獨立 SDK Session。
 

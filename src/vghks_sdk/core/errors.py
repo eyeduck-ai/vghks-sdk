@@ -118,7 +118,7 @@ class AuthorizationError(SDKError):
 
 
 class AccessReviewRequiredError(AuthorizationError):
-    """The PRQ patient page requires an explicit access-review reason."""
+    """The recorded clinical-care reason is unavailable on this PRQ review page."""
 
     code = "PRQ_ACCESS_REVIEW_REQUIRED"
 

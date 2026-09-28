@@ -126,13 +126,7 @@ class PrqExtendedOperations:
         def operation() -> UploadHistory:
             # This endpoint has no MRN parameter; re-establish current patient
             # inside the same operation lock on every call.
-            context = operation_spec("prq.patient_context")
-            self.runtime.request_text(
-                context,
-                self._extension_url(context.path),
-                params={"Use": "Case", "hid": self.runtime.auth.hid_for("prq")},
-                data={"id": mrn, "queryID": "", "queryPtID": mrn, "type": "1"},
-            )
+            self._establish_patient_context_raw(mrn, "", None)
             text = self.runtime.request_text(
                 spec,
                 self._extension_url(spec.path),

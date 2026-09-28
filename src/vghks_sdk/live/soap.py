@@ -40,9 +40,9 @@ def build_soap_plan(config: Any) -> dict[str, Any]:
         "continue_independent_checks": True,
         "excluded_write_operations": [
             spec.key for spec in OPERATIONS
-            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+            if spec.mutates and spec.key != "prq.access_review"
         ],
-        "conditional_access_review": bool(config.access_review_reason),
+        "conditional_access_review": True,
         "operations": [
             {
                 "key": key,

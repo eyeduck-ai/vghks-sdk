@@ -20,10 +20,12 @@ from vghks_sdk.core.errors import (
     AuthorizationError,
     ConfigurationError,
     ParseError,
+    RequestError,
 )
+from vghks_sdk.core.operations import operation_spec
 from vghks_sdk.live.atomic import _query_inputs, build_test_plan
 from vghks_sdk.live.config import LiveTestConfig, resolve_live_test_config
-from vghks_sdk.models import VisitCase, VisitFilter
+from vghks_sdk.models import OrderHistoryFilter, VisitCase, VisitFilter
 from vghks_sdk.offline.replay import identify_operation, replay_hars, replay_response
 from vghks_sdk.parsing.prq import parse_patient_identity, parse_visit_cases
 from vghks_sdk.queries import query_spec, run_query
@@ -329,6 +331,7 @@ class VisitLookupTests(unittest.TestCase):
         self.runtime.auth.hid_for.return_value = "CURRENT-HID"
         self.runtime.settings = SimpleNamespace(prq_base_url="https://internal.test/PRQWeb")
         self.runtime.operation_lock = threading.RLock()
+        self.runtime._operation_write_attempts = []
         self.runtime.diagnostics = None
         self.runtime.raw_capture = None
         self.replies = {
@@ -346,7 +349,12 @@ class VisitLookupTests(unittest.TestCase):
         def request(spec, _url, **_kwargs):
             # Every request in the patient lookup must use the same operation lock.
             self.assertTrue(self.runtime.operation_lock._is_owned())
+            if spec.mutates:
+                for index in range(len(self.runtime._operation_write_attempts)):
+                    self.runtime._operation_write_attempts[index] = True
             reply = self.replies[spec.key]
+            if isinstance(reply, list):
+                reply = reply.pop(0)
             if isinstance(reply, Exception):
                 raise reply
             return reply
@@ -374,16 +382,10 @@ class VisitLookupTests(unittest.TestCase):
         self.assertEqual(caught.exception.info.code, "PRQ_PATIENT_CONTEXT_UNCONFIRMED")
         self.assertEqual(self.operation_keys(), ["prq.patient_context"])
 
-    def test_access_review_requires_explicit_reason_and_preserves_context(self):
+    def test_access_review_automatically_submits_recorded_care_reason(self):
         self.replies["prq.patient_context"] = access_review_form()
-        with self.assertRaises(AccessReviewRequiredError) as caught:
-            self.records.get_visit_cases(MRN)
-        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REQUIRED")
-        self.assertEqual(self.operation_keys(), ["prq.patient_context"])
-
-        self.runtime.request_text.reset_mock()
         self.replies["prq.access_review"] = CONTEXT
-        rows = self.records.get_visit_cases(MRN, access_review_reason="1A")
+        rows = self.records.get_visit_cases(MRN)
         self.assertEqual(len(rows), 1)
         self.assertEqual(
             self.operation_keys(),
@@ -401,7 +403,6 @@ class VisitLookupTests(unittest.TestCase):
                 SimpleNamespace(records=self.records),
                 "prq.visit_cases",
                 mrn=MRN,
-                access_review_reason="1A",
             )),
             1,
         )
@@ -417,9 +418,18 @@ class VisitLookupTests(unittest.TestCase):
                 self.runtime.request_text.reset_mock()
                 self.replies["prq.patient_context"] = form
                 with self.assertRaises(ParseError) as caught:
-                    self.records.get_visit_cases(MRN, access_review_reason="1A")
+                    self.records.get_visit_cases(MRN)
                 self.assertEqual(caught.exception.info.code, code)
                 self.assertEqual(self.operation_keys(), ["prq.patient_context"])
+        self.replies["prq.patient_context"] = access_review_form()
+        self.runtime.request_text.reset_mock()
+        with self.assertRaises(AccessReviewRequiredError) as caught:
+            self.replies["prq.patient_context"] = access_review_form().replace(
+                'value="1A"', 'value="1C"'
+            )
+            self.records.get_visit_cases(MRN)
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REQUIRED")
+        self.assertEqual(self.operation_keys(), ["prq.patient_context"])
         self.replies["prq.patient_context"] = access_review_form()
         with self.assertRaises(ConfigurationError) as caught:
             self.records.get_visit_cases(MRN, access_review_reason="9Z")
@@ -432,7 +442,7 @@ class VisitLookupTests(unittest.TestCase):
         self.replies["prq.patient_context"] = access_review_form()
         self.replies["prq.access_review"] = "<html>not confirmed</html>"
         with self.assertRaises(AuthorizationError) as caught:
-            self.records.get_visit_cases(MRN, access_review_reason="1A")
+            self.records.get_visit_cases(MRN)
         self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_NOT_ACCEPTED")
         self.assertEqual(self.operation_keys(), ["prq.patient_context", "prq.access_review"])
         self.runtime.auth.login.assert_not_called()
@@ -440,7 +450,7 @@ class VisitLookupTests(unittest.TestCase):
         self.runtime.request_text.reset_mock()
         self.replies["prq.access_review"] = AuthExpiredError("synthetic expired")
         with self.assertRaises(AuthExpiredError):
-            self.records.get_visit_cases(MRN, access_review_reason="1A")
+            self.records.get_visit_cases(MRN)
         self.assertEqual(self.operation_keys(), ["prq.patient_context", "prq.access_review"])
         self.runtime.auth.login.assert_not_called()
 
@@ -465,14 +475,107 @@ class VisitLookupTests(unittest.TestCase):
             access_review_reason="1A",
         ))
 
-    def test_soap_reports_access_review_without_submitting_a_reason(self):
+    def test_soap_retries_read_once_after_automatic_review(self):
         case = self.records.get_visit_cases(MRN)[0]
         self.runtime.request_text.reset_mock()
+        self.replies["prq.soap"] = [access_review_form(), self.replies["prq.soap"]]
+        self.replies["prq.access_review"] = CONTEXT
+        self.assertIsNotNone(self.records.get_soap(case))
+        self.assertEqual(self.operation_keys().count("prq.access_review"), 1)
+        self.assertEqual(self.operation_keys().count("prq.soap"), 2)
+
+    def test_case_detail_resumes_after_review_and_stops_if_rechallenged(self):
+        case = self.records.get_visit_cases(MRN)[0]
+        detail = self.replies["prq.case_detail"]
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.access_review"] = CONTEXT
+        self.replies["prq.case_detail"] = [access_review_form(), detail]
+        self.assertIsNotNone(self.records.get_case_detail(case))
+        self.assertEqual(self.operation_keys(), [
+            "prq.case_detail", "prq.access_review", "prq.case_detail",
+        ])
+
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.case_detail"] = [access_review_form(), access_review_form()]
+        with self.assertRaises(AuthorizationError) as caught:
+            self.records.get_case_detail(case)
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_NOT_ACCEPTED")
+        self.assertEqual(self.operation_keys().count("prq.access_review"), 1)
+
+    def test_soap_does_not_submit_twice_if_detail_and_soap_both_challenge(self):
+        case = self.records.get_visit_cases(MRN)[0]
+        self.runtime.request_text.reset_mock()
+        self.replies["prq.case_detail"] = [
+            access_review_form(), self.replies["prq.case_detail"],
+        ]
+        self.replies["prq.access_review"] = CONTEXT
         self.replies["prq.soap"] = access_review_form()
-        with self.assertRaises(AccessReviewRequiredError) as caught:
+        with self.assertRaises(AuthorizationError) as caught:
             self.records.get_soap(case)
-        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_REQUIRED")
-        self.assertNotIn("prq.access_review", self.operation_keys())
+        self.assertEqual(caught.exception.info.code, "PRQ_ACCESS_REVIEW_NOT_ACCEPTED")
+        self.assertEqual(self.operation_keys().count("prq.access_review"), 1)
+
+    def test_upload_history_establishes_patient_context_and_auto_reviews(self):
+        self.replies["prq.patient_context"] = access_review_form()
+        self.replies["prq.access_review"] = CONTEXT
+        self.replies["prq.upload_history"] = (
+            '<table id="tbObj"><tr><th>Category</th></tr></table>'
+        )
+        history = self.records.get_upload_history(MRN)
+        self.assertEqual(history.mrn, MRN)
+        self.assertEqual(self.operation_keys(), [
+            "prq.patient_context", "prq.access_review", "prq.upload_history",
+        ])
+
+    def test_order_history_resumes_after_context_review(self):
+        self.replies["prq.patient_history_context"] = access_review_form()
+        self.replies["prq.access_review"] = CONTEXT
+        self.replies["prq.order_history_page"] = "page"
+        self.replies["prq.order_history_select"] = "select"
+        self.replies["prq.order_history"] = "<script>var aryCase=[];</script>"
+        self.assertEqual(self.adapter.get_order_history(MRN, OrderHistoryFilter()), [])
+        self.assertEqual(self.operation_keys(), [
+            "prq.patient_history_context", "prq.access_review",
+            "prq.order_history_page", "prq.order_history_select", "prq.order_history",
+        ])
+
+    def test_runtime_never_replays_operation_after_review_post_attempt(self):
+        self.runtime.transport = Mock()
+        self.runtime.transport.request.side_effect = RequestError(
+            "synthetic rejection", status_code=401,
+        )
+
+        def operation():
+            self.runtime.request_response(
+                operation_spec("prq.access_review"),
+                "https://internal.test/PRQWeb/EMRProcess.do",
+                data={"reqCode": "saveAccessCause"},
+            )
+
+        with self.assertRaises(AuthExpiredError):
+            self.runtime.execute(
+                operation_spec("prq.visit_cases"), operation,
+                operation_name="synthetic_review",
+            )
+        self.runtime.transport.request.assert_called_once()
+        self.runtime.auth.login.assert_not_called()
+
+    def test_runtime_can_reauthenticate_before_review_post(self):
+        attempts = 0
+
+        def operation():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise AuthExpiredError("synthetic expired before review")
+            return "ready"
+
+        self.assertEqual(self.runtime.execute(
+            operation_spec("prq.visit_cases"), operation,
+            operation_name="synthetic_patient_lookup",
+        ), "ready")
+        self.assertEqual(attempts, 2)
+        self.runtime.auth.login.assert_called_once_with(force=True)
 
     def test_offline_review_ack_requires_matching_patient_and_login(self):
         payload = {"value(smr_hhisnum)": MRN, "value(smr_hid)": "CURRENT-HID"}
@@ -504,6 +607,17 @@ class VisitLookupTests(unittest.TestCase):
         plan = build_test_plan(config)
         self.assertTrue(plan["conditional_access_review"])
         self.assertNotIn("prq.access_review", plan["excluded_write_operations"])
+
+        automatic = resolve_live_test_config(json_values=LiveTestConfig(
+            profile="regression", test_mrn=MRN, max_cases=1,
+        ).to_safe_dict())
+        self.assertEqual(
+            _query_inputs(query_spec("prq.visit_cases"), automatic, {}),
+            [{"mrn": MRN}],
+        )
+        automatic_plan = build_test_plan(automatic)
+        self.assertTrue(automatic_plan["conditional_access_review"])
+        self.assertNotIn("prq.access_review", automatic_plan["excluded_write_operations"])
 
     def test_legacy_case_uses_source_mrn_for_detail_and_soap(self):
         self.replies["prq.visit_cases"] = visit_page(

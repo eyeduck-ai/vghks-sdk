@@ -30,6 +30,7 @@ class ContextReauthenticationTests(unittest.TestCase):
         client = object.__new__(SDKRuntime)
         client.auth = auth  # type: ignore[assignment]
         client.operation_lock = threading.RLock()
+        client._operation_write_attempts = []
         client.diagnostics = None
         client.raw_capture = None
         return client

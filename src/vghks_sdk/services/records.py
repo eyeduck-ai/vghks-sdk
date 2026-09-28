@@ -73,7 +73,7 @@ class RecordsService:
         national_id: str | None = None,
         access_review_reason: str | None = None,
     ) -> list[VisitCase]:
-        """Fetch visits; an access-review reason is submitted only if requested by PRQ."""
+        """Fetch visits; PRQ review uses the recorded care reason when required."""
         if access_review_reason is not None:
             return self._adapter.get_visit_cases(
                 mrn,

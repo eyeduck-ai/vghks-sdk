@@ -79,6 +79,9 @@ class SDKRuntime:
         self.raw_capture = raw_capture or getattr(self.transport, "raw_capture", None)
         self.auth = auth
         self.operation_lock = threading.RLock()
+        # A read operation may encounter a conditional write (PRQ access review).
+        # Once that POST is attempted, replaying the whole operation is unsafe.
+        self._operation_write_attempts: list[bool] = []
 
     def login(self) -> None:
         def operation() -> None:
@@ -132,6 +135,10 @@ class SDKRuntime:
         response = self.request_response(spec, url, **kwargs)
         return self.transport.text(response)
 
+    @property
+    def operation_write_attempted(self) -> bool:
+        return bool(self._operation_write_attempts and self._operation_write_attempts[-1])
+
     def request_json(self, spec: OperationSpec, url: str, **kwargs: object) -> object:
         response = self.request_response(spec, url, **kwargs)
         return self.transport.json(response)
@@ -181,6 +188,8 @@ class SDKRuntime:
             not spec.mutates and spec.response_kind == "json" and "allow_redirects" not in kwargs
         )
         if spec.mutates:
+            for index in range(len(self._operation_write_attempts)):
+                self._operation_write_attempts[index] = True
             # A response lost after a clinical write is not proof of failure.
             # Never resend it through redirects, transport retry, or re-login.
             kwargs["retry_safe"] = False
@@ -385,52 +394,60 @@ class SDKRuntime:
         )
         try:
             with self.operation_lock:
-                for attempt in range(2):
-                    try:
-                        self.auth.ensure(app_key)
-                        result = operation()
-                        self._finish_operation(
-                            operation_id,
-                            raw_operation_id,
-                            operation_name,
-                            status="OK",
-                        )
-                        return result
-                    except (AuthExpiredError, RequestError) as exc:
-                        if not allow_reauthentication or not self._is_authentication_expiry(exc):
-                            raise
-                        if attempt == 1:
-                            raise AuthenticationError(
-                                "application remained expired after one re-login",
-                                code="AUTH_RELOGIN_FAILED",
-                                operation=operation_name,
-                                app=app_key,
-                            ) from exc
-                        if diagnostics is not None:
-                            diagnostics.record_reauthentication(
-                                operation_id=operation_id,
-                                app_key=app_key,
-                            )
+                self._operation_write_attempts.append(False)
+                try:
+                    for attempt in range(2):
                         try:
-                            self.auth.login(force=True)
-                        except AuthenticationError:
-                            # Preserve rejection/unknown-login codes for the application;
-                            # they are not another expired query and must not be replayed.
-                            raise
-                        except Exception as login_exc:
-                            raise AuthenticationError(
-                                "re-login failed while recovering an expired session",
-                                code="AUTH_RELOGIN_FAILED",
-                                operation=operation_name,
-                                app=app_key,
-                                cause_type=login_exc.__class__.__name__,
-                            ) from login_exc
-                raise AuthenticationError(
-                    "application operation did not complete",
-                    code="AUTH_OPERATION_INCOMPLETE",
-                    operation=operation_name,
-                    app=app_key,
-                )
+                            self.auth.ensure(app_key)
+                            result = operation()
+                            self._finish_operation(
+                                operation_id,
+                                raw_operation_id,
+                                operation_name,
+                                status="OK",
+                            )
+                            return result
+                        except (AuthExpiredError, RequestError) as exc:
+                            if (
+                                not allow_reauthentication
+                                or self._operation_write_attempts[-1]
+                                or not self._is_authentication_expiry(exc)
+                            ):
+                                raise
+                            if attempt == 1:
+                                raise AuthenticationError(
+                                    "application remained expired after one re-login",
+                                    code="AUTH_RELOGIN_FAILED",
+                                    operation=operation_name,
+                                    app=app_key,
+                                ) from exc
+                            if diagnostics is not None:
+                                diagnostics.record_reauthentication(
+                                    operation_id=operation_id,
+                                    app_key=app_key,
+                                )
+                            try:
+                                self.auth.login(force=True)
+                            except AuthenticationError:
+                                # Preserve rejection/unknown-login codes for the application;
+                                # they are not another expired query and must not be replayed.
+                                raise
+                            except Exception as login_exc:
+                                raise AuthenticationError(
+                                    "re-login failed while recovering an expired session",
+                                    code="AUTH_RELOGIN_FAILED",
+                                    operation=operation_name,
+                                    app=app_key,
+                                    cause_type=login_exc.__class__.__name__,
+                                ) from login_exc
+                    raise AuthenticationError(
+                        "application operation did not complete",
+                        code="AUTH_OPERATION_INCOMPLETE",
+                        operation=operation_name,
+                        app=app_key,
+                    )
+                finally:
+                    self._operation_write_attempts.pop()
         except Exception as exc:
             if isinstance(exc, SDKError):
                 exc.with_context(operation=operation_name, app=app_key)

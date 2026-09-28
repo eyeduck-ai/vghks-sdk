@@ -41,9 +41,9 @@ def build_visit_plan(config: Any, *, automatic_id: bool = True) -> dict[str, Any
         "continue_independent_checks": True,
         "excluded_write_operations": [
             spec.key for spec in OPERATIONS
-            if spec.mutates and (spec.key != "prq.access_review" or not config.access_review_reason)
+            if spec.mutates and spec.key != "prq.access_review"
         ],
-        "conditional_access_review": bool(config.access_review_reason),
+        "conditional_access_review": True,
         "automatic_patient_id": automatic_id,
         "visit_checks": [
             "mrn_lookup",

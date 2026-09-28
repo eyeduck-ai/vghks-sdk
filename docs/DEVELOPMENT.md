@@ -40,8 +40,8 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.10-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.10.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.11-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.11.tar.gz
 ```
 
 若本機尚未安裝 `build`／`wheel`，先安裝 `.[dev]`；專案的 PyInstaller 暫存目錄也叫 `build/`，在 Python 將它誤判為模組時，改從 `output/` 目錄執行 `python -m build .. --outdir package`。本輪另以具備 wheel 的獨立 Python 執行 setuptools backend 建置，並逐一檢查實際封包。
@@ -61,7 +61,7 @@ python tools/build_live_test_exe.py --default-profile login
 python tools/build_live_test_exe.py --default-profile soap
 # 單次門診與歷年掃描病歷專項版，不需額外 CMD。
 python tools/build_live_test_exe.py --default-profile scans
-# 掛號與病歷調閱審查回歸版；可選填當頁提供的審查原因。
+# 掛號與病歷調閱審查回歸版；預設自動提交錄製的照護原因。
 python tools/build_live_test_exe.py --default-profile regression
 ```
 
@@ -89,14 +89,14 @@ SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTT
 
 ```sh
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
-python -m pip install output/package/vghks_sdk-0.20.10-py3-none-any.whl
+python -m pip install output/package/vghks_sdk-0.20.11-py3-none-any.whl
 ```
 
 SDK wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線部署時，在與目標相符的 Python／OS 環境先準備 wheel 及依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.10-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.10
+python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.11-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.11
 ```
 
 ## 發布檢查

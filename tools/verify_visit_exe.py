@@ -47,6 +47,8 @@ def test_state(mode, origin):
         "token": "",
         "query_posts": 0,
         "next_pages": 0,
+        "single_rsv_landing": False,
+        "rsv_landing_gets": 0,
         "break_basic": False,
         "paths": [],
         "lookups": [],

@@ -65,7 +65,10 @@ from ..parsing.prq import (
     parse_visit_cases,
     require_patient_context,
 )
-from ..parsing.prq_access_review import parse_patient_access_review_form
+from ..parsing.prq_access_review import (
+    PatientAccessReviewForm,
+    parse_patient_access_review_form,
+)
 from ..runtime import SDKRuntime
 from .prq_extensions import PrqExtendedOperations
 
@@ -109,6 +112,7 @@ _PACS_IMAGE = operation_spec("prq.pacs_image")
 _PDF_ATTACHMENT = operation_spec("prq.pdf_attachment")
 
 _MAX_ASSET_BYTES = 64 * 1024 * 1024
+_RECORDED_CARE_REASON = "1A"
 
 
 class PrqAdapter(PrqExtendedOperations):
@@ -255,21 +259,19 @@ class PrqAdapter(PrqExtendedOperations):
             self._prime_key_raw()
             hid = self.runtime.auth.hid_for("prq")
             base = self.runtime.settings.prq_base_url.rstrip("/")
-            html_text = self.runtime.request_text(
-                _SOAP,
-                f"{base}/QueryBillingSOAP.do",
-                params={
-                    "reqCode": "qrySOAP",
-                    "pdfFlg": "N",
-                    "hhisnum": case.mrn,
-                    "hid": hid,
-                    "caseNo": case.case_no,
-                    "casesec": case.section_code,
-                    "casedt": case.visit_date.isoformat() if case.visit_date else "",
-                    "casenoO": case.case_no,
-                    "sectC": case.section_name,
-                },
-            )
+            params = {
+                "reqCode": "qrySOAP",
+                "pdfFlg": "N",
+                "hhisnum": case.mrn,
+                "hid": hid,
+                "caseNo": case.case_no,
+                "casesec": case.section_code,
+                "casedt": case.visit_date.isoformat() if case.visit_date else "",
+                "casenoO": case.case_no,
+                "sectC": case.section_name,
+            }
+            soap_url = f"{base}/QueryBillingSOAP.do"
+            html_text = self.runtime.request_text(_SOAP, soap_url, params=params)
             if BeautifulSoup(html_text, "html.parser").find(id="data") is None:
                 review = parse_patient_access_review_form(
                     html_text,
@@ -277,14 +279,18 @@ class PrqAdapter(PrqExtendedOperations):
                     expected_hid=hid,
                 )
                 if review is not None:
-                    if access_review_reason is not None:
+                    self._submit_access_review_raw(review, access_review_reason)
+                    html_text = self.runtime.request_text(_SOAP, soap_url, params=params)
+                    if parse_patient_access_review_form(
+                        html_text,
+                        expected_mrn=normalize_mrn(case.patient_mrn),
+                        expected_hid=hid,
+                    ) is not None:
                         raise AuthorizationError(
                             "PRQ still requires patient-access review after submission",
                             code="PRQ_ACCESS_REVIEW_NOT_ACCEPTED",
                         )
-                    raise AccessReviewRequiredError(
-                        "PRQ requires patient-access review before SOAP"
-                    )
+            if BeautifulSoup(html_text, "html.parser").find(id="data") is None:
                 raise ParseError(
                     "SOAP response did not contain its data container",
                     code="PRQ_SOAP_CONTAINER_MISSING",
@@ -830,14 +836,28 @@ class PrqAdapter(PrqExtendedOperations):
         if review is None:
             require_patient_context(context_html)
             return
-        if access_review_reason is None:
-            raise AccessReviewRequiredError(
-                "PRQ requires an explicit patient-access review reason"
+        self._submit_access_review_raw(review, access_review_reason)
+
+    def _submit_access_review_raw(
+        self,
+        review: PatientAccessReviewForm,
+        reason: str | None = None,
+    ) -> None:
+        if self.runtime.operation_write_attempted:
+            raise AuthorizationError(
+                "PRQ still requires patient-access review after submission",
+                code="PRQ_ACCESS_REVIEW_NOT_ACCEPTED",
             )
+        selected = reason or _RECORDED_CARE_REASON
+        if reason is None and selected not in review.offered_reasons:
+            raise AccessReviewRequiredError(
+                "the recorded clinical-care reason was not offered by PRQ"
+            )
+        base = self.runtime.settings.prq_base_url.rstrip("/")
         response = self.runtime.request_text(
             _ACCESS_REVIEW,
             f"{base}/EMRProcess.do",
-            data=review.payload_for(access_review_reason),
+            data=review.payload_for(selected),
             headers={"Referer": f"{base}/QueryPatientRecord.do"},
         )
         try:
@@ -869,6 +889,28 @@ class PrqAdapter(PrqExtendedOperations):
             params=params,
         )
         soup = BeautifulSoup(html_text, "html.parser")
+        review = parse_patient_access_review_form(
+            html_text,
+            expected_mrn=normalize_mrn(case.patient_mrn),
+            expected_hid=hid,
+        )
+        if review is not None:
+            self._submit_access_review_raw(review)
+            html_text = self.runtime.request_text(
+                _CASE_DETAIL,
+                f"{self.runtime.settings.prq_base_url.rstrip('/')}/QueryCaseDetail.do",
+                params=params,
+            )
+            if parse_patient_access_review_form(
+                html_text,
+                expected_mrn=normalize_mrn(case.patient_mrn),
+                expected_hid=hid,
+            ) is not None:
+                raise AuthorizationError(
+                    "PRQ still requires patient-access review after submission",
+                    code="PRQ_ACCESS_REVIEW_NOT_ACCEPTED",
+                )
+            soup = BeautifulSoup(html_text, "html.parser")
         if soup.find(id="tabs") is None and soup.find(id="tab_ul") is None:
             raise ParseError(
                 "case-detail response did not contain the expected tabs",
@@ -879,7 +921,7 @@ class PrqAdapter(PrqExtendedOperations):
     def _history_context_raw(self, mrn: str) -> None:
         hid = self.runtime.auth.hid_for("prq")
         base = self.runtime.settings.prq_base_url.rstrip("/")
-        self.runtime.request_text(
+        html_text = self.runtime.request_text(
             _PATIENT_HISTORY_CONTEXT,
             f"{base}/QueryPatientRecord.do",
             params={
@@ -890,6 +932,11 @@ class PrqAdapter(PrqExtendedOperations):
                 "id": mrn,
             },
         )
+        review = parse_patient_access_review_form(
+            html_text, expected_mrn=mrn, expected_hid=hid,
+        )
+        if review is not None:
+            self._submit_access_review_raw(review)
 
     @staticmethod
     def _validate_outpatient_case(case: VisitCase) -> None:

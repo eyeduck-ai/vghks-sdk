@@ -101,7 +101,7 @@ class AtomicRecordedTests(unittest.TestCase):
                     "excluded_write_operations"
                 ]
             ),
-            writes,
+            writes - {"prq.access_review"},
         )
         for key in writes:
             with self.assertRaises(ConfigurationError):

@@ -57,7 +57,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 `records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；0.20.3 另驗證一筆舊病歷號門診 SOAP，能以來源號碼取得 S／O／A+P 與診斷。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
 
-院方要求病歷調閱審查時，SDK 會在確認病人與登入狀態後，自動送出 HAR 錄製的照護原因 `1A` 一次並繼續查詢；當前頁未提供該選項或結果無法確認時會明確報錯。WebMAAS 掛號查詢優先使用 SSO 回傳的有效表單，缺表單或 token 才固定 GET 一次；單檔 EXE 可用獨立帳號比較高榮與聯合醫院流程。修正已依 HAR 與合成情境驗證，尚待新版內網 EXE 回傳；詳見 [VISITS](docs/VISITS.md) 與 [PATIENTS](docs/PATIENTS.md)。
+院方要求病歷調閱審查時，SDK 會在確認病人與登入狀態後，自動送出 HAR 錄製的照護原因 `1A` 一次並繼續查詢；當前頁未提供該選項或結果無法確認時會明確報錯。WebMAAS 掛號查詢優先使用 SSO 回傳的有效表單，缺表單或 token 才固定 GET 一次；單檔 EXE 可用獨立帳號比較高榮與聯合醫院流程。0.20.11 院內回傳已驗證一次自動審查後取得就診及 SOAP，以及兩組帳號各自成功查詢掛號；詳見 [VISITS](docs/VISITS.md) 與 [PATIENTS](docs/PATIENTS.md)。
 
 未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
 

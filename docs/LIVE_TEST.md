@@ -2,7 +2,7 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 均為 0.20.11；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP，並可用第二組帳號比較掛號流程。PRQ 病歷調閱審查預設自動使用 HAR 錄製的照護原因。合成與 localhost EXE 驗證不能取代院內證據。
+目前 SDK 原始碼與本機單檔 EXE 均為 0.20.11；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP，並可用第二組帳號比較掛號流程。PRQ 病歷調閱審查預設自動使用 HAR 錄製的照護原因。2026-09-28 院內回傳已驗證一次自動審查及兩組帳號掛號查詢；實際涵蓋範圍見 [VALIDATION](VALIDATION.md)。
 
 ## 本次：高榮與聯合醫院掛號比較、病歷調閱審查
 

@@ -2,7 +2,7 @@
 
 `sdk.records.get_soap(case)` 取得一筆門診 SOAP，回傳 `SoapRecord`。0.20.0 起以同一份回應辨識分段、診斷及列印摘要，不需額外查詢醫囑頁面。`sdk.queries.run("prq.soap", case=case)` 亦回傳相同模型。
 
-PRQ 若要求病歷調閱審查，`sdk.records.get_soap(case)` 會依 [VISITS](VISITS.md#院方要求病歷調閱審查時) 自動核對當頁表單並送出錄製的 `1A` 一次，再重讀 SOAP。病人核對使用 `case.patient_mrn`；就診 SOAP 仍使用來源 `case.mrn`。若當頁沒有錄製選項會回 `AccessReviewRequiredError`，審查結果無法確認時回 `PRQ_ACCESS_REVIEW_NOT_ACCEPTED`。此路徑已用 2026-09-28 HAR 與合成測試驗證，尚待新版內網 EXE 回傳。
+PRQ 若要求病歷調閱審查，`sdk.records.get_soap(case)` 會依 [VISITS](VISITS.md#院方要求病歷調閱審查時) 自動核對當頁表單並送出錄製的 `1A` 一次，再重讀 SOAP。病人核對使用 `case.patient_mrn`；就診 SOAP 仍使用來源 `case.mrn`。若當頁沒有錄製選項會回 `AccessReviewRequiredError`，審查結果無法確認時回 `PRQ_ACCESS_REVIEW_NOT_ACCEPTED`。0.20.11 院內 EXE 已驗證就診清單階段的自動審查後可繼續取得 SOAP；SOAP 頁直接出現審查表單的分支尚未在院內自然觸發。
 
 ```python
 from vghks_sdk import to_jsonable

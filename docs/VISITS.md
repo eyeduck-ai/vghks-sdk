@@ -21,7 +21,7 @@ soap = sdk.records.get_soap(cases[0])
 
 送出後須取得可辨識的病人頁框才繼續讀取；未知回應不當成成功，也不透過讀取重試或重新登入重送 POST。若當頁沒有 `1A`，SDK 回 `AccessReviewRequiredError`；病歷號、HID 或表單位置不符時直接報錯。仍可用 `access_review_reason="代碼"` 明確覆寫，但代碼必須是當頁選項。身分證路徑遇到審查時會要求先取得已核對的病歷號；原因參數不可與 `national_id` 合用。
 
-若已有 `VisitCase`，`get_soap(case)`、`get_case_detail(case)` 與 `get_case_scanned_records(case)` 遇到相同審查頁亦自動處理；歷年掃描病歷建立病人狀態時也使用相同邏輯。檢查患者時使用 `case.patient_mrn`，該次 SOAP 仍使用來源 `case.mrn`。這是 2026-09-28 HAR 流程的本機實作，尚待新版內網 EXE 複驗。
+若已有 `VisitCase`，`get_soap(case)`、`get_case_detail(case)` 與 `get_case_scanned_records(case)` 遇到相同審查頁亦自動處理；歷年掃描病歷建立病人狀態時也使用相同邏輯。檢查患者時使用 `case.patient_mrn`，該次 SOAP 仍使用來源 `case.mrn`。0.20.11 院內 EXE 已實測病歷號就診查詢遇到審查頁時自動送出一次 `1A`，接著取得就診清單及一份 SOAP；其他入口各自觸發審查的情境仍只有合成測試。
 
 病歷號沿用已驗證的查詢路徑。身分證路徑依 HAR 錄到的前端表單使用 `type=2`，自動轉大寫並建立病人 context；接著核對病人標頭的身分證及實際病歷號，再取就診清單。後續 VisitCase.mrn 使用病歷號，不會把身分證當成病歷號。兩個參數同時提供、皆未提供、空字串或不合法字元，會在連線前報錯。
 

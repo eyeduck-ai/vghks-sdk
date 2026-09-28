@@ -2,7 +2,7 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機 EXE 均為 0.20.8；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP。兩項 2026-09-28 修正已通過 HAR 離線重解析與 localhost 合成驗證，尚待新版內網回傳；本機驗證不能取代院內證據。
+目前 SDK 原始碼與本機 EXE 均為 0.20.9；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP。兩項 2026-09-28 修正及先查 `CHECK_PAT` 再查掛號的順序已通過 HAR 離線重解析與 localhost 合成驗證，尚待新版內網回傳；本機驗證不能取代院內證據。
 
 ## 本次：掛號清單與病歷調閱審查
 

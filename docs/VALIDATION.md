@@ -4,8 +4,9 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.20.8；新增 PRQ 病歷調閱審查與 WebMAAS 首次 SSO 掛號表單處理。0.20.7 的歷年掃描分類仍保留。先前 0.20.1–0.20.5 的就診、SOAP、數值、手術及掃描證據見下文。
-- 本機現行 EXE：0.20.8、`regression` 計畫，雙擊時詢問授權病歷號與 Portal 帳密，可選填院方當頁提供的調閱原因代碼；查掛號、就診、抽樣 SOAP 及數值報告。新版僅有 HAR 離線及 HTTPS localhost 合成驗證，尚未有院內 ZIP；不能把前版成功當作新版成功。
+- SDK 原始碼：0.20.9；延續 PRQ 病歷調閱審查與 WebMAAS 首次 SSO 掛號表單處理，並保留獨立 `CHECK_PAT` 後尚未提交的掛號表單。0.20.7 的歷年掃描分類仍保留。先前 0.20.1–0.20.5 的就診、SOAP、數值、手術及掃描證據見下文。
+- 本機現行 EXE：0.20.9、`regression` 計畫，雙擊時詢問授權病歷號與 Portal 帳密，可選填院方當頁提供的調閱原因代碼；查掛號、就診、抽樣 SOAP 及數值報告。新版僅有 HAR 離線及 HTTPS localhost 合成驗證，尚未有院內 ZIP；不能把前版成功當作新版成功。
+- 本機 0.20.9：完整 suite 執行 559 項，547 項通過、12 項私有條件測試跳過；Ruff、API 文件同步、公開檔案檢查、wheel／sdist 實際封包檢查及獨立目錄 wheel 匯入通過。單檔 EXE 的 HTTPS localhost 合成驗證涵蓋先獨立查 `CHECK_PAT`、再查掛號且第二次 GET 無表單的情境，結果為 `OK`；回歸 EXE 既有四種情境亦通過。院內新版結果仍待確認。
 - 本機 0.20.8：完整 suite 執行 558 項，546 項通過、12 項私有條件測試跳過；Ruff、API 文件同步、公開檔案檢查、wheel／sdist 實際封包檢查及獨立目錄 wheel 匯入通過。聯合醫院掛號與調閱審查 HAR 各只讀重解析，不重送請求；`regression` 及病人查詢 EXE 通過 HTTPS localhost 合成驗證。這些均不等於新版已在院內完成查詢。
 - 先前 `regression` EXE：0.20.4，查指定病歷號的基本資料、完整就診清單、最多兩份眼科 SOAP／單次數值報告、跨期間數值報告及登入醫師手術排程。有舊號眼科門診時，兩份樣本中抽一筆舊號。HTTPS localhost 已驗證舊號查詢及手填文字／空白格的眼科表格警示情境；2026-09-25 第三份院內回傳為 `OK`，實際範圍見下文。
 - 本機 0.20.7：549 項合成／一般測試通過（未啟用私有資料時跳過 12 項）；啟用私有 HAR／回傳只讀回歸後 549 項全數通過。0.20.5 掃描 ZIP 原始頁重新解析為 9 筆、2 類、8 筆眼科紀錄，9 筆均有顯示日期；未重送任何醫院請求。單檔 `scans` EXE 已以 HTTPS localhost 模擬回應驗證完整分類清單、眼科樣本與 PDF 下載。Ruff、API 文件、公開內容、wheel／sdist 封存及獨立安裝後的 import／CLI 檢查通過。新版分類及組合流程的院內操作尚未驗證。
@@ -19,6 +20,7 @@
 - 聯合醫院帳號的應用 debug 僅顯示 `WEBMAAS_QUERY_FORM_MISSING`，沒有失敗頁原始回應。新 HAR 錄到瀏覽器 WebMAAS SSO 轉址後第一頁即有 `RSV11WForm` 與 token；其後 AJAX 病人核對與掛號 POST 均成功，掛號結果離線重解析為 12 筆。SDK 原先在 SSO 已取得該頁後又 GET 一次，現改為首次直接使用 SSO 頁並一次性消耗 token；「多餘 GET 是失敗原因」屬根據流程差異的推論，仍待新版內網 ZIP 確認。
 - PRQ HAR 顯示 `QueryPatientRecord.do` 回傳病歷調閱表單，選擇頁面提供的 `1A` 後，`EMRProcess.do` 回可辨識病人 context，接著取得就診清單與 SOAP。私有 HAR 只讀重解析為 23 筆就診與 8 筆 SOAP 回應；它是錄製結果，並非新版 SDK 的院內請求。SDK 現要求明確原因並核對病歷號、HID、表單位置及可選原因，送出一次後需確認病人 context；合成測試覆蓋不符、未提供原因與結果不明不重送。
 - 0.20.8 單檔 EXE 的 HTTPS localhost 驗證通過四種回歸情境，包含「第二次 WebMAAS GET 無表單」與「PRQ 審查後繼續 SOAP」同時出現的情境；病人查詢 EXE 的 SSO、token、分頁與錯誤續跑亦通過。所有 localhost 回應與帳號均為合成資料，院內結果仍待測。
+- 0.20.9 再核對同份聯合醫院 HAR：首次 SSO 掛號表單後僅呼叫 AJAX `CHECK_PAT`，其後掛號 POST 仍使用首次 token。SDK 因此保留獨立 `get_demographics` 後的首次表單；合成與 frozen EXE 的 HTTPS localhost 測試均確認此順序沒有多餘 GET。HAR 不能證明原失敗頁內容或新版院內查詢結果。
 
 ## 2026-09-27 0.20.5 掃描 EXE 院內回傳
 

@@ -34,8 +34,8 @@ class WebMaasAdapter:
 
         def operation() -> PatientDemographics:
             self.runtime.auth.ensure_webmaas_page("RSV11W001")
-            # CHECK_PAT may change server-side form state; a later query reads a new form.
-            self.runtime.auth.take_webmaas_landing("RSV11W001")
+            # CHECK_PAT does not submit the query form; keep its SSO token for
+            # a subsequent registration query in the same WebMAAS session.
             return self._get_demographics_raw(mrn)
 
         return self.runtime.execute(

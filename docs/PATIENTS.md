@@ -8,7 +8,7 @@
 
 三者能獨立使用，不必先呼叫另一個公開方法。`mrn` 是病歷號；登入帳號／醫師卡號不作為病人識別碼。
 
-2026-09-28 聯合醫院帳號錄製的掛號流程，WebMAAS SSO 轉址直接回傳帶有 `RSV11WForm` 與 token 的查詢頁。SDK 首次進入該角色時會一次性使用這份頁面；後續查詢才重新 GET 表單，避免多餘的第二次 GET。這是根據 HAR 與應用錯誤碼 `WEBMAAS_QUERY_FORM_MISSING` 所做的修正；錯誤 debug 未包含失敗頁原始回應，因此第二次 GET 的實際院內內容仍待新版 EXE 回傳確認。錄製掛號結果可由目前 Parser 離線解析出 12 筆，不能當成新版 SDK 已在內網成功。
+2026-09-28 聯合醫院帳號錄製的掛號流程，WebMAAS SSO 轉址直接回傳帶有 `RSV11WForm` 與 token 的查詢頁。SDK 首次掛號查詢會一次性使用這份頁面；後續查詢才重新 GET 表單，避免多餘的第二次 GET。HAR 在首次表單與掛號 POST 之間執行 `CHECK_PAT`，因此獨立呼叫 `get_demographics` 後也保留這份尚未提交的表單，供緊接的掛號查詢使用。這是根據 HAR 與應用錯誤碼 `WEBMAAS_QUERY_FORM_MISSING` 所做的修正；錯誤 debug 未包含失敗頁原始回應，因此第二次 GET 的實際院內內容仍待新版 EXE 回傳確認。錄製掛號結果可由目前 Parser 離線解析出 12 筆，不能當成新版 SDK 已在內網成功。
 
 以病人身分證找就診清單請用 `sdk.records.get_visit_cases(national_id=...)`；每筆 VisitCase 的 `mrn` 是已核對的病歷號，可以再交給上述病人方法。身分證不能直接填進這些方法的 `mrn` 參數。就診欄位與篩選方式見 [VISITS](VISITS.md)。
 

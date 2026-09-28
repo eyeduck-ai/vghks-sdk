@@ -65,6 +65,10 @@ class PatientIntranet(SyntheticIntranet):
             basic = "/QUY/" in path
             assert state["role"] == ("maas_QRY15" if basic else "maas_RSV11")
             if self.command == "GET" and "d-123-p" not in params:
+                if not basic and state["single_rsv_landing"]:
+                    state["rsv_landing_gets"] += 1
+                    if state["rsv_landing_gets"] > 1:
+                        return self.reply("<html>synthetic repeat GET has no query form</html>")
                 state["token_number"] += 1
                 state["token"] = f"fresh-token-{state['token_number']}"
                 return self.reply(landing("QUY15WForm" if basic else "RSV11WForm", state["token"]))
@@ -96,7 +100,7 @@ def main():
     origin = f"https://localhost:{helper.server.server_port}"
     results = []
     try:
-        for broken in (False, True):
+        for broken, demographics_then_registration in ((False, False), (True, False), (False, True)):
             helper.server.test_state = state = {
                 "origin": origin,
                 "reject_login": False,
@@ -110,6 +114,8 @@ def main():
                 "query_posts": 0,
                 "next_pages": 0,
                 "break_basic": broken,
+                "single_rsv_landing": demographics_then_registration,
+                "rsv_landing_gets": 0,
             }
             with tempfile.TemporaryDirectory(prefix="patient-exe-", dir=output) as temporary:
                 directory = Path(temporary).resolve()
@@ -119,6 +125,10 @@ def main():
                 config = json.loads(
                     (ROOT / "configs/patient-queries.example.json").read_text(encoding="utf-8")
                 )
+                if demographics_then_registration:
+                    config["only_operations"] = [
+                        "webmaas.demographics", "webmaas.registration_query"
+                    ]
                 config.update(
                     ca_bundle=helper.ca,
                     endpoint_overrides={
@@ -177,7 +187,8 @@ def main():
                     timeout=90,
                     creationflags=subprocess.CREATE_NO_WINDOW,
                 )
-                (output / f"exe-patient-{int(broken)}.log").write_text(
+                scenario = "demographics-registration" if demographics_then_registration else str(int(broken))
+                (output / f"exe-patient-{scenario}.log").write_text(
                     process.stdout + process.stderr, encoding="utf-8"
                 )
                 assert process.returncode == (1 if broken else 0), process.returncode
@@ -191,7 +202,7 @@ def main():
                         archive.read("parsed/atomic/webmaas.registration_query/0001.json")
                     )
                     assert len(rows) == 2 and all(r["section_code"] == "70" for r in rows)
-                    if not broken:
+                    if not broken and not demographics_then_registration:
                         info = json.loads(
                             archive.read("parsed/atomic/webmaas.basic_info/0001.json")
                         )
@@ -199,8 +210,14 @@ def main():
                             info["fields"]["未來新欄位"] == "keep-me" and len(info["notices"]) == 1
                         )
                     assert all(not entry.flag_bits & 1 for entry in archive.infolist())
-                assert state["roles"] == ["maas_RSV11", "maas_QRY15", "maas_RSV11"], state["roles"]
-                assert state["query_posts"] == 2 and state["next_pages"] == 1
+                assert state["roles"] == (
+                    ["maas_RSV11"] if demographics_then_registration
+                    else ["maas_RSV11", "maas_QRY15", "maas_RSV11"]
+                ), state["roles"]
+                assert state["query_posts"] == (1 if demographics_then_registration else 2)
+                assert state["next_pages"] == 1
+                if demographics_then_registration:
+                    assert state["rsv_landing_gets"] == 1
                 with BundleReader(archives[0]) as reader:
                     analysis, recipe = inspect_bundle(reader)
                     assert any(
@@ -210,10 +227,11 @@ def main():
                 results.append(
                     {
                         "intentional_basic_failure": broken,
+                        "demographics_then_registration": demographics_then_registration,
                         "status": summary["status"],
-                        "role_switches_verified": True,
+                        "role_sequence_verified": True,
                         "fresh_tokens_verified": True,
-                        "registrations_after_basic_query": len(rows),
+                        "registration_count": len(rows),
                         "plain_zip": True,
                     }
                 )

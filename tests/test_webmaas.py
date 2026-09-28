@@ -208,6 +208,20 @@ class WebMaasParserTests(unittest.TestCase):
 
 
 class WebMaasAdapterTests(unittest.TestCase):
+    def test_demographics_keeps_sso_form_for_following_registration(self):
+        adapter, session, auth = adapter_with(
+            identity(), identity(), response(registration()),
+        )
+        auth.take_webmaas_landing.return_value = landing("RSV11WForm", token="sso-token")
+
+        self.assertEqual(adapter.get_demographics(MRN).mrn, MRN)
+        auth.take_webmaas_landing.assert_not_called()
+        self.assertEqual(len(adapter.get_registration_history(MRN)), 1)
+        auth.take_webmaas_landing.assert_called_once_with("RSV11W001")
+        self.assertEqual([call.args[0] for call in session.request.call_args_list],
+                         ["POST", "POST", "POST"])
+        self.assertEqual(session.request.call_args_list[-1].kwargs["data"][TOKEN], "sso-token")
+
     def test_registration_uses_sso_landing_once_without_an_extra_get(self):
         adapter, session, auth = adapter_with(
             identity(), response(registration()),

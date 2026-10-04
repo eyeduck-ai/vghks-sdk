@@ -6,7 +6,6 @@ import contextlib
 import json
 import os
 import shutil
-import stat
 import sys
 import traceback
 import uuid
@@ -18,7 +17,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from ..core.errors import ConfigurationError, SDKError, error_info
-from ..local_io import write_json_atomic
+from ..local_io import restrict_permissions, restrict_tree_permissions, write_json_atomic
 
 OWNER_MARKER = ".vghks-live-test"
 INCOMPLETE_MARKER = ".incomplete"
@@ -59,7 +58,7 @@ class LiveTestBundleManager:
         self.responses_directory = self._make_directory("responses")
         self.console_path = self.run_directory / "console.log"
         self._console = self.console_path.open("a", encoding="utf-8", newline="\n")
-        _restrict(self.console_path)
+        restrict_permissions(self.console_path)
 
     @classmethod
     def create_auto(
@@ -109,13 +108,13 @@ class LiveTestBundleManager:
             self.responses_directory,
         ):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            _restrict(directory, directory=True)
+            restrict_permissions(directory, directory=True)
         capture_manifest = self.run_directory / "capture_manifest.jsonl"
         capture_manifest.touch(exist_ok=True)
-        _restrict(capture_manifest)
+        restrict_permissions(capture_manifest)
         errors_path = self.run_directory / "errors.jsonl"
         errors_path.touch(exist_ok=True)
-        _restrict(errors_path)
+        restrict_permissions(errors_path)
         config_path = self.run_directory / "run_config.json"
         if not config_path.is_file():
             write_json_atomic(
@@ -202,12 +201,12 @@ class LiveTestBundleManager:
                 + "\n",
                 encoding="utf-8",
             )
-            _restrict(self.run_directory / COMPLETE_MARKER)
+            restrict_permissions(self.run_directory / COMPLETE_MARKER)
             (self.run_directory / INCOMPLETE_MARKER).unlink(missing_ok=True)
             self.close_console()
             packaging_stage = "archive"
             archive = self._create_archive(normalized_status)
-            _restrict_tree(self.run_directory)
+            restrict_tree_permissions(self.run_directory)
         except Exception as exc:
             packaging_error = _packaging_error(exc, stage=packaging_stage)
             self._preserve_packaging_failure(packaging_error)
@@ -269,9 +268,9 @@ class LiveTestBundleManager:
                 else:
                     child.unlink()
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _restrict(root, directory=True)
+        restrict_permissions(root, directory=True)
         (root / OWNER_MARKER).write_text("vghks-sdk live-test bundle v3\n", encoding="utf-8")
-        _restrict(root / OWNER_MARKER)
+        restrict_permissions(root / OWNER_MARKER)
         write_json_atomic(
             root / INCOMPLETE_MARKER,
             {
@@ -284,7 +283,7 @@ class LiveTestBundleManager:
     def _make_directory(self, name: str) -> Path:
         path = self.run_directory / name
         path.mkdir(mode=0o700)
-        _restrict(path, directory=True)
+        restrict_permissions(path, directory=True)
         return path
 
     def _write_return_readme(self, status: str) -> None:
@@ -316,7 +315,7 @@ Do not replay requests or session state from this bundle.
 """
         path = self.run_directory / "README_RETURN.txt"
         path.write_text(text, encoding="utf-8", newline="\n")
-        _restrict(path)
+        restrict_permissions(path)
 
     def _create_archive(self, status: str) -> LiveTestArchive:
         # An existing output directory may also hold the EXE and other user
@@ -324,7 +323,7 @@ Do not replay requests or session state from this bundle.
         existing_directory = self.archive_directory.exists()
         self.archive_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         if not existing_directory:
-            _restrict(self.archive_directory, directory=True)
+            restrict_permissions(self.archive_directory, directory=True)
         # Use export time (not the potentially much earlier run start). A new
         # short ID also distinguishes two archives produced in the same second.
         name = f"vghks-live-test-{_new_run_id()}-{status}.zip"
@@ -378,7 +377,7 @@ Do not replay requests or session state from this bundle.
                 app="local",
                 cause_type=exc.__class__.__name__,
             ) from exc
-        _restrict(archive_path)
+        restrict_permissions(archive_path)
         return LiveTestArchive(
             run_id=self.run_id,
             run_directory=self.run_directory,
@@ -488,18 +487,6 @@ def _is_within(path: Path, directory: Path) -> bool:
     return True
 
 
-def _restrict(path: Path, *, directory: bool = False) -> None:
-    mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR if directory else stat.S_IRUSR | stat.S_IWUSR
-    with contextlib.suppress(OSError):
-        os.chmod(path, mode)
-
-
-def _restrict_tree(root: Path) -> None:
-    _restrict(root, directory=True)
-    for path in root.rglob("*"):
-        _restrict(path, directory=path.is_dir())
-
-
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -558,7 +545,7 @@ def _append_packaging_error(root: Path, error: BaseException) -> str:
     try:
         with path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-        _restrict(path)
+        restrict_permissions(path)
     except (OSError, UnicodeError):
         return ""
     return error_id

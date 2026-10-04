@@ -23,7 +23,7 @@ from ..models import ReviewCaseFilter, SurgeryCaseFilter, VisitFilter, to_jsonab
 from ..queries import query_spec
 from ..search import SoapSearch
 from .defaults import default_test_mrn
-from .presets import REGRESSION_QUERIES, SCAN_RECORD_QUERIES
+from .presets import FAILURE_QUERIES, REGRESSION_QUERIES, SCAN_RECORD_QUERIES
 
 LIVE_CONFIG_SCHEMA_VERSION = 6
 DEFAULT_SOAP_TEST_DATE = date(2026, 9, 21)
@@ -90,7 +90,7 @@ class LiveTestConfig:
     """Validated, credential-free live-test configuration."""
 
     profile: str = "full"
-    login_negative_attempts: int = 2
+    login_negative_attempts: int | None = None
     test_mrn: str = field(default_factory=default_test_mrn)
     access_review_reason: str | None = None
     output_root: Path | None = None
@@ -198,14 +198,19 @@ class LiveTestConfig:
             "soap",
             "regression",
             "scans",
+            "failures",
             "core",
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, core or full"
             )
+        if self.login_negative_attempts is None:
+            object.__setattr__(self, "login_negative_attempts", 1 if profile == "failures" else 2)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
+        if profile == "failures" and self.login_negative_attempts > 1:
+            raise ConfigurationError("failures profile permits at most one wrong-password attempt")
         if self.max_cases is None:
             object.__setattr__(
                 self,
@@ -218,6 +223,8 @@ class LiveTestConfig:
                 if profile == "visits"
                 else 6
                 if profile == "scans"
+                else 2
+                if profile == "failures"
                 else 1,
             )
         if self.max_items is None:
@@ -249,13 +256,17 @@ class LiveTestConfig:
             operations = REGRESSION_QUERIES
         if profile == "scans" and not operations:
             operations = SCAN_RECORD_QUERIES
+        if profile == "failures" and not operations:
+            operations = FAILURE_QUERIES
+        if profile == "failures" and operations != FAILURE_QUERIES:
+            raise ConfigurationError("failures profile requires its bounded read-only queries")
         if profile == "scans" and operations != SCAN_RECORD_QUERIES:
             raise ConfigurationError("scans profile requires its four read-only scan queries")
         for key in operations:
             query_spec(key)
         object.__setattr__(self, "only_operations", operations)
-        if operations and profile not in {"atomic", "comprehensive", "regression", "scans"}:
-            raise ConfigurationError("only_operations requires atomic, comprehensive, regression or scans profile")
+        if operations and profile not in {"atomic", "comprehensive", "regression", "scans", "failures"}:
+            raise ConfigurationError("only_operations requires atomic, comprehensive, regression, scans or failures profile")
         for limit in (self.max_cases, self.max_items):
             if type(limit) is not int or not 1 <= limit <= 100:
                 raise ConfigurationError("test limits must be integers between 1 and 100")
@@ -264,7 +275,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -628,7 +639,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         test_mrn=values.get("test_mrn", default_test_mrn()),
         access_review_reason=values.get("access_review_reason"),
         profile=str(values.get("profile", "full")),
-        login_negative_attempts=values.get("login_negative_attempts", 2),
+        login_negative_attempts=values.get("login_negative_attempts"),
         output_root=Path(str(values["output_root"])) if values.get("output_root") else None,
         visit_filter=visit_filter,
         soap_search=soap_search,

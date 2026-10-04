@@ -14,17 +14,22 @@ from ..core.errors import (
     AuthenticationError,
     AuthExpiredError,
     LoginRejectedError,
+    NotAuthenticatedError,
+    PasswordChangeRequiredError,
     RequestError,
     SDKError,
 )
 from ..core.operations import OperationSpec, operation_spec
 from ..core.transport import SafeSessionTransport
+from ..models.auth import PasswordStatus
 from ..parsing.portal import (
     has_portal_login_form,
     has_portal_login_redirect,
     has_portal_login_rejection,
+    is_password_change_destination,
     is_portal_login_destination,
     parse_login_target,
+    parse_password_status,
 )
 
 _PORTAL_ENTRY = operation_spec("portal.entry")
@@ -93,6 +98,7 @@ class AuthenticationAdapter:
         self._apps: dict[str, AppSession] = {}
         self._webmaas_page = ""
         self._generation = 0
+        self._password_status = PasswordStatus()
 
     @property
     def portal_authenticated(self) -> bool:
@@ -103,6 +109,30 @@ class AuthenticationAdapter:
         return self._generation
 
     @property
+    def password_status(self) -> PasswordStatus:
+        return self._password_status
+
+    def _observe_password_status(self, text: str, url: str, *, login_stage: bool = False) -> None:
+        status = parse_password_status(text, login_stage=login_stage)
+        if status.status != "NO_NOTICE":
+            self._password_status = status
+        if status.status == "CHANGE_REQUIRED":
+            raise PasswordChangeRequiredError(
+                "password change is required by the returned page",
+                operation="portal.login" if login_stage else "auth.session", app="portal",
+                endpoint_path=urlsplit(url).path,
+            )
+
+    def _check_password_change_redirect(self, target: str) -> None:
+        if is_password_change_destination(target, self.settings.portal_base_url,
+                                          self.settings.portal_base_url):
+            self._password_status = PasswordStatus("CHANGE_REQUIRED", evidence="LOGIN_REDIRECT")
+            raise PasswordChangeRequiredError(
+                "portal login requires password change", operation="portal.login",
+                app="portal", endpoint_path="/login.do",
+            )
+
+    @property
     def portal_landing_url(self) -> str:
         return self._portal_landing_url
 
@@ -111,7 +141,7 @@ class AuthenticationAdapter:
             return
         try:
             self._login(force=force)
-        except AuthExpiredError as exc:
+        except (AuthExpiredError, NotAuthenticatedError) as exc:
             # A failed login bootstrap is not expiry of an established session.
             raise AuthenticationError(
                 "portal did not establish a session; credential validity is unknown",
@@ -121,6 +151,9 @@ class AuthenticationAdapter:
                 cause_type=type(exc).__name__,
             ) from exc
         except RequestError as exc:
+            # Repeating this login may resubmit the password, even when the
+            # failing HTTP request was a safe landing-page GET.
+            exc.with_context(retry_safe=False)
             if exc.status_code not in {401, 403}:
                 raise
             # An HTTP denial may be an access policy, not a wrong password.
@@ -135,6 +168,7 @@ class AuthenticationAdapter:
             ) from exc
 
     def _login(self, *, force: bool) -> None:
+        self._password_status = PasswordStatus()
         if force:
             self.transport.reset_cookies()
         self._apps.clear()
@@ -149,6 +183,7 @@ class AuthenticationAdapter:
             allow_redirects=True,
         )
         self._validate_host(entry.url, self.settings.portal_base_url, "portal entry")
+        self._observe_password_status(self.transport.text(entry), entry.url)
         payload = self._login_payload(self.transport.text(entry), entry.url)
         now = self._milliseconds()
         login_url = self._operation_url(self.settings.portal_base_url, _PORTAL_LOGIN)
@@ -168,6 +203,7 @@ class AuthenticationAdapter:
         )
         response = self._follow_login_redirects(posted, password_post=True)
         text = self.transport.text(response)
+        self._observe_password_status(text, response.url, login_stage=True)
         try:
             target = parse_login_target(text)
         except AuthenticationError as exc:
@@ -183,6 +219,7 @@ class AuthenticationAdapter:
         else:
             target_url = urljoin(self.settings.portal_base_url.rstrip("/") + "/", target)
             self._validate_host(target_url, self.settings.portal_base_url, "portal login target")
+            self._check_password_change_redirect(target_url)
             if is_portal_login_destination(target_url, response.url, self.settings.portal_base_url):
                 raise LoginRejectedError(
                     "portal navigated back to its login entrance",
@@ -202,6 +239,7 @@ class AuthenticationAdapter:
             )
             landing = self._follow_login_redirects(landing)
         landing_text = self.transport.text(landing)
+        self._observe_password_status(landing_text, landing.url)
         if not landing_text.strip():
             raise AuthenticationError(
                 "portal login landing was empty; credential validity is unknown",
@@ -247,6 +285,7 @@ class AuthenticationAdapter:
                 )
             target = urljoin(response.url, location)
             self._validate_host(target, self.settings.portal_base_url, "portal login redirect")
+            self._check_password_change_redirect(target)
             response = self.transport.request(
                 "GET", target, allow_redirects=False,
                 headers={**_NAVIGATION_HEADERS, "Referer": response.url},
@@ -348,25 +387,27 @@ class AuthenticationAdapter:
         return session.landing_html
 
     def assert_not_expired(self, text: str, response_url: str) -> None:
+        self._observe_password_status(text, response_url)
+        error_type = AuthExpiredError if self._portal_authenticated else NotAuthenticatedError
         path = urlsplit(response_url).path.lower()
         if path.endswith("/login.do") or "syserrorexception.jsp" in path:
-            raise AuthExpiredError(
+            raise error_type(
                 "application session returned an authentication page",
-                code="AUTH_SESSION_LOGIN_PAGE",
+                code="AUTH_SESSION_LOGIN_PAGE" if self._portal_authenticated else "AUTH_NOT_AUTHENTICATED",
                 operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
         if has_portal_login_form(text):
-            raise AuthExpiredError(
+            raise error_type(
                 "application session returned the portal login form",
-                code="AUTH_SESSION_LOGIN_FORM",
+                code="AUTH_SESSION_LOGIN_FORM" if self._portal_authenticated else "AUTH_NOT_AUTHENTICATED",
                 operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
         if has_portal_login_redirect(text, response_url, self.settings.portal_base_url):
-            raise AuthExpiredError(
+            raise error_type(
                 "application returned automatic navigation to the portal entrance",
-                code="AUTH_SESSION_REDIRECT", operation="auth.session",
+                code="AUTH_SESSION_REDIRECT" if self._portal_authenticated else "AUTH_NOT_AUTHENTICATED", operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
 

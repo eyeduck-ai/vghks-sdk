@@ -2,9 +2,42 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ..core.errors import ErrorInfo
+
+
+@dataclass(frozen=True, slots=True)
+class PasswordStatus:
+    """Safe observed policy notice; NO_NOTICE does not assert password validity."""
+
+    status: str = "NO_NOTICE"
+    remaining_days: int | None = None
+    evidence: str = ""
+
+    def __post_init__(self) -> None:
+        if self.status not in {"NO_NOTICE", "EXPIRING", "CHANGE_REQUIRED"}:
+            raise ValueError("unknown password notice status")
+        if self.evidence not in {
+            "",
+            "VISIBLE_TEXT",
+            "SCRIPT_LITERAL",
+            "LOGIN_CHANGE_FORM",
+            "LOGIN_REDIRECT",
+        }:
+            raise ValueError("unknown password notice evidence")
+        if self.remaining_days is not None and (
+            type(self.remaining_days) is not int or not 0 <= self.remaining_days <= 36500
+        ):
+            raise ValueError("invalid remaining password days")
+
+    @property
+    def code(self) -> str:
+        return {
+            "NO_NOTICE": "",
+            "EXPIRING": "PORTAL_PASSWORD_EXPIRING",
+            "CHANGE_REQUIRED": "PORTAL_PASSWORD_CHANGE_REQUIRED",
+        }[self.status]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +74,7 @@ class AuthCheckReport:
     status: str
     targets: tuple[AuthCheckTarget, ...]
     reauthenticated: bool = False
+    password_status: PasswordStatus = field(default_factory=PasswordStatus)
 
     @property
     def ok(self) -> bool:

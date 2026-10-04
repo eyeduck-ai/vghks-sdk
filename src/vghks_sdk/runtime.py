@@ -17,6 +17,7 @@ from .core.errors import (
     AuthenticationError,
     AuthExpiredError,
     ErrorInfo,
+    NotAuthenticatedError,
     ParseError,
     RequestError,
     SDKError,
@@ -25,7 +26,7 @@ from .core.errors import (
 from .core.operations import OperationSpec
 from .core.readiness import AuthCheckSpec, make_auth_report, resolve_auth_targets
 from .core.transport import SafeSessionTransport
-from .models import AuthCheckReport, AuthCheckTarget
+from .models import AuthCheckReport, AuthCheckTarget, PasswordStatus
 from .parsing.portal import is_portal_login_destination
 
 T = TypeVar("T")
@@ -90,6 +91,11 @@ class SDKRuntime:
 
         self.trace_direct("login", "portal", operation)
 
+    @property
+    def password_status(self) -> PasswordStatus:
+        value = getattr(self.auth, "password_status", None)
+        return value if isinstance(value, PasswordStatus) else PasswordStatus()
+
     def auth_check(self, only: Sequence[str] | None = None) -> AuthCheckReport:
         specs = resolve_auth_targets(only)
 
@@ -102,7 +108,8 @@ class SDKRuntime:
                     )
                     if authentication_expired and attempt == 0:
                         continue
-                    return make_auth_report(targets, reauthenticated=attempt == 1)
+                    return make_auth_report(targets, reauthenticated=attempt == 1,
+                                            password_status=self.password_status)
                 raise AuthenticationError(
                     "authentication readiness sweep did not complete",
                     code="AUTH_READINESS_INCOMPLETE",
@@ -158,6 +165,8 @@ class SDKRuntime:
             raise RequestError(
                 "binary response exceeded the per-file size limit",
                 code="BINARY_ASSET_TOO_LARGE",
+                category="VALIDATION",
+                phase="RESPONSE",
                 endpoint_path=spec.path,
             )
         content = response.content or b""
@@ -167,6 +176,8 @@ class SDKRuntime:
             raise RequestError(
                 "binary response exceeded the per-file size limit",
                 code="BINARY_ASSET_TOO_LARGE",
+                category="VALIDATION",
+                phase="RESPONSE",
                 endpoint_path=spec.path,
             )
         return content, media_type
@@ -182,6 +193,8 @@ class SDKRuntime:
             raise RequestError(
                 "operation URL did not match its registered endpoint",
                 code="OPERATION_PATH_MISMATCH",
+                category="CONFIGURATION",
+                phase="VALIDATION",
                 endpoint_path=actual_path,
             )
         json_redirect_guard = (
@@ -204,11 +217,16 @@ class SDKRuntime:
             response = self.transport.request(spec.method, url, **kwargs)
         except RequestError as exc:
             if exc.status_code in {401, 403}:
-                raise AuthExpiredError(
-                    "application returned an authentication status",
+                established = getattr(self.auth, "generation", 0) > 0
+                error_type = AuthExpiredError if established else NotAuthenticatedError
+                raise error_type(
+                    "application denied authentication or authorization",
+                    code="AUTH_HTTP_DENIED" if established else "AUTH_NOT_AUTHENTICATED",
                     operation=spec.key,
                     app=spec.app,
                     endpoint_path=spec.path,
+                    http_status=exc.status_code,
+                    cause=error_info(exc),
                 ) from exc
             exc.with_context(
                 operation=spec.key,
@@ -220,9 +238,11 @@ class SDKRuntime:
                 and not kwargs.get("allow_redirects", True)):
             location = response.headers.get("Location", "")
             if location and is_portal_login_destination(location, response.url, self.settings.portal_base_url):
-                raise AuthExpiredError(
+                established = getattr(self.auth, "generation", 0) > 0
+                error_type = AuthExpiredError if established else NotAuthenticatedError
+                raise error_type(
                     "query redirected to the portal login entrance",
-                    code="AUTH_SESSION_REDIRECT", operation=spec.key, app=spec.app,
+                    code="AUTH_SESSION_REDIRECT" if established else "AUTH_NOT_AUTHENTICATED", operation=spec.key, app=spec.app,
                     endpoint_path=spec.path,
                 )
             if json_redirect_guard:
@@ -392,6 +412,7 @@ class SDKRuntime:
             if raw_capture is not None
             else ""
         )
+        write_attempted = False
         try:
             with self.operation_lock:
                 self._operation_write_attempts.append(False)
@@ -420,6 +441,7 @@ class SDKRuntime:
                                     code="AUTH_RELOGIN_FAILED",
                                     operation=operation_name,
                                     app=app_key,
+                                    phase="REAUTHENTICATION",
                                 ) from exc
                             if diagnostics is not None:
                                 diagnostics.record_reauthentication(
@@ -439,6 +461,7 @@ class SDKRuntime:
                                     operation=operation_name,
                                     app=app_key,
                                     cause_type=login_exc.__class__.__name__,
+                                    phase="REAUTHENTICATION",
                                 ) from login_exc
                     raise AuthenticationError(
                         "application operation did not complete",
@@ -447,10 +470,14 @@ class SDKRuntime:
                         app=app_key,
                     )
                 finally:
-                    self._operation_write_attempts.pop()
+                    write_attempted = self._operation_write_attempts.pop()
         except Exception as exc:
             if isinstance(exc, SDKError):
-                exc.with_context(operation=operation_name, app=app_key)
+                exc.with_context(
+                    operation=operation_name, app=app_key,
+                    retry_safe=allow_reauthentication and not write_attempted,
+                )
+                exc.info = error_info(exc)
             self._finish_operation(
                 operation_id,
                 raw_operation_id,
@@ -485,6 +512,7 @@ class SDKRuntime:
         except Exception as exc:
             if isinstance(exc, SDKError):
                 exc.with_context(operation=name, app=app_key)
+                exc.info = error_info(exc)
             self._finish_operation(
                 operation_id,
                 raw_operation_id,

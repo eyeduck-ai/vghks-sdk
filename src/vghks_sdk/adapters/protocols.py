@@ -28,6 +28,7 @@ from ..models import (
     PacsImageRef,
     PacsStudy,
     PacsStudyRef,
+    PasswordStatus,
     PatientBasicInfo,
     PatientDemographics,
     PatientSurgeryRecord,
@@ -44,6 +45,9 @@ from ..models import (
 
 
 class AuthAdapterProtocol(Protocol):
+    @property
+    def password_status(self) -> PasswordStatus: ...
+
     def login(self) -> None: ...
 
     def auth_check(self, only: Sequence[str] | None = None) -> AuthCheckReport: ...

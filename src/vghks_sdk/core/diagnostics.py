@@ -15,6 +15,7 @@ import threading
 import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
@@ -25,7 +26,7 @@ import bs4
 import requests
 from bs4 import BeautifulSoup
 
-from .errors import ConfigurationError, error_code
+from .errors import ConfigurationError, error_code, error_info
 
 _CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
 _SAFE_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.\[\]-]{0,79}$")
@@ -256,6 +257,7 @@ class DiagnosticRecorder:
         if exc is not None:
             payload["error_code"] = _safe_code(error_code(exc))
             payload["error_type"] = _safe_code(exc.__class__.__name__)
+            payload["issue"] = asdict(error_info(exc))
         self._write("operation_finished", payload)
         if getattr(self._local, "operation_id", None) == operation_id:
             self._local.operation_id = 0

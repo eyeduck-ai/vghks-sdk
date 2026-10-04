@@ -196,10 +196,11 @@ class AuthReportAndCliTests(unittest.TestCase):
                     "generated_at",
                     "status",
                     "reauthenticated",
+                    "password_status",
                     "targets",
                 },
             )
-            self.assertEqual(payload["schema_version"], 2)
+            self.assertEqual(payload["schema_version"], 3)
             self.assertEqual(
                 set(payload["targets"][0]),
                 {

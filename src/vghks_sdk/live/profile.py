@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
-import os
-import stat
 import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -23,7 +20,7 @@ from ..core.errors import (
     ErrorInfo,
     error_info,
 )
-from ..local_io import write_json_atomic
+from ..local_io import restrict_permissions, restrict_tree_permissions, write_json_atomic
 from ..models import (
     AuthCheckReport,
     ClinicalOrder,
@@ -151,7 +148,7 @@ def run_live_test(
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     parsed_dir = root / "parsed"
     parsed_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _restrict(parsed_dir, directory=True)
+    restrict_permissions(parsed_dir, directory=True)
     summary_path = root / "run_summary.json"
     started_at = _utc_now()
     steps: list[LiveTestStep] = []
@@ -446,7 +443,7 @@ def run_live_test(
         summary_path=summary_path,
         run_id=run_id,
     )
-    _restrict_tree(parsed_dir)
+    restrict_tree_permissions(parsed_dir)
     _write_json(
         summary_path,
         {
@@ -857,7 +854,7 @@ def _write_history_outputs(parsed_dir: Path, fetched: list[_FetchedCase]) -> Non
     with records_path.open("w", encoding="utf-8", newline="\n") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-    _restrict(records_path)
+    restrict_permissions(records_path)
 
 
 def _history_row(item: _FetchedCase) -> dict[str, Any]:
@@ -1093,19 +1090,7 @@ def _validate_options(
 
 def _write_json(path: Path, value: Any) -> None:
     write_json_atomic(path, to_jsonable(value))
-    _restrict(path)
-
-
-def _restrict(path: Path, *, directory: bool = False) -> None:
-    mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR if directory else stat.S_IRUSR | stat.S_IWUSR
-    with contextlib.suppress(OSError):
-        os.chmod(path, mode)
-
-
-def _restrict_tree(root: Path) -> None:
-    _restrict(root, directory=True)
-    for path in root.rglob("*"):
-        _restrict(path, directory=path.is_dir())
+    restrict_permissions(path)
 
 
 def _utc_now() -> str:

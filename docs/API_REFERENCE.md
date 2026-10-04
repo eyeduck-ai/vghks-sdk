@@ -16,11 +16,13 @@
 | `webmaas.demographics` | `get_demographics(mrn: str) -> PatientDemographics` | 精簡身分與聯絡資訊；供清單補充欄位。 |
 | `webmaas.basic_info` | `get_basic_info(mrn: str) -> PatientBasicInfo` | 完整基本資料、住院／出院提示；保留來源欄位。 |
 | `webmaas.registration_query` | `get_registration_history(mrn: str) -> list[RegistrationRecord]` | 掛號紀錄與狀態；SSO 轉址頁的當次 token 可直接用於首次查詢，有掛號不等於已就診。 |
+
 ## sdk.opd
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
 | `prq.opd_patients` | `get_doctor_patients(card_no: str, visit_date: date) -> list[OutpatientPatient]` | 指定醫師與日期的門診掛號清單；保留掛號序號、科別與回傳的醫師標示。 |
+
 ## sdk.records
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -42,6 +44,7 @@
 | `prq.upload_types` | `get_upload_types() -> list[dict[str, str]]` | 上傳文件類型目錄，供 upload_history 使用。 |
 | `prq.text_report_history` | `get_text_report_history(mrn: str, department: str, days: int = 3650) -> TextReportHistory` | 各科報告清單；PATH／RAD／CHK 與醫囑路徑分開。 |
 | `prq.text_report` | `get_text_report(ref: OrderReportRef) -> OrderReport` | 讀取各科報告的正文與附件參照；眼科完整檢查宜由醫囑路徑發現。 |
+
 ## sdk.orders
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -53,12 +56,14 @@
 | `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 開啟 JPG 檢視資料，列出圖片；按鈕存在仍可能回傳空清單。 |
 | `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 下載一張 JPG，驗證格式及完整結尾。 |
 | `prq.pdf_attachment` | `download_pdf(ref: PdfAttachmentRef) -> BinaryAsset` | 下載一個 PRQ PDF 附件；共用於檢查、掃描病歷、上傳文件及病人歷史手術。 |
+
 ## sdk.medications
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
 | `prq.case_medications` | `get_case_medications(case: VisitCase) -> list[MedicationOrder]` | 該次就診的藥囑與用法資料。 |
 | `prq.medication_history` | `get_medication_history(mrn: str, filter: MedicationHistoryFilter) -> list[MedicationOrder]` | 指定期間的藥囑歷史。 |
+
 ## sdk.surgery
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -79,11 +84,13 @@
 | `oppl_records.cases` | `get_cases(filter: SurgeryCaseFilter) -> list[SurgeryCase]` | 依執刀／指導／助手、術式代碼、科別及期間查詢手術案例。 |
 | `oppl_records.note` | `get_record_ref(ref: SurgeryCaseRef) -> SurgeryNoteRef &#124; None` | 由 SurgeryCase.reference 取得該次手術紀錄 PDF 位置；無紀錄可回 None。 |
 | `oppl_records.pdf` | `download_record(ref: SurgeryNoteRef) -> BinaryAsset` | 下載手術案例查詢系統的 PDF；與 PRQ 附件為不同入口。 |
+
 ## sdk.audit
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
 | `audit.unsigned_records` | `get_unsigned_records(doctor: str, start: date, end: date) -> list[UnsignedRecord]` | 醫師指定期間的未完成／未簽病歷。 |
+
 ## sdk.reviews
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -96,6 +103,7 @@
 | `review.orders` | `get_orders(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的醫囑明細。 |
 | `review.attachments` | `get_attachments(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的附件清單／資訊；不下載附件本體。 |
 | `review.pacs` | `get_pacs(ref: ReviewCaseRef) -> ReviewCasePart` | 該審查案件的 PACS 清單／資訊；不下載圖片本體。 |
+
 ## sdk.personnel
 
 | 操作 ID | Service 呼叫及回傳 | 用途 |
@@ -109,6 +117,7 @@
 | --- | --- |
 | `sdk.auth.login()` | 建立 Portal Session；一般查詢會按需登入。 |
 | `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；不代表已有查詢資料。 |
+| `sdk.auth.password_status` | 查看已觀察的 PasswordStatus：NO_NOTICE、EXPIRING、CHANGE_REQUIRED；remaining_days 可為 None。不發請求、不含原始文字或帳密；同值納入 AuthCheckReport（schema 3）。 |
 | `sdk.connection_status()` | 查看每個服務實際選擇的 TLS／憑證驗證及連線確認狀態；不發出請求，不含帳密。 |
 | `sdk.configure_connection(app, tls_profile=...)` | 進階覆寫指定服務的 TLS；一般使用已有自動相容與恢復，見 [CONNECTIONS](CONNECTIONS.md)。 |
 | `sdk.earnings.open_performance(credentials)` | 二次身分驗證並取得績點報表月份表單 context。 |
@@ -144,7 +153,13 @@ MUTATION_OUTCOME_UNKNOWN 必須先讀回查證，禁止自動重送；跨程序�
 PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數值抽取。
 `to_jsonable` 只轉成可儲存結構，不會去除個資。
 SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。
+phase、retry_safe、retry_recommended 與結構化 cause 提供失敗階段與安全重試條件；info.root_cause 保留最深層原因。retry_safe 為 None 時表示未知，retry_recommended 不會啟動新的自動重試。
+可選用 `acquire(lambda: sdk.records.get_soap(case))` 或 `sdk.queries.run_result(key, **inputs)` 取得 AcquisitionResult；原 Service 與 queries.run 的回傳型別不變。
+結果 status 為 OK／EMPTY／PARTIAL／ERROR，data.availability 分開表示 AVAILABLE、EMPTY、NOT_FOUND、NOT_EXECUTED、ATTACHMENT_ONLY、METADATA_ONLY、BINARY_AVAILABLE 或 UNKNOWN。原值保留在 value；未知程式例外仍向外傳遞。
+DataAssessment.warnings 保留已完整對齊的眼科表頭警示，不使 complete=False；其他解析缺漏仍在 issues／PARTIAL。原 NumericTable.parsing_issues 與資料不刪除。
+`assess_data(value)` 可在不發 HTTP 的情況下判斷既有結果；不推論未知 JSON 的空值語意、臨床意義或全院資料是否不存在。完整使用方式見 [ACQUISITION](ACQUISITION.md)。
 `LoginRejectedError` 表示登入遭拒，與 `AuthExpiredError` 分開；兩者均繼承 AuthenticationError。
+`NotAuthenticatedError` 表示尚未建立登入的查詢挑戰；`PasswordChangeRequiredError` 表示來源明確要求變更密碼。兩者繼承 AuthenticationError，均不觸發過期恢復。密碼倒數以 PasswordStatus 保留，不將成功登入誤判為失敗；NO_NOTICE 只表示未辨識到通知。
 `AccessReviewRequiredError` 表示當頁沒有錄製的照護原因 `1A`，SDK 無法自動送出；可確認院方當頁選項後，以 access_review_reason 明確覆寫。一次送出後不會自動重送。
 一般查詢過期最多自動恢復一次；登入遭拒、原因未明的登入失敗與 MIS 二次驗證不盲目重送密碼。
 錯誤碼與呼叫端範例見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。

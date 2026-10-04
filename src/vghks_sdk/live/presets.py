@@ -18,6 +18,22 @@ SCAN_RECORD_QUERIES = (
     "prq.pdf_attachment",
 )
 
+FAILURE_QUERIES = (
+    "webmaas.basic_info", "webmaas.registration_query", "prq.visit_cases", "prq.soap",
+    "prq.numeric", "prq.case_orders", "prq.order_detail", "prq.order_report",
+    "prq.pacs_study", "prq.upload_types",
+)
+
+
+def failure_test_round() -> dict:
+    """Observe one patient after the authorized single pre-login rejection test."""
+
+    return {
+        "profile": "failures", "login_negative_attempts": 1,
+        "weekly_opd_soap": False, "include_earnings": False, "download_assets": False,
+        "max_cases": 2, "max_items": 2, "only_operations": list(FAILURE_QUERIES),
+    }
+
 
 def login_test_round() -> dict:
     return {

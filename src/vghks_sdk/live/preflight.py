@@ -293,7 +293,8 @@ def independent_readiness(
         targets.append(target)
         by_key[spec.key] = target
         # Keep partial readiness even if a later check is interrupted.
-        result = make_auth_report(targets, reauthenticated=reauthenticated)
+        result = make_auth_report(targets, reauthenticated=reauthenticated,
+                                  password_status=getattr(sdk.auth, "password_status", None))
         write_json_atomic(root / "parsed" / "readiness.json", to_jsonable(result))
     return result
 

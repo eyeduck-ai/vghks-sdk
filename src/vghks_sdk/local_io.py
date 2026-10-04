@@ -6,6 +6,7 @@ import contextlib
 import csv
 import json
 import os
+import stat
 import tempfile
 import unicodedata
 from pathlib import Path
@@ -85,6 +86,18 @@ def write_jsonl_line(handle: Any, value: Any) -> None:
 def write_json_atomic(path: Path, value: Any) -> Path:
     """Atomically replace a UTF-8 JSON document."""
 
+    return _write_json_atomic(
+        path,
+        value,
+        message="unable to write JSON output",
+        code="OUTPUT_WRITE_FAILED",
+        operation="local.write_json",
+    )
+
+
+def _write_json_atomic(
+    path: Path, value: Any, *, message: str, code: str, operation: str
+) -> Path:
     destination = path.expanduser().resolve()
     temporary_name = ""
     try:
@@ -112,9 +125,9 @@ def write_json_atomic(path: Path, value: Any) -> Path:
         os.replace(temporary_name, destination)
     except (OSError, UnicodeError, TypeError, ValueError) as exc:
         raise ConfigurationError(
-            "unable to write JSON output",
-            code="OUTPUT_WRITE_FAILED",
-            operation="local.write_json",
+            message,
+            code=code,
+            operation=operation,
             app="local",
             cause_type=exc.__class__.__name__,
         ) from exc
@@ -162,13 +175,13 @@ def write_bytes_atomic(path: Path, content: bytes) -> Path:
 def write_auth_check_report(path: Path, report: AuthCheckReport) -> Path:
     """Atomically replace the well-known, deliberately safe auth report."""
 
-    destination = path.expanduser().resolve()
     safe_payload = {
         "schema_version": report.schema_version,
         "sdk_version": report.sdk_version,
         "generated_at": report.generated_at,
         "status": report.status,
         "reauthenticated": report.reauthenticated,
+        "password_status": to_jsonable(report.password_status),
         "targets": [
             {
                 "target": item.target,
@@ -184,43 +197,31 @@ def write_auth_check_report(path: Path, report: AuthCheckReport) -> Path:
             for item in report.targets
         ],
     }
-    temporary_name = ""
-    try:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=destination.parent,
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            temporary_name = handle.name
-            json.dump(
-                safe_payload,
-                handle,
-                ensure_ascii=False,
-                sort_keys=True,
-                indent=2,
-            )
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary_name, destination)
-    except (OSError, UnicodeError, TypeError, ValueError) as exc:
-        raise ConfigurationError(
-            "unable to write the auth-check JSON report",
-            code="AUTH_REPORT_WRITE_FAILED",
-            operation="local.write_auth_report",
-            app="local",
-            cause_type=exc.__class__.__name__,
-        ) from exc
-    finally:
-        if temporary_name:
-            with contextlib.suppress(OSError):
-                Path(temporary_name).unlink(missing_ok=True)
-    return destination
+    return _write_json_atomic(
+        path,
+        safe_payload,
+        message="unable to write the auth-check JSON report",
+        code="AUTH_REPORT_WRITE_FAILED",
+        operation="local.write_auth_report",
+    )
+
+
+def restrict_permissions(path: Path, *, directory: bool = False) -> None:
+    """Apply owner permissions where supported; Windows ACLs remain caller-owned."""
+
+    mode = stat.S_IRUSR | stat.S_IWUSR
+    if directory:
+        mode |= stat.S_IXUSR
+    with contextlib.suppress(OSError):
+        os.chmod(path, mode)
+
+
+def restrict_tree_permissions(root: Path) -> None:
+    """Restrict a caller-owned output tree without changing its contents."""
+
+    restrict_permissions(root, directory=True)
+    for path in root.rglob("*"):
+        restrict_permissions(path, directory=path.is_dir())
 
 
 def _read_mrns_csv(path: Path) -> list[tuple[int, str]]:

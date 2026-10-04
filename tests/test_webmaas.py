@@ -129,6 +129,7 @@ def adapter_with(*responses):
     session = requests.Session()
     session.request = MagicMock(side_effect=responses)
     auth = MagicMock(spec=AuthenticationAdapter)
+    auth.generation = 1
     auth.assert_not_expired = MagicMock()
     auth.take_webmaas_landing.return_value = ""
     auth.credentials = PortalCredentials("SYNTHETIC", "TEST-SECRET")

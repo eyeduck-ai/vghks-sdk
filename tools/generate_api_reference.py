@@ -121,14 +121,15 @@ def render() -> str:
             signature = re.sub(r"vghks_sdk\.models\.[a-z_]+\.", "", signature)
             signature = signature.replace("'", "").replace("|", "&#124;")
             lines.append(f"| `{spec.key}` | `{spec.method}{signature}` | {PURPOSES[spec.key]} |")
+        lines.append("")
     lines += [
-        "",
         "## 登入、報表與額外入口",
         "",
         "| 入口 | 用途 |",
         "| --- | --- |",
         "| `sdk.auth.login()` | 建立 Portal Session；一般查詢會按需登入。 |",
         "| `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；不代表已有查詢資料。 |",
+        "| `sdk.auth.password_status` | 查看已觀察的 PasswordStatus：NO_NOTICE、EXPIRING、CHANGE_REQUIRED；remaining_days 可為 None。不發請求、不含原始文字或帳密；同值納入 AuthCheckReport（schema 3）。 |",
         "| `sdk.connection_status()` | 查看每個服務實際選擇的 TLS／憑證驗證及連線確認狀態；不發出請求，不含帳密。 |",
         "| `sdk.configure_connection(app, tls_profile=...)` | 進階覆寫指定服務的 TLS；一般使用已有自動相容與恢復，見 [CONNECTIONS](CONNECTIONS.md)。 |",
         "| `sdk.earnings.open_performance(credentials)` | 二次身分驗證並取得績點報表月份表單 context。 |",
@@ -164,7 +165,13 @@ def render() -> str:
         "PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數值抽取。",
         "`to_jsonable` 只轉成可儲存結構，不會去除個資。",
         "SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。",
+        "phase、retry_safe、retry_recommended 與結構化 cause 提供失敗階段與安全重試條件；info.root_cause 保留最深層原因。retry_safe 為 None 時表示未知，retry_recommended 不會啟動新的自動重試。",
+        "可選用 `acquire(lambda: sdk.records.get_soap(case))` 或 `sdk.queries.run_result(key, **inputs)` 取得 AcquisitionResult；原 Service 與 queries.run 的回傳型別不變。",
+        "結果 status 為 OK／EMPTY／PARTIAL／ERROR，data.availability 分開表示 AVAILABLE、EMPTY、NOT_FOUND、NOT_EXECUTED、ATTACHMENT_ONLY、METADATA_ONLY、BINARY_AVAILABLE 或 UNKNOWN。原值保留在 value；未知程式例外仍向外傳遞。",
+        "DataAssessment.warnings 保留已完整對齊的眼科表頭警示，不使 complete=False；其他解析缺漏仍在 issues／PARTIAL。原 NumericTable.parsing_issues 與資料不刪除。",
+        "`assess_data(value)` 可在不發 HTTP 的情況下判斷既有結果；不推論未知 JSON 的空值語意、臨床意義或全院資料是否不存在。完整使用方式見 [ACQUISITION](ACQUISITION.md)。",
         "`LoginRejectedError` 表示登入遭拒，與 `AuthExpiredError` 分開；兩者均繼承 AuthenticationError。",
+        "`NotAuthenticatedError` 表示尚未建立登入的查詢挑戰；`PasswordChangeRequiredError` 表示來源明確要求變更密碼。兩者繼承 AuthenticationError，均不觸發過期恢復。密碼倒數以 PasswordStatus 保留，不將成功登入誤判為失敗；NO_NOTICE 只表示未辨識到通知。",
         "`AccessReviewRequiredError` 表示當頁沒有錄製的照護原因 `1A`，SDK 無法自動送出；可確認院方當頁選項後，以 access_review_reason 明確覆寫。一次送出後不會自動重送。",
         "一般查詢過期最多自動恢復一次；登入遭拒、原因未明的登入失敗與 MIS 二次驗證不盲目重送密碼。",
         "錯誤碼與呼叫端範例見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。",

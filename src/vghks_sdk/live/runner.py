@@ -221,7 +221,15 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile == "login":
+            if config.profile == "failures":
+                from .failures import run_failure_test
+
+                result = run_failure_test(
+                    sdk, config, output_dir=manager.run_directory,
+                    credentials=credentials, settings=settings,
+                    raw_capture=raw_capture, diagnostics=diagnostics, run_id=manager.run_id,
+                )
+            elif config.profile == "login":
                 from .login import run_login_test
 
                 result = run_login_test(

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.22.2
+
+- 共用本機 JSON 原子寫入與測試輸出權限處理，移除重複實作，保留各入口錯誤碼及安全登入報告的欄位白名單。
+- 離線 ZIP 分析建立步驟／capture 索引，Cookie 恢復證據只在確認範圍內比對，減少反覆掃描。保留範圍外登入錯誤、後續解析錯誤及原始測試狀態；0.22.1 院內 ZIP 的分析與重測設定在版本資訊以外完全一致。
+- 精簡 README 與開發流程、依 profile 整理 EXE 文件，移除過時數量及操作說明；清除本機舊套件、重複建置依賴與暫存安裝副本，保留原始錄製資料及院內分析證據。院內驗證仍以 0.22.1 回傳為準。
+- 套件授權改用 SPDX `MIT` 與明確的 LICENSE 檔案清單，建置後端最低 setuptools 77.0.0，移除舊設定的棄用警告；SDK 執行時相依不變。
+
+## 0.22.1
+
+- 依 2026-10-04 的 0.22.0 `failures` 院內回傳，修正登入 alert 的「【4】日後到期」倒數格式；`PasswordStatus` 現可從保存的原始回應辨識 EXPIRING／4／SCRIPT_LITERAL。原 EXE 的 NO_SAMPLE 不改寫，強制變更與自然 TTL 仍無院內樣本。
+- `DataAssessment.warnings` 分開保留完全對齊的日期／OD／OS 表頭警示，統一 `acquire` 與測試器的判定；未知表頭、欄位不一致及其他問題仍為 PARTIAL，原模型的 `parsing_issues` 與所有原值保留。
+- 報告文字解析支援 PDF 按鈕的頂層 `urlStr=encodeURIComponent(...)` 靜態指定，避免將正常附件按鈕誤列為解析缺漏；不執行 JavaScript，動態、條件、callback 或重複指定仍保留問題。兩份原始報告仍為 ATTACHMENT_ONLY，沒有把附件參照當正文。
+- 離線分析分開列出原 EXE 與新解析器的密碼通知及資料完整性；缺樣本的密碼政策步驟保留安全名稱與原因碼。`failures` 增至 68 個無 socket 模擬，localhost EXE 加入方括號倒數、已對齊表頭警示及 PDF 按鈕組合情境。
+- 後續 0.22.1 院內回傳完成 89 步，已直接辨識三日倒數，兩份完整對齊的數值報告保留警示且無 PARTIAL；預期登入拒絕及 Cookie 恢復亦通過。本輪報告合法空值、缺明細與 JPG 參照，PDF 按鈕及強制變更仍無新版院內樣本。
+
+## 0.22.0
+
+- 新增安全的 `sdk.auth.password_status`／`AuthCheckReport.password_status`，保留已觀察的密碼倒數天數、明確強制變更與來源類型。強制變更以 `PasswordChangeRequiredError` 結束，不重新送出登入或自動修改密碼；未知格式維持原錯誤。
+- `NotAuthenticatedError` 區分尚未建立登入的查詢挑戰與既有登入的 `AuthExpiredError`；HTTP 401／403 仍保留原始原因，不推論自然 TTL 或權限不足。
+- `failures` EXE 增至 67 個無 socket 模擬，加入獨立匿名查詢及正常登入前一次錯誤密碼。明確拒絕後才用正確密碼繼續；未知、HTTP 拒絕、強制變更或意外成功均停止後續登入。依使用者選擇不等待自然過期，保留清 Cookie 恢復與密碼狀態觀察，院內回傳仍待驗證。
+
+## 0.21.0
+
+- 新增可選用的 `acquire`、`assess_data` 與 `sdk.queries.run_result`；以 AcquisitionResult／DataAssessment 分開表示成功、合法空值、查無資料、未執行、附件／metadata、binary 及部分解析，既有 Service 型別不變。
+- ErrorInfo 新增失敗階段、安全重試、重試建議及結構化原因鏈。重登入途中的 DNS／連線錯誤不再需要自行挖 Python 例外鏈；401／403 保留 HTTP 原因並維持一次恢復，不猜測權限或密碼問題。
+- 新增 `failures` EXE 計畫，分開保存內建模擬與授權病人實際查詢，抽樣兩次門診及報告／JPG 參照；正常查詢後測本機 Cookie 遺失恢復，不送刻意錯誤密碼，不宣稱已驗證自然 TTL。新版院內結果尚待帶回。
+
 ## 0.20.11
 
 - PRQ 出現 HAR 錄製的病歷調閱審查表單時，預設核對病歷號、登入 HID、提交位置及當頁選項後，自動送出錄製的照護原因 `1A` 一次，接著取得就診、單次明細、SOAP 或歷年掃描病歷。原 `access_review_reason` 仍可明確覆寫；當頁未提供預設原因、身分不符或審查結果不明時明確報錯。

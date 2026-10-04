@@ -10,7 +10,7 @@
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
 ```
 
-上例取得 GitHub main 的版本；固定部署可改用已存在的 tag 或 commit。開發時 clone 後執行 `python -m pip install -e ".[dev]"`；尚未推送的修改需由本機 checkout 或本機 wheel 安裝。尚未發布到 PyPI。
+固定部署可將 `main` 改為已存在的 tag 或 commit。開發時 clone 後執行 `python -m pip install -e ".[dev]"`。目前尚未發布到 PyPI；wheel 與完全離線安裝見 [DEVELOPMENT](docs/DEVELOPMENT.md)。
 
 ```python
 import os
@@ -35,6 +35,10 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 
 一般查詢的 Session 過期會自動重登入並重做一次；登入遭拒則以 `LoginRejectedError` 結束，不自動重送相同帳密。應用程式可依 `SDKError.info.code` 提示更正帳密或檢查連線；[錯誤處理與例外範圍](docs/CONNECTIONS.md#session-過期與登入失敗) 說明 MIS 獨立登入及寫入操作的處理。
 
+整合系統可用 `acquire(lambda: sdk.records.get_visit_cases(mrn))` 或 `sdk.queries.run_result(...)` 取得統一結果，區分正常回傳、合法空值、部分解析與失敗。SDK 提供來源狀態、結構化底層原因與安全重試提示；應用決定排程、提示及如何接受缺資料。用法見 [資料獲取與失敗分類](docs/ACQUISITION.md)。
+
+`sdk.auth.password_status` 可讀取已觀察的密碼倒數與強制變更狀態，不發新請求；`PasswordChangeRequiredError` 需由使用者透過院方入口改密碼，再以新帳密建立 SDK。未辨識到通知不代表密碼永不過期，詳見 [登入與密碼狀態](docs/CONNECTIONS.md#session-過期與登入失敗)。
+
 ## 功能入口
 
 | 入口 | 用途 |
@@ -49,19 +53,9 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | `auth`／`queries` | 連線檢查、57 項唯讀功能的目錄與動態呼叫 |
 | `vghks_sdk.workflows` | 報告收集、門診 SOAP 篩選、手術紀錄收集 |
 
-**支援單次就診與指定期間兩條路徑**：依 VisitCase 查單次資料，或使用 HistoryFilter 向伺服器查指定期間，不必先下載每次就診再自行篩選。醫囑報告與各科報告亦為獨立入口。
+查詢支援單次就診與指定期間，也可由病歷號或病人身分證取得就診清單再篩選。數值依表頭與儲存格對齊；SOAP 及手術欄位保留來源，不推論臨床意義。未執行醫囑、正文、只有附件與查無圖片各自保留狀態；PDF／JPG 下載不包含 OCR。
 
-數值類報告依 HTML 表格表頭與儲存格位置對齊欄位；手動輸入的文字、`error` 或空白會原樣保留，不以數字大小猜測左右眼。欄位對齊與來源格式警示見 [NUMERIC_REPORTS](docs/NUMERIC_REPORTS.md)。
-
-就診清單可由病歷號或 `records.get_visit_cases(national_id=病人身分證)` 取得，再依到院日、類別、科別及醫師組合篩選。院內清單若包含同病人的舊病歷號，SDK 保留該次就診原號碼以供下游查詢，並記錄本次清單的查詢號碼。兩條輸入路徑及由身分證清單串接門診 SOAP／醫囑已有內網樣本驗證；舊號門診 SOAP 也有一筆院內成功回傳，用法見 [VISITS](docs/VISITS.md)。
-
-`records.get_soap(case)` 提供結構化 S、O、A+P、診斷碼、頁面中的醫囑／藥囑摘要，以及明示的慢性處方服藥期限，同時保留原有文字。0.20.0 的院內回傳已驗證四筆 SOAP 解析；0.20.3 另驗證一筆舊病歷號門診 SOAP，能以來源號碼取得 S／O／A+P 與診斷。欄位、空值及與醫囑明細的差異見 [SOAP](docs/SOAP.md)。
-
-院方要求病歷調閱審查時，SDK 會在確認病人與登入狀態後，自動送出 HAR 錄製的照護原因 `1A` 一次並繼續查詢；當前頁未提供該選項或結果無法確認時會明確報錯。WebMAAS 掛號查詢優先使用 SSO 回傳的有效表單，缺表單或 token 才固定 GET 一次；單檔 EXE 可用獨立帳號比較高榮與聯合醫院流程。0.20.11 院內回傳已驗證一次自動審查後取得就診及 SOAP，以及兩組帳號各自成功查詢掛號；詳見 [VISITS](docs/VISITS.md) 與 [PATIENTS](docs/PATIENTS.md)。
-
-未執行醫囑、文字正文、只有 PDF 參照、JPG 按鈕卻查無圖片，均分開處理。PDF／JPG 下載不包含 OCR 或數值擷取。`opd.get_doctor_patients` 每筆以 `sequence_no` 保留掛號序號；清單歸屬依回傳「醫師」欄判斷，不能以科別代碼判斷。
-
-單次門診掃描 PDF 可由 `records.get_case_scanned_records(case)` 取得參照。歷年完整清單在 `records.get_upload_history(mrn).scanned_records`，每筆保留病歷類別、日期與 PDF 參照，可依類別精確篩選。眼科便利入口 `get_ophthalmology_scan_history(mrn)` 使用畫面上的「門診-記錄-眼科紀錄」類別；`collect_ophthalmology_scans(sdk, mrn)` 可再與單次 SOAP 連結對照。用法見 [SCANNED_RECORDS](docs/SCANNED_RECORDS.md)。
+院方病歷調閱審查自然出現時，SDK 核對後可自動提交已錄製的照護原因 `1A` 一次。各領域欄位、查詢限制與組合方式集中於下列文件。
 
 ## 文件
 
@@ -69,6 +63,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | --- | --- |
 | 原子功能用途、參數、回傳值 | [API_REFERENCE](docs/API_REFERENCE.md) |
 | 自動連線、TLS、重試與狀態 | [CONNECTIONS](docs/CONNECTIONS.md) |
+| 資料缺失、部分解析、錯誤原因與重試判斷 | [ACQUISITION](docs/ACQUISITION.md) |
 | 組合較複雜的應用 | [COMPOSITION](docs/COMPOSITION.md)、[examples](examples/) |
 | 分層與擴充位置 | [ARCHITECTURE](docs/ARCHITECTURE.md) |
 | 錄製新 HAR 並新增功能 | [HAR_RECORDING](docs/HAR_RECORDING.md) |
@@ -77,7 +72,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
 
-領域欄位細節：[人事／醫師目錄](docs/PERSONNEL.md)、[就診搜尋與篩選](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[數值類報告](docs/NUMERIC_REPORTS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+領域欄位細節：[人事](docs/PERSONNEL.md)、[就診](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[SOAP](docs/SOAP.md)、[數值](docs/NUMERIC_REPORTS.md)、[掃描病歷](docs/SCANNED_RECORDS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
 
 ## 開發與測試
 
@@ -89,7 +84,7 @@ python tools/check_public_tree.py
 python -m build --outdir output/package
 ```
 
-一般測試僅使用合成資料及 localhost，不需要內網、HAR 或帳密。主要登入、病人、報告附件、手術與審查查詢已有內網成功證據；0.19.3 另確認錯誤帳密辨識、清 Cookie 後的 PRQ 恢復及人事查詢。單位與下層單位仍待驗證；完整範圍見 [VALIDATION](docs/VALIDATION.md)。
+一般測試使用合成資料及 localhost，不需要內網、HAR 或帳密。近期 0.22.1 院內回傳已確認三日倒數與數值警示；強制改密碼、自然 TTL 及未出現的失敗仍保留驗證缺口。各功能實際證據集中於 [VALIDATION](docs/VALIDATION.md)。
 
 SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格式標頭。平行任務應各自建立 SDK／Session，並限制所有工作合計的請求量。
 
@@ -99,12 +94,13 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。雙擊範圍由建置時的 profile 決定，更新原始碼不會自動更新既有 EXE。本機現行 EXE 內建 `regression` 計畫，啟動時詢問高榮帳號與授權病歷號；也可輸入聯合醫院帳號與病歷號，比對兩組掛號流程。符合條件的調閱審查由 SDK 自動處理，不需輸入原因代碼。歷次就診與抽樣 SOAP 仍由高榮帳號測試；只需搬一個 EXE。原始頁面保存在結果 ZIP，計畫選擇與回傳分析見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。建置 profile 決定雙擊範圍，原始碼更新不會自動更新既有 EXE。`failures` 包含 68 個獨立模擬、匿名查詢、正常登入前一次錯誤密碼、密碼通知及本機 Cookie 遺失恢復；可用 `--login-negative-attempts 0` 略過錯誤密碼。不等待自然 Session 過期。雙擊後輸入授權病歷號與 Portal 帳密，帶回同目錄新產生的 ZIP，詳見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 | 路徑 | 性質 |
 | --- | --- |
 | `src/`、`tests/`、`docs/`、`examples/`、`configs/`、`tools/` | 公開程式、合成測試、文件 |
 | `data/har/`、`data/recordings/`、`data/returns/` | 本機原始證據，Git 忽略 |
 | `private/` | 本機建置參數及人工檢閱資料，Git 忽略 |
-| `dist/` | 本機現行測試 EXE，Git 忽略 |
-| `output/`、`tmp/`、`build/` | 可重建產物，Git 忽略 |
+| `dist/` | 本機現行測試 EXE、待分析的原始回傳 ZIP，Git 忽略 |
+| `output/` | 本機分析與驗證紀錄、可重建套件及暫存環境，Git 忽略 |
+| `tmp/`、`build/` | 可重建暫存檔，Git 忽略 |

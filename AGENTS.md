@@ -20,6 +20,7 @@
 | runtime/core | Session、SSO、操作鎖、retry、節流、診斷 | runtime.py；core/；adapters/auth.py |
 | services | 穩定公開 API | services/<domain>.py；sdk.py 注入 |
 | queries | 可發現的唯讀操作、輸入、發現相依 | queries.py |
+| acquisition | 可選用的統一結果與純資料狀態評估，不新增 HTTP 或重試 | acquisition.py；models/acquisition.py |
 | workflows | 多原子操作組合、去重、階段存檔、錯誤續跑 | workflows/ |
 | live | EXE 參數、讀取測試、coverage、結果 ZIP | live/、live_test_app.py |
 | contracts/offline | 只讀 HAR／ZIP 的結構驗證與重解析 | contracts/、offline/ |
@@ -31,7 +32,9 @@
 - PortalCredentials 與 EarningsCredentials 分開；不能把密碼存進 config、repr、一般診斷或公開範例。Raw capture 刻意保留完整內容，因此其輸出只能留本機。
 - 同一 SDK 共用 Session 與病人／模式 context；保持 operation_lock 跨整個相關操作。多帳號用不同 SDK。
 - 讀取重試與登入恢復由 Runtime 控制；密碼 POST 及異動不能因一般 retry 自動補送。
+- `acquire`／`queries.run_result` 保留原 Service 回傳於 value；合法空值與 NotFoundError、未知 schema、未執行、只有附件及部分解析分開。`ErrorInfo.cause` 只跟明確 SDK 因果；整合系統決定排程及處置，不能因 root_cause 是網路錯誤而忽略外層 retry_safe=False。整段登入即使失敗於安全 GET，也不可提示自動重送密碼。見 docs/ACQUISITION.md。
 - `LoginRejectedError` 與 `AuthExpiredError` 必須分開；前者不能觸發重新登入。Portal 登入建立階段的 401／403、空回應、錯誤頁不代表既有 Session 過期；審查 OAuth 送出密碼後也不能因 401／403 重跑整段流程。Runtime 恢復失敗時保留原本 AuthenticationError 及具體錯誤碼；未知原因不猜密碼錯誤。主系統登入只允許有限次同來源 GET 轉址，307／308 不重送密碼。
+- `NotAuthenticatedError` 表示 SDK 尚未建立登入的查詢挑戰；`PasswordChangeRequiredError` 表示來源明確要求改密碼，兩者不能當 AuthExpiredError 恢復。`PasswordStatus`／AuthCheckReport schema 3 僅含安全狀態、天數與有限來源碼；NO_NOTICE 不是密碼有效證明。倒數與正常導覽旁的可選改密碼表單不能誤判強制變更，不執行 JS／callback，不自動送變更密碼表單。0.22.1 的三日倒數已有院內證據；四日方括號格式另有原頁只讀重解析，不把提醒當成強制變更。
 - Portal 文字拒絕頁不一定有登入表單；不可把「重新登入」按鈕的 onclick 當成自動導覽。只解析 script 頂層 literal 指定，忽略註解／字串／callback。JSON 查詢的過期 302 可指向舊 HTTP 入口，應在跟隨前辨識並由 Runtime 回到原 HTTPS 登入，不將入口 HTML 交給 JSON parser；明確自行處理轉址的 Adapter 保留其責任。
 - 保留預設 0.8–1.8 秒隨機節流。用 local mock 測 request sequencing，不對內網做負載測試。
 - 共用 core/connections.py 負責 TLS；PRQ／SectOrd／WebMAAS 優先 TLS12_COMPAT，相同 HTTPS 主機／埠共用狀態。明確憑證錯誤可依 allow_unverified_tls（預設 True，使用者已授權內網備援）只對該來源略過驗證；不要全域 verify=False 或自行改 HTTP。嚴格模式 False 必須維持有效。
@@ -88,6 +91,8 @@ EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請�
 
 結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
 
+失敗分類用 `--default-profile failures` 建置、`tools/verify_failure_exe.py` 驗證。68 個無 socket 模擬與實際觀察分開。依本次明確授權，先以獨立 Session 直接查 PRQ 目錄（密碼 POST 預算 0），再以另一 Session 送一次錯誤密碼，明確拒絕後才正確登入；負向結果不明、HTTP 拒絕、意外成功或強制變更即停止後續登入。`--login-negative-attempts 0` 可略過，failures 不接受 2。單一授權病人最多抽兩次門診及兩份報告／JPG 參照，不下載附件。偵測倒數與強制變更，後者不重送登入、不送變更密碼表單。使用者選擇不等待自然過期；清 Cookie 僅驗證遺失恢復，不等於 TTL，未出現通知／分類維持 NO_SAMPLE。0.22.0 院內 90 步已確認預期未登入／錯誤密碼拒絕、正常查詢與 Cookie 恢復；0.22.1 院內 89 步另確認三日倒數、兩份數值警示完整性與相同登入／恢復情境，PDF 按鈕沒有本輪樣本，強制變更仍無院內證據。已確認負向登入後，不為補通知或資料樣本重送錯誤密碼。
+
 就診搜尋用 `--default-profile visits` 建置、`tools/verify_visit_exe.py` 驗證；build metadata 決定零參數啟動範圍。測試流程在 live/visits.py，保留 MRN／身分證差異、篩選結果、NO_SAMPLE 及 fallback 來源，不能因 MRN 成功便宣稱身分證已成功。
 
 登入專項測試用 `--default-profile login` 建置、`tools/verify_login_exe.py` 驗證，不需 private defaults。live/login.py 是測試 SDK 的應用層，live/login_simulation.py 使用無 socket 的合成 adapter。使用者授權一般帳號每輪最多兩次刻意錯誤密碼，必須在正常登入／查詢後執行；一次獨立 Session 最多一個 password POST，未知結果停止後續負向測試。禁止將模擬或清 Cookie 當成院內自然 TTL 過期證據。預期拒絕只能按通過的明確負向步驟及 capture 範圍從離線錯誤分類中分開，不可忽略所有登入失敗。
@@ -103,6 +108,7 @@ EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請�
 - README 保持簡短。完整用途放 API_REFERENCE，架構放 ARCHITECTURE，新增功能流程放 HAR_RECORDING／DEVELOPMENT。
 - 更新 VALIDATION 的驗證層級，區分合成、HAR、localhost EXE、內網回傳；不複製個別病人與薪資內容。
 - 不為整理而移除仍被公開匯入、CLI 或測試使用的相容層。原始 HAR／return 是不可再生的證據，與可重建 cache／舊 wheel／EXE 分開。
+- `local_io.py` 共用 JSON 原子寫入與本機權限處理；安全登入報告仍經欄位白名單，維持各入口錯誤碼。離線索引與效能整理需保持同一原始 ZIP 的分析／重測設定一致，不把範圍外成功當成登入恢復。
 - Windows 移除／搬移前驗證完整路徑在 workspace 內，使用原生 LiteralPath；不可跨 shell 組字串刪除。
 
 ## 發布

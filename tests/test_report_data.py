@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from vghks_sdk import acquire
 from vghks_sdk.core.errors import ErrorInfo, ParseError
 from vghks_sdk.live.atomic import _counts, _write_coverage, build_test_plan
 from vghks_sdk.live.config import LiveTestConfig
@@ -81,6 +82,30 @@ class ReportDataTests(unittest.TestCase):
         self.assertEqual(second.report_data_status, "ATTACHMENT_ONLY")
         self.assertEqual(second.reference, second_ref)
         self.assertEqual(second.report_text, "")
+
+    def test_static_pdf_viewer_is_attachment_only_without_incomplete_text(self):
+        body = '<table><tr><th>報告內容</th><td><script>console.log("example");var urlStr=encodeURIComponent(encodeURIComponent("//nfs01p/EMRU/SYNTHETIC/report.pdf"));console.log(urlStr);document.write("<a href=\\\"/PRQWeb/Page/JSP/showPDF.jsp?url="+urlStr+"\\\">PDF</a>");</script></td></tr></table>'
+        report = parse_order_report(body, reference=REFERENCE)
+        self.assertEqual(report.report_data_status, "ATTACHMENT_ONLY")
+        self.assertEqual(report.report_text, "")
+        self.assertEqual(len(report.pdf_refs), 1)
+        self.assertEqual(report.text_extraction_notes, ())
+        self.assertEqual(acquire(lambda: report).status, "OK")
+        self.assertTrue(acquire(lambda: report).data.complete)
+
+    def test_unknown_pdf_viewer_assignments_remain_partial(self):
+        for source in (
+            "var urlStr=encodeURIComponent(fetchSecret());",
+            'function later(){var urlStr=encodeURIComponent("example");}',
+            'if(unknown){var urlStr=encodeURIComponent("example");}',
+            'var urlStr=encodeURIComponent("example");urlStr=fetchSecret();',
+        ):
+            with self.subTest(source=source):
+                body = '<table><tr><th>報告內容</th><td>' + PDF + '<script>' + source + 'document.write(urlStr);</script></td></tr></table>'
+                report = parse_order_report(body, reference=REFERENCE)
+                self.assertEqual(report.report_text, "")
+                self.assertTrue(report.text_extraction_notes)
+                self.assertEqual(acquire(lambda report=report: report).status, "PARTIAL")
 
     def test_attachment_error_does_not_revoke_available_text_in_live_and_offline_summaries(self):
         report = parse_order_report(

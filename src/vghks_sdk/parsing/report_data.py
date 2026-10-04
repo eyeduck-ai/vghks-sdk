@@ -8,7 +8,12 @@ from itertools import pairwise
 from bs4 import BeautifulSoup, Tag
 
 from ..core.errors import ParseError
-from ..core.jsliteral import static_document_writes
+from ..core.jsliteral import (
+    evaluate_expression,
+    split_top_level,
+    static_document_writes,
+    strip_js_comments,
+)
 
 _BODY_LABELS = {"report", "report content", "result", "results", "findings", "impression"}
 _POINTERS = {
@@ -59,7 +64,8 @@ def extract_report_text(soup: BeautifulSoup) -> tuple[str, tuple[str, ...]]:
         for script in list(fragment.find_all("script")):
             if not script.get("src"):
                 try:
-                    markup = static_document_writes(script.string or script.get_text())
+                    source = script.string or script.get_text()
+                    markup = static_document_writes(source, _viewer_variables(source))
                     script.insert_before(BeautifulSoup(markup, "html.parser"))
                 except ParseError as exc:
                     notes.append(exc.info.code)
@@ -79,3 +85,29 @@ def extract_report_text(soup: BeautifulSoup) -> tuple[str, tuple[str, ...]]:
         if text and normalized not in _POINTERS:
             sections.append(text)
     return "\n\n".join(dict.fromkeys(sections)), tuple(dict.fromkeys(notes))
+
+
+def _viewer_variables(source: str) -> dict[str, str]:
+    """Resolve the recorded PDF-button variable from one top-level assignment.
+
+    Only encodeURIComponent of static content is supported. Multiple writes to
+    the variable, callbacks, unknown branches and dynamic expressions fail closed.
+    """
+
+    assignments = [
+        statement for statement in split_top_level(strip_js_comments(source), ";")
+        if re.search(r"\burlStr\s*(?:\+=|=(?!=))", statement)
+    ]
+    if not assignments:
+        return {}
+    match = re.fullmatch(
+        r"(?:var\s+)?urlStr\s*=\s*(encodeURIComponent\s*\(.*\))",
+        assignments[0], re.DOTALL,
+    ) if len(assignments) == 1 else None
+    value = evaluate_expression(match[1], {}) if match else None
+    if value is None:
+        raise ParseError(
+            "report viewer variable was not in the static allow-list",
+            code="JS_DOCUMENT_WRITE_UNSUPPORTED",
+        )
+    return {"urlStr": value}

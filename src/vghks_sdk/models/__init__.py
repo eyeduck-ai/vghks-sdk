@@ -1,8 +1,9 @@
 """Public model imports; implementations are grouped by domain."""
 
 from ._validation import re_fullmatch_mrn, re_split_path
+from .acquisition import AcquisitionResult, DataAssessment
 from .assets import BinaryAsset, PacsImageRef, PacsStudy, PacsStudyRef, PdfAttachmentRef
-from .auth import AuthCheckReport, AuthCheckTarget
+from .auth import AuthCheckReport, AuthCheckTarget, PasswordStatus
 from .documents import (
     EarningsReportContext,
     FormSnapshot,
@@ -57,12 +58,14 @@ from .surgery import (
 from .surgery_cases import SurgeryCase, SurgeryCaseFilter, SurgeryCaseRef, SurgeryNoteRef
 
 __all__ = [
+    "AcquisitionResult",
     "AuthCheckReport",
     "AuthCheckTarget",
     "BinaryAsset",
     "CaseDetail",
     "ClinicalOrder",
     "ConsultRecord",
+    "DataAssessment",
     "EarningsReportContext",
     "FormSnapshot",
     "HtmlDocument",
@@ -85,6 +88,7 @@ __all__ = [
     "PacsImageRef",
     "PacsStudy",
     "PacsStudyRef",
+    "PasswordStatus",
     "PatientBasicInfo",
     "PatientDemographics",
     "PatientSurgeryRecord",

@@ -10,8 +10,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+from .acquisition import acquire
 from .core.errors import ConfigurationError
 from .core.operations import operation_spec
+from .models.acquisition import AcquisitionResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,6 +311,11 @@ class Queries:
 
     def run(self, key: str, **inputs: Any) -> Any:
         return run_query(self._sdk, key, **inputs)
+
+    def run_result(self, key: str, **inputs: Any) -> AcquisitionResult[Any]:
+        """Read the same catalog query with an optional acquisition envelope."""
+
+        return acquire(lambda: self.run(key, **inputs))
 
 
 if len(QUERY_BY_KEY) != len(QUERY_SPECS):

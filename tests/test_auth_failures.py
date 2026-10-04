@@ -225,6 +225,7 @@ class LoginRecoveryTests(unittest.TestCase):
 
     def test_automatic_entrance_script_is_expiry_and_offline_keeps_the_code(self):
         fixture = PortalFixture()
+        fixture.sdk.auth.login()
         url = "http://intranet.vghks.gov.tw/"
         body = '<script>//location.href="unrecorded.do";\nlocation.href="index.do";</script>'
         with self.assertRaises(AuthExpiredError) as caught:

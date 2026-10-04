@@ -1,10 +1,51 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 均為 0.20.11；EXE 內建 `regression` 計畫，含掛號清單、歷次就診及抽樣 SOAP，並可用第二組帳號比較掛號流程。PRQ 病歷調閱審查預設自動使用 HAR 錄製的照護原因。2026-09-28 院內回傳已驗證一次自動審查及兩組帳號掛號查詢；實際涵蓋範圍見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.2，整理共用寫檔及離線分析邏輯；EXE 內建 `failures` 計畫。最近院內證據為 2026-10-04 下午的 0.22.1：完成 89 步，確認三日倒數、數值警示、預期未登入／錯誤密碼拒絕、正常登入與 Cookie 恢復。該輪唯一醫囑報告為合法空值，沒有 PDF 按鈕樣本；此修正只有先前原始頁重解析與 localhost 證據。0.22.2 的本機檢查不代替院內執行，完整範圍見 [VALIDATION](VALIDATION.md)。
 
-## 本次：高榮與聯合醫院掛號比較、病歷調閱審查
+| profile | 用途 | 啟動輸入 |
+| --- | --- | --- |
+| `failures` | 資料狀態、登入拒絕／通知及 Cookie 恢復 | 授權病歷號、Portal 帳密 |
+| `regression` | 病人／SOAP／數值回歸、調閱審查、兩院掛號比較 | 授權病歷號、Portal 帳密，第二組帳密可略過 |
+| `scans` | 單次及歷年眼科掃描與 PDF 抽樣 | 授權病歷號、Portal 帳密 |
+| `soap` | 登入醫師指定日的多病人 SOAP 抽樣 | Portal 帳密 |
+| `login` | 登入、人事及正常查詢後的有限負向測試 | Portal 帳密 |
+| `visits` | 病歷號／身分證查詢、比對及篩選 | Portal 帳密、授權病歷號，病人身分證可自動取得 |
+| `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
+
+建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## 資料獲取與失敗分類（failures）
+
+只需搬 `dist/vghks-live-test.exe`，雙擊後輸入一個授權病歷號與正常 Portal 帳密。帳密在執行時輸入，不內嵌、不寫設定檔。測試完成後帶回 EXE 同目錄新產生的時間命名 ZIP；不需 CMD 或額外設定檔。
+
+1. 先執行 68 個無 socket 模擬：20 個既有登入、19 個傳輸／Runtime、12 個資料狀態、17 個未登入／過期／密碼通知案例。包括未登入與既有登入遭遇 401／403、轉址／表單的區分，三天與「【4】日後」提醒、強制變更文字／表單／導覽、未知密碼頁、無效 callback，以及原有 DNS、逾時、TLS、HTTP、解析及資料狀態。使用合成帳密與記憶體 adapter，不向醫院送請求。
+2. 全新匿名 Session 直接查 PRQ 文件類型目錄，不先呼叫登入，密碼 POST 預算為 0；保存真實登入挑戰，或在沒有挑戰時記 NO_SAMPLE。此一步沒有病人參數。未知 HTML／JSON 或網路錯誤仍列 ERROR。
+3. 另一獨立 Session 使用同帳號、自動產生的不同密碼，最多送一個密碼 POST。只有明確 `PORTAL_LOGIN_REJECTED` 才通過並繼續；逾時、未知回應、HTTP 拒絕、強制變更或意外成功時停止後續登入。可用 `--login-negative-attempts 0` 略過，failures 不接受 2。這項順序依使用者本次授權；舊 login 計畫仍在正常查詢後做負向測試。
+4. 以正常帳密檢查 Portal／PRQ／WebMAAS，保存密碼通知；倒數提醒不阻斷成功登入，明確強制變更則停止相依讀取。查基本資料、掛號及完整就診清單，抽最多兩次門診的 SOAP、數值、醫囑，以及兩份明細、報告、JPG 清單。未執行醫囑略過明細，不下載 PDF／JPG、不做 OCR。
+5. 正常 PRQ 目錄查詢成功後，只清除本機 Cookie，再查同一目錄觀察 Runtime 恢復，保留 generation 與實際回應；未重登入記 NO_SAMPLE。依使用者選擇不等待自然過期，此步驟與合成過期均不證明 TTL。恢復時遇強制變更，保留具體錯誤並停止。
+6. 其他單筆錯誤保留並繼續可執行項目；合法空結果為 EMPTY、缺下游參照為 NO_SAMPLE、來源／登入失敗為 BLOCKED。未知 schema 不轉成空值。
+
+此計畫不送變更密碼表單，也不做手術／同意書異動或薪資查詢。院方調閱審查若自然出現，沿用 SDK 核對後自動提交一次 `1A` 的既有流程；送出結果不明不重送。仍維持預設 0.8–1.8 秒隨機節流。
+
+ZIP 的 `parsed/failures/simulations.json` 明示 SIMULATED；`observations.json` 與 `live/` 保存實際 AcquisitionResult、原模型與結構化錯誤。`classification_coverage.json` 列出各分類是否在實際查詢被觀察到，也計入登入預檢及 Cookie 恢復錯誤；其安全原因保留在 additional_error_steps。未出現的網路／登入等錯誤維持 NO_SAMPLE，不能用模擬通過代替院內證據。`cookie_loss.json` 及 coverage 的 natural_ttl 欄位固定保留自然 TTL 未驗證狀態。完整原始 HTTP 與 parsed 值仍可能含個資，ZIP 未加密，僅留本機。
+
+`live/unauthenticated.json`、`live/negative_before_login.json` 保留觀察及密碼送出計數；`negative-post-counts.json` 即使負向測試失敗也寫入。`password-status-*.json`、`negative-password-status.json`、`readiness.json` 保存安全通知狀態，原文字與表單留在 raw response。`failures.live.password_policy` 列出是否觀察到提醒，NO_NOTICE 對應 NO_SAMPLE。離線分析僅依通過的明確步驟、零／一次密碼計數、capture 範圍及已知錯誤碼分出預期未登入回應與拒絕；其他錯誤仍保留。
+
+```sh
+python tools/build_live_test_exe.py --default-profile failures
+python tools/verify_failure_exe.py
+dist/vghks-live-test.exe --plan
+```
+
+`verify_failure_exe.py --source` 可先檢查原始碼；正式驗證以新建置 EXE 的零參數啟動執行 23 種 HTTPS localhost 情境，涵蓋原有資料與失敗、匿名挑戰、三天／方括號提醒、強制變更及負向結果不明時停止。另核對已對齊表頭警示與 PDF 按鈕不誤判 PARTIAL、模擬數量、實際密碼 POST 次序／次數、讀取上限、ZIP 與離線分類。這些結果不代表新版已在內網通過。
+
+離線 `analysis.json` 的 `password_policy` 與 `data_quality` 分開保留原 EXE 的觀察和目前解析器對保存回應的結果。原 NO_SAMPLE 不改寫；`data.warnings` 是可恢復來源問題，`data.issues` 仍表示解析不完整。錯誤密碼拒絕本輪已驗證，需要再觀察倒數或其他資料時可用 `--login-negative-attempts 0`，不必為補樣本重做負向登入。
+
+## 高榮與聯合醫院掛號比較、病歷調閱審查（regression）
+
+以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `failures` profile。
 
 只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
@@ -17,23 +58,7 @@ python tools/build_live_test_exe.py --default-profile regression
 python tools/verify_regression_exe.py
 ```
 
-## 先前：單次門診與歷年眼科掃描病歷
-
-以下流程需先重新建置 `scans` profile；本機現行 EXE 是上節的 `regression` profile。
-
-只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
-
-此計畫只執行 PRQ 就診清單、SOAP、歷年掃描清單與 PDF 下載，以及必要的 Portal／PRQ 登入；不做異動、錯誤密碼、薪資或其他報告查詢。結果 ZIP 直接存於 EXE 同目錄，未加密，僅留本機。帶回新產生的時間命名 ZIP 供分析即可，不需要 CMD 或設定檔。
-
-0.20.5 院內結果為 `OK`：48 筆就診中有 8 筆眼科門診，預設上限下的 6 筆 SOAP 均有掃描連結，且與歷年眼科類別中的 `RECORD` 對應；歷年清單有 8 筆眼科 `RECORD` 和 1 筆術前標示 `OPG`，四份抽樣 PDF 均為完整 PDF。其餘兩筆眼科就診未在本輪查 SOAP；其歷年 PDF 可由病歷類別辨識。
-
-```sh
-python tools/build_live_test_exe.py --default-profile scans
-dist/vghks-live-test.exe --plan
-python tools/verify_scan_exe.py
-```
-
-## 回歸計畫的其他檢查
+### regression 的其他檢查
 
 `regression` 可用 `--defaults private/regression-test-defaults.json` 建置自用版本，只內嵌授權測試病歷號。雙擊後輸入 Portal 帳號與密碼，毋須搬設定檔；若未內嵌則啟動時輸入病歷號。若需換病人，可從命令列用 `--test-mrn` 覆寫。此計畫不做錯誤密碼、薪資或附件下載；審查表單只有實際出現且核對通過時才會送出。請求仍依 SDK 預設循序及隨機節流。
 
@@ -48,9 +73,25 @@ dist/vghks-live-test.exe --plan
 
 測完只需帶回 EXE 同目錄新產生的時間命名 ZIP；ZIP 未加密，含病人資料、登入請求及 Session，僅留本機。`live-test-results` 在 ZIP 成功產生時毋須另外搬回。
 
-## 先前：9/21 多病人結構化 SOAP 測試
+## 單次門診與歷年眼科掃描病歷（scans）
 
-先前建置使用 `soap` 計畫。雙擊 EXE 後輸入 Portal 帳號及密碼，即查 **2026-09-21** 登入卡號的門診清單，不需手填病歷號或設定檔。程式以回傳的醫師欄判斷專屬清單，接受帳號本身或帳號加 `F`；科別代碼只作就診比對，不用來推斷歸屬。共用及歸屬不明清單照樣保存，但不擅自查詢其病人。
+以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `failures` profile。
+
+只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
+
+此計畫只執行 PRQ 就診清單、SOAP、歷年掃描清單與 PDF 下載，以及必要的 Portal／PRQ 登入；不做異動、錯誤密碼、薪資或其他報告查詢。結果 ZIP 直接存於 EXE 同目錄，未加密，僅留本機。帶回新產生的時間命名 ZIP 供分析即可，不需要 CMD 或設定檔。
+
+兩條來源已有院內抽樣證據，類別辨識與完整組合流程的驗證層級另見 [SCANNED_RECORDS](SCANNED_RECORDS.md) 及 [VALIDATION](VALIDATION.md)。
+
+```sh
+python tools/build_live_test_exe.py --default-profile scans
+dist/vghks-live-test.exe --plan
+python tools/verify_scan_exe.py
+```
+
+## 多病人結構化 SOAP（soap）
+
+建置使用 `soap` 計畫時，雙擊後輸入 Portal 帳號及密碼，即查預設 **2026-09-21** 登入卡號的門診清單，不需手填病歷號或設定檔。程式以回傳的醫師欄判斷專屬清單，接受帳號本身或帳號加 `F`；科別代碼只作就診比對，不用來推斷歸屬。共用及歸屬不明清單照樣保存，但不擅自查詢其病人。
 
 從專屬清單選最多 8 個**不同病歷號**，優先涵蓋不同科別／診間。每人先保存完整就診清單，再以同病歷號、日期、科別及門診類別匹配當日就診；掛號而無實際就診者記 `NO_SAMPLE`。每人最多抽 2 次匹配就診查 SOAP，保留 S、O、A+P、診斷、醫囑與藥囑的完整結構化回傳及解析問題。單一病人或 SOAP 失敗，仍測其餘病人；無法建立登入時停止相依查詢。不進行錯誤密碼、薪資、附件或異動測試。預設請求間隔仍為隨機 0.8–1.8 秒。
 
@@ -64,9 +105,9 @@ dist/vghks-live-test.exe --profile soap --soap-date 2026-09-22 --max-cases 12
 
 `--soap-date` 只用於另一次指定日期測試；不給參數時該版 SOAP 計畫固定 2026-09-21。`--max-cases` 調整病人上限，`--max-items` 調整每病人的就診上限。這些選項不會改變 SDK 的原子操作。
 
-前兩份內網 ZIP 的 8 名樣本中，兩份就診清單含異病歷號連結，當時 SDK 拒絕整份清單；另兩名雖掛號但無匹配當日同科別門診就診，均不查 SOAP。第二份使用修正後 EXE，四份成功的 SOAP 均有 S／O／A+P、診斷與藥囑，其中一份有結構化的慢性處方服藥期限；原始回應可離線重解析。0.20.3 的舊號處理尚未對這兩名病人做院內複驗，勿把舊 ZIP 的 `COMPLETED_WITH_ERRORS` 標為全面通過。
+結構化 SOAP、舊號及缺匹配就診的院內樣本分別記錄於 [SOAP](SOAP.md) 與 [VALIDATION](VALIDATION.md)；重解析成功不改寫原 ZIP 的執行狀態。
 
-## 登入及人事專項計畫
+## 登入及人事專項計畫（login）
 
 只輸入正常的 Portal 帳號與密碼，之後自動執行，完成再按 Enter 關閉。**不需要病歷號、身分證、薪資密碼或設定檔**。只帶回 EXE 同目錄、檔名含時間的 ZIP。
 
@@ -76,7 +117,7 @@ dist/vghks-live-test.exe --profile soap --soap-date 2026-09-22 --max-cases 12
 4. 清除本機 Cookie，再做 PRQ 查詢，記錄是否重新登入及恢復。若伺服器仍接受原有 SSO token，記 NO_SAMPLE，表示未觸發過期；此測試不等待或證明伺服器自然逾時。
 5. 最後使用同一帳號與自動產生的錯誤密碼，最多兩次，分別驗證 `auth.login()` 與查詢時的按需登入。每次獨立 Session、最多一個實際密碼 POST，轉址及意外重試同樣受限。第一筆正常登入失敗則全部略過；第一筆負向測試若逾時、回應不明或意外成功，停止第二筆負向測試。
 
-一般 SDK 不會主動做錯誤密碼測試，僅 `login` 計畫有此行為。一般帳號每輪最多兩次是本次使用者授權的上限；重跑 EXE 會開始新一輪。開發時可用 `--login-negative-attempts 0` 關閉，或設 `1`，不允許超過 `2`。
+一般 SDK 不會主動做錯誤密碼測試。`login` 在正常查詢後最多兩次，`failures` 在正常登入前最多一次；順序與上限各自固定。重跑 EXE 會開始新一輪。`login` 可用 `--login-negative-attempts 0` 關閉，或設 `1`，不允許超過 `2`。
 
 `parsed/login/` 保存逐項結果、模擬請求次序、人事條件與結果、Cookie 清除前後的登入世代、每次負向測試的密碼 POST 計數。`RESULTS.txt`、`run_summary.json` 將 SIMULATED 與 LIVE 分開。預期的 `PORTAL_LOGIN_REJECTED` 是負向測試通過，不代表登入成功；未知頁面、額外重送或 HTTP 錯誤仍列 ERROR。
 
@@ -90,9 +131,9 @@ vghks-live-test --profile login
 vghks-live-test --profile login --login-negative-attempts 0
 ```
 
-## 就診搜尋增量測試
+## 就診搜尋（visits）
 
-0.17.2／0.18.0 已取得內網證據：身分證與病歷號清單一致，身分證清單的門診 SOAP／醫囑串接成功。原 EXE 將醫師卡號列為 NO_SAMPLE；0.18.1 修正分支解析後，已從同份回應離線取回住院／急診卡號並驗證篩選。門診來源卡號仍空白。此計畫可用於後續不同樣本或新版導覽驗證；不需為已可離線解析的資料重跑完整功能。
+病歷號與身分證兩條路徑已有內網證據；不同輸入、門診卡號缺值及住院／急診的限制見 [VISITS](VISITS.md)。此計畫供不同樣本或新版流程驗證，不需為已可離線解析的欄位重跑完整功能。
 
 1. 輸入 Portal 帳號／密碼。
 2. 測試病歷號直接 Enter 沿用內嵌值，也可輸入另一個已授權病歷號。
@@ -111,7 +152,7 @@ vghks-live-test --profile login --login-negative-attempts 0
 
 `vghks-live-test --profile atomic --only personnel.options --only personnel.search` 只測人事選項及登入帳號的人事清單，原始回應與查詢條件照常保留。新的 SDK 不再要求就診清單有可用醫師卡號，卡號應先透過人事取得姓名。0.19.2 登入專項 EXE 已包含這些查詢及多條件檢查。
 
-## 原有完整測試
+## 完整測試（comprehensive）
 
 comprehensive 計畫包含 57 個唯讀查詢（含人事選項／清單）、登入醫師的審查清單與最多 8 案詳情、手術碼 80416 的近兩年／兩年以上案例與最多 8 份紀錄、病人歷史手術及附件、績點與專勤工作獎金。單次就診抽樣最多 6 筆。啟用 MIS 時另詢問本人身分證字號與薪資系統密碼；所有異動功能排除。
 

@@ -13,6 +13,8 @@
 | `headers` | 舊版相容的攤平表頭；可能比資料欄數多，**不可**直接與 `rows` 做 `zip`。 |
 | `parsing_issues` | 來源表頭或資料列不一致的問題碼；原始資料列仍保留。已能明確對齊的眼科合併欄差異屬可恢復警示，其他無法對齊的問題仍需人工檢查。 |
 
+0.22.1 將測試器既有的嚴格眼科對齊判定共用到資料狀態評估：符合下述三欄條件時，`acquire`／`assess_data` 於 `DataAssessment.warnings` 保留來源 colspan 問題，`complete` 可為 True；原 `parsing_issues` 不刪除。2026-10-04 上午的 0.22.0 原始 ZIP 重解析保留五張表、十二列的全部原值、表頭及路徑，三張來源 colspan 差異均完整對齊。下午 0.22.1 院內 EXE 又取得兩份數值報告，各四張表、十三列、兩個來源 colspan 警示；所有欄位路徑均完整對齊，warnings 保留且 status=OK、complete=True，確認新版評估在本輪樣本生效。
+
 ```python
 report = sdk.records.get_numeric_report(case)
 for table in report.tables:

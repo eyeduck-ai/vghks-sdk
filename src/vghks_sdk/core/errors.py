@@ -22,6 +22,10 @@ class ErrorInfo:
     http_status: int | None = None
     attempt: int | None = None
     cause_type: str = ""
+    phase: str = ""
+    retry_safe: bool | None = None
+    retry_recommended: bool = False
+    cause: ErrorInfo | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", _normalize_code(self.code, "SDK_ERROR"))
@@ -30,10 +34,29 @@ class ErrorInfo:
         object.__setattr__(self, "app", _normalize_name(self.app))
         object.__setattr__(self, "endpoint_path", _safe_path(self.endpoint_path))
         object.__setattr__(self, "cause_type", _normalize_name(self.cause_type))
+        object.__setattr__(self, "phase", _normalize_code(self.phase, ""))
+        if type(self.retry_safe) is not bool:
+            object.__setattr__(self, "retry_safe", None)
+        object.__setattr__(
+            self, "retry_recommended", self.retry_safe is True and self.retry_recommended is True
+        )
+        if not isinstance(self.cause, ErrorInfo):
+            object.__setattr__(self, "cause", None)
         if self.http_status is not None:
             object.__setattr__(self, "http_status", max(0, int(self.http_status)))
         if self.attempt is not None:
             object.__setattr__(self, "attempt", max(1, int(self.attempt)))
+
+    @property
+    def root_cause(self) -> ErrorInfo:
+        """Deepest structured cause; messages and response values are excluded."""
+
+        current = self
+        seen = {id(current)}
+        while current.cause is not None and id(current.cause) not in seen:
+            current = current.cause
+            seen.add(id(current))
+        return current
 
 
 class SDKError(Exception):
@@ -41,6 +64,8 @@ class SDKError(Exception):
 
     code = "SDK_ERROR"
     category = "INTERNAL"
+    phase = ""
+    retry_safe: bool | None = None
 
     def __init__(
         self,
@@ -54,6 +79,10 @@ class SDKError(Exception):
         http_status: int | None = None,
         attempt: int | None = None,
         cause_type: str = "",
+        phase: str = "",
+        retry_safe: bool | None = None,
+        retry_recommended: bool = False,
+        cause: ErrorInfo | None = None,
     ) -> None:
         super().__init__(message)
         self.info = ErrorInfo(
@@ -65,6 +94,10 @@ class SDKError(Exception):
             http_status=http_status,
             attempt=attempt,
             cause_type=cause_type,
+            phase=phase or self.phase,
+            retry_safe=self.retry_safe if retry_safe is None else retry_safe,
+            retry_recommended=retry_recommended,
+            cause=cause,
         )
 
     def with_context(
@@ -74,6 +107,8 @@ class SDKError(Exception):
         app: str = "",
         endpoint_path: str = "",
         attempt: int | None = None,
+        phase: str = "",
+        retry_safe: bool | None = None,
     ) -> SDKError:
         """Fill missing safe context without replacing the original exception."""
 
@@ -83,6 +118,12 @@ class SDKError(Exception):
             app=self.info.app or app,
             endpoint_path=self.info.endpoint_path or endpoint_path,
             attempt=self.info.attempt or attempt,
+            phase=self.info.phase or phase,
+            # Unsafe context always wins, including a write within a read query.
+            retry_safe=(
+                False if retry_safe is False else
+                self.info.retry_safe if self.info.retry_safe is not None else retry_safe
+            ),
         )
         return self
 
@@ -90,15 +131,30 @@ class SDKError(Exception):
 class ConfigurationError(SDKError):
     code = "CONFIGURATION_ERROR"
     category = "CONFIGURATION"
+    phase = "VALIDATION"
 
 
 class AuthenticationError(SDKError):
     code = "AUTHENTICATION_ERROR"
     category = "AUTHENTICATION"
+    phase = "AUTHENTICATION"
+    retry_safe = False
 
 
 class AuthExpiredError(AuthenticationError):
     code = "AUTH_EXPIRED"
+
+
+class NotAuthenticatedError(AuthenticationError):
+    """An authentication challenge occurred before this SDK established a login."""
+
+    code = "AUTH_NOT_AUTHENTICATED"
+
+
+class PasswordChangeRequiredError(AuthenticationError):
+    """The response explicitly requires the user to change their password."""
+
+    code = "PORTAL_PASSWORD_CHANGE_REQUIRED"
 
 
 class LoginRejectedError(AuthenticationError):
@@ -115,6 +171,8 @@ class AuthorizationError(SDKError):
 
     code = "AUTHORIZATION_ERROR"
     category = "AUTHORIZATION"
+    phase = "AUTHORIZATION"
+    retry_safe = False
 
 
 class AccessReviewRequiredError(AuthorizationError):
@@ -133,18 +191,25 @@ class RequestError(SDKError):
         *,
         status_code: int | None = None,
         code: str | None = None,
+        category: str | None = None,
         endpoint_path: str = "",
         attempt: int | None = None,
         cause_type: str = "",
+        phase: str = "REQUEST",
+        retry_safe: bool | None = None,
+        retry_recommended: bool = False,
     ) -> None:
         super().__init__(
             message,
             code=code,
-            category="HTTP" if status_code is not None else "NETWORK",
+            category=category or ("HTTP" if status_code is not None else "NETWORK"),
             endpoint_path=endpoint_path,
             http_status=status_code,
             attempt=attempt,
             cause_type=cause_type,
+            phase=phase,
+            retry_safe=retry_safe,
+            retry_recommended=retry_recommended,
         )
         self.status_code = status_code
 
@@ -152,11 +217,13 @@ class RequestError(SDKError):
 class ParseError(SDKError):
     code = "PARSE_ERROR"
     category = "PARSE"
+    phase = "PARSE"
 
 
 class NotFoundError(SDKError):
     code = "NOT_FOUND"
     category = "NOT_FOUND"
+    phase = "RESPONSE"
 
 
 def error_code(exc: BaseException) -> str:
@@ -168,16 +235,27 @@ def error_code(exc: BaseException) -> str:
 def error_info(exc: BaseException | None) -> ErrorInfo:
     """Return stable, safe metadata for expected and unexpected failures."""
 
+    return _exception_info(exc, set(), 0)
+
+
+def _exception_info(exc: BaseException | None, seen: set[int], depth: int) -> ErrorInfo:
     if exc is None:
         return ErrorInfo("SDK_ERROR", "INTERNAL")
+    seen.add(id(exc))
     info = getattr(exc, "info", None)
-    if isinstance(info, ErrorInfo):
-        return info
-    return ErrorInfo(
-        code="UNEXPECTED_ERROR",
-        category="INTERNAL",
-        cause_type=exc.__class__.__name__,
-    )
+    if not isinstance(info, ErrorInfo):
+        info = ErrorInfo(
+            code="UNEXPECTED_ERROR", category="INTERNAL", cause_type=exc.__class__.__name__
+        )
+    linked = exc.__cause__
+    # An implicit context can be the expired query being handled while login
+    # is rejected; it is not the cause of that rejection. Follow explicit links.
+    if (
+        info.cause is None and linked is not None and id(linked) not in seen and depth < 7
+        and isinstance(getattr(linked, "info", None), ErrorInfo)
+    ):
+        info = replace(info, cause=_exception_info(linked, seen, depth + 1))
+    return info
 
 
 def _normalize_code(value: str, default: str) -> str:

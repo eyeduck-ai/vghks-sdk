@@ -19,11 +19,12 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 
 from .. import parsing
+from ..acquisition import assess_data
 from ..adapters.oppl import mutation_acknowledged
 from ..adapters.prq_extensions import parse_text_history, parse_upload_history
 from ..contracts.check import discover_har_files
 from ..contracts.har import BASELINE_CONTRACTS, HarEntry, HarSignature, load_har
-from ..core.errors import ParseError, error_code
+from ..core.errors import NotFoundError, ParseError, PasswordChangeRequiredError, error_code
 from ..core.network_errors import recorded_network_error_code
 from ..core.operations import OPERATION_BY_KEY, OPERATIONS
 from ..local_io import write_json_atomic
@@ -43,7 +44,13 @@ from ..parsing.assets import parse_binary_asset
 from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
-from ..parsing.portal import has_portal_login_redirect, is_portal_login_destination
+from ..parsing.portal import (
+    has_portal_login_redirect,
+    is_password_change_destination,
+    is_portal_login_destination,
+    parse_login_target,
+    parse_password_status,
+)
 from ..parsing.prq import require_patient_context
 from ..parsing.review import (
     parse_login_info,
@@ -97,6 +104,14 @@ def request_parts(request: Mapping[str, Any]) -> tuple[str, str, dict[str, str],
 
 def identify_operation(request: Mapping[str, Any]) -> str:
     method, path, query, form = request_parts(request)
+    # A displaytag next-page GET returns rows, not the initial token form.
+    if (
+        method == "GET" and path == "/webmaas/RSV/RSV11W001.do"
+        and query.get("patno")
+        and any(re.fullmatch(r"d-\d+-p", key) and value.isdecimal()
+                for key, value in query.items())
+    ):
+        return "webmaas.registration_query"
     entry = HarEntry(
         method, path, frozenset(query), frozenset(form), {**query, **form}, 0, None, ""
     )
@@ -118,6 +133,14 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     visit_context_ready = False
     results: list[dict[str, Any]] = []
     portal_base = "https://portal.vghks.gov.tw"
+    # An anonymous query can precede the first captured Portal entry request.
+    config = reader.json("run_config.json") if "run_config.json" in reader.names else {}
+    overrides = config.get("endpoint_overrides") or {}
+    configured_portal = overrides.get("portal_base_url") if isinstance(overrides, dict) else None
+    if isinstance(configured_portal, str):
+        address = urlsplit(configured_portal)
+        if address.scheme in {"http", "https"} and address.hostname and not address.username:
+            portal_base = configured_portal
     redirected_operations: dict[str, tuple[str, dict[str, str]]] = {}
     exchanges = [
         row for row in reader.jsonl("capture_manifest.jsonl")
@@ -213,6 +236,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                                  if str(k).lower() == "location"), "")
                 if operation in QUERY_BY_KEY and location and is_portal_login_destination(location, str(request.get("url", "")), portal_base):
                     result.update(status="PARSE_ERROR", error_code="AUTH_SESSION_REDIRECT")
+                if operation == "portal.login" and location and is_password_change_destination(location, str(request.get("url", "")), portal_base):
+                    result.update(status="PARSE_ERROR", error_code="PORTAL_PASSWORD_CHANGE_REQUIRED")
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
@@ -412,6 +437,7 @@ def replay_response(
     response_url: str = "",
     portal_base_url: str = "https://portal.vghks.gov.tw",
 ) -> dict[str, Any]:
+    notice: dict[str, Any] = {}
     try:
         if not content and operation != "portal.login":
             return {
@@ -421,6 +447,19 @@ def replay_response(
             }
         entry = HarEntry("", "", frozenset(), frozenset(), {}, 200, content, mime)
         text = entry.text()
+        password_status = parse_password_status(text, login_stage=operation == "portal.login")
+        if password_status.status != "NO_NOTICE":
+            notice["password_status"] = {
+                "status": password_status.status,
+                "remaining_days": password_status.remaining_days,
+                "evidence": password_status.evidence,
+            }
+        if password_status.status == "CHANGE_REQUIRED":
+            raise PasswordChangeRequiredError("recorded response requires password change")
+        if operation == "portal.login":
+            target = parse_login_target(text)
+            if is_password_change_destination(target, response_url or portal_base_url, portal_base_url):
+                raise PasswordChangeRequiredError("recorded login requires password change")
         if operation == "prq.patient_identity":
             parsing.parse_patient_identity(text, expected_national_id=context_national_id)
             return {"status": "PARSED", "error_code": "", "record_count": 1}
@@ -462,7 +501,7 @@ def replay_response(
             }
         if operation not in QUERY_BY_KEY:
             _CONTRACTS[operation].validator(entry)
-            return {"status": "CONTRACT_OK", "error_code": "", "record_count": None}
+            return {"status": "CONTRACT_OK", "error_code": "", "record_count": None, **notice}
         if operation == "prq.pacs_image":
             value = parse_binary_asset(content, media_type="image/jpeg")
         elif operation in {"prq.pdf_attachment", "oppl_records.pdf"}:
@@ -483,10 +522,16 @@ def replay_response(
                 context_national_id, trusted_visit_context,
             )
         count = _count(value)
+        assessment = assess_data(value)
         return {
             "status": "EMPTY" if count == 0 else "PARSED",
             "error_code": "",
             "record_count": count,
+            "data_availability": assessment.availability,
+            "data_complete": assessment.complete,
+            "parsing_issues": [item.code for item in assessment.issues],
+            "parsing_warnings": [item.code for item in assessment.warnings],
+            **notice,
             **(
                 {
                     "report_data_status": value.report_data_status,
@@ -518,8 +563,13 @@ def replay_response(
                 else {}
             ),
         }
+    except NotFoundError as exc:
+        return {
+            "status": "EMPTY", "error_code": "", "record_count": 0,
+            "data_availability": "NOT_FOUND", "absence_code": error_code(exc),
+        }
     except Exception as exc:
-        return {"status": "PARSE_ERROR", "error_code": error_code(exc), "record_count": None}
+        return {"status": "PARSE_ERROR", "error_code": error_code(exc), "record_count": None, **notice}
 
 
 def _parse(

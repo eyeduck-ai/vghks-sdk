@@ -40,42 +40,41 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.11-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.20.11.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.2-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.2.tar.gz
 ```
 
 若本機尚未安裝 `build`，先安裝 `.[dev]`；建置環境也須有 `wheel`。專案的 PyInstaller 暫存目錄也叫 `build/`，在 Python 將它誤判為模組時，改從 `output/` 目錄執行 `python -m build .. --outdir package`。產生封包後逐一檢查實際內容。
+
+建置後端最低 setuptools 77.0.0，以 `license = "MIT"` 及 `license-files` 明確保存授權，移除舊 license table 的棄用警告；格式見 [setuptools 官方設定文件](https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html)。這是建置需求，不增加 SDK 執行時相依。
 
 Windows EXE 使用 Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4：
 
 ```sh
 python -m pip install -e ".[build]"
-python tools/build_live_test_exe.py
-# 自用 EXE 內嵌本機病歷號；此檔案及此 EXE 不公開。
-python tools/build_live_test_exe.py --defaults private/live-test-defaults.json
-# 就診搜尋專用版，雙擊即進入 visits 計畫。
-python tools/build_live_test_exe.py --defaults private/live-test-defaults.json --default-profile visits
-# 登入專項版，不需 private defaults 或病人參數。
-python tools/build_live_test_exe.py --default-profile login
-# 多病人結構化 SOAP 專項版。
-python tools/build_live_test_exe.py --default-profile soap
-# 單次門診與歷年掃描病歷專項版，不需額外 CMD。
-python tools/build_live_test_exe.py --default-profile scans
-# 掛號與病歷調閱審查回歸版；預設自動提交錄製的照護原因。
-python tools/build_live_test_exe.py --default-profile regression
+python tools/build_live_test_exe.py --default-profile failures
+python tools/verify_failure_exe.py
+# 自用版可內嵌授權病歷號；此檔案與 EXE 不公開。
+python tools/build_live_test_exe.py --default-profile failures --defaults private/live-test-defaults.json
 ```
 
 private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接受帳密。公開版本在啟動時詢問 MRN 或接受 CLI／環境參數。兩種版本都可只搬 EXE。
 
-建置後以 tools/verify_live_test_exe.py、verify_patient_exe.py、verify_ophthalmology_exe.py、verify_surgery_exe.py、verify_review_exe.py 驗證 localhost HTTPS；`scans` 版另執行 `python tools/verify_scan_exe.py`，`regression` 版執行 `python tools/verify_regression_exe.py`，涵蓋 SSO 首頁 token、審查送出一次及 SOAP 接續。它們將測試病歷號明確設為合成值。錯誤紀錄在 output，不進 Git。
+建置其他計畫時替換 `--default-profile`，依相關改動選擇驗證工具：
 
-visits 專用版使用 `python tools/verify_visit_exe.py`，先驗證一般 SDK Service 不手動設定 TLS 也能登入／查詢，再驗證實際 EXE 的相容模式優先、零參數啟動、舊設定檔忽略、自動／手動身分證、部分錯誤續跑、空結果及 ZIP 同目錄輸出。所有請求只發到 localhost；結果不能代表該版 EXE 已在院內通過。
+| profile | localhost 驗證工具 | 主要檢查 |
+| --- | --- | --- |
+| `failures` | `tools/verify_failure_exe.py` | 68 個無 socket 模擬、23 種 HTTPS 情境、未登入與錯誤密碼計數、通知、資料狀態及離線分類 |
+| `login` | `tools/verify_login_exe.py` | 登入／SSO、人事條件、Cookie 恢復及有限負向測試 |
+| `visits` | `tools/verify_visit_exe.py` | 病歷號／身分證、篩選、fallback 與部分失敗續跑 |
+| `soap` | `tools/verify_soap_exe.py` | 多病人抽樣、結構化 SOAP 與慢性處方期限 |
+| `scans` | `tools/verify_scan_exe.py` | 單次及歷年掃描、病歷類別、PDF 抽樣 |
+| `regression` | `tools/verify_regression_exe.py` | 獨立帳號掛號比較、SSO token、審查送出一次及 SOAP 接續 |
+| `comprehensive`／其他領域 | `tools/verify_live_test_exe.py`、`verify_patient_exe.py`、`verify_ophthalmology_exe.py`、`verify_surgery_exe.py`、`verify_review_exe.py` | 完整流程及所修改領域 |
+
+工具只對 localhost 發合成請求，紀錄留在 output；不代表院內通過。`--source` 可預先檢查原始碼，不能取代新建置 frozen EXE。零參數啟動、build_id、實際密碼 POST 次序／次數、讀取上限與 ZIP 離線分析均需核對。failures 的一次錯誤密碼在正常登入前，未知結果停止；一般 SDK 不做負向測試。實際操作與採樣上限見 [LIVE_TEST](LIVE_TEST.md)，院內證據見 [VALIDATION](VALIDATION.md)。
 
 `tests/test_auto_tls.py` 以 localhost 真實 TLS 交握驗證舊 AES 相容、TLS 1.3、憑證備援／嚴格模式、匿名探測、Cookie 保留及 POST 不重送。合成伺服器不使用醫院域名或資料；網路切換也須接離線重解析，避免將已恢復的中途失敗誤判為未解錯誤。
-
-登入版以 `python tools/verify_login_exe.py` 驗證當前原始碼建置的 EXE；`--source` 可先驗證原始碼。七種 HTTPS localhost 情境涵蓋過期 302／401、Cookie 清除未觸發過期、人事錯誤續跑、初始登入拒絕、負向未知回應及負向轉址；人事用 iframe 及含代碼前綴的選項，錯誤密碼用文字拒絕頁。核對伺服器實際收到的密碼 POST 次數、20 個模擬案例、零參數啟動及 ZIP／離線分析分類。每項失敗保留於 output/login-*.log。舊 EXE 不會因修改原始碼而更新，驗證結果必須記錄其 build_id。
-
-SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTTPS localhost 流程，包含多病人抽樣、藥囑表前置說明、慢性處方日期及 ZIP 輸出。院內 0.20.0 回傳已確認四筆結構化 SOAP；另兩份異號就診清單當時被阻擋。0.20.3 增量 EXE 回傳另驗證一名已確認同病人的舊號門診 SOAP；其他人的舊號關係尚未逐一核對，見 [VALIDATION](VALIDATION.md)。
 
 ## 引用方式與離線安裝
 
@@ -89,14 +88,14 @@ SOAP 版以 `python tools/verify_soap_exe.py` 驗證完整與部分失敗的 HTT
 
 ```sh
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
-python -m pip install output/package/vghks_sdk-0.20.11-py3-none-any.whl
+python -m pip install output/package/vghks_sdk-0.22.2-py3-none-any.whl
 ```
 
 SDK wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線部署時，在與目標相符的 Python／OS 環境先準備 wheel 及依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.20.11-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.20.11
+python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.22.2-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.22.2
 ```
 
 ## 發布檢查
@@ -111,6 +110,15 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 
 ## 本機資料整理
 
-原始 HAR／returns 放 data，私有參數及人工檢閱資料放 private，現行 EXE 放 dist。output 保留最近需要的分析、套件及驗證紀錄即可；舊 wheel、安裝副本、建置目錄與快取可重建後移除。清理前核對完整路徑在 workspace 內；不可為清理而刪除原始 HAR／回傳 ZIP，或仍被公開匯入的相容層。
+| 路徑／類型 | 保留與清理方式 |
+| --- | --- |
+| `data/`、`dist/` 的原始 HAR／回傳 ZIP | 不可再生的證據，保留原檔；離線分析不得改寫 |
+| `private/` | 保留人工檢閱、denylist 及建置參數，不公開 |
+| `output/` 的院內分析與私有回歸結果 | 保留仍支撐驗證結論的紀錄；原始回傳已不在本機時，不因舊版本而刪除剩餘證據 |
+| `dist/vghks-live-test.exe`、`output/build-info.json` | 保留現行 EXE 與其建置資訊，更新後完成 localhost 驗證 |
+| `output/package/`、驗證報告 | 保留目前版本套件及近期檢查結果，舊套件、重複 log 與安裝副本可移除 |
+| `build/`、`__pycache__/`、`.ruff_cache/` | 可重建快取；建置相依環境需核對無其他用途後才清除 |
+
+Windows 清理前解析完整目標路徑，確認仍在 workspace 內；使用 `Remove-Item -LiteralPath`，不跨 shell 組字串刪除。仍被公開匯入、CLI 或測試使用的相容層保留。共用 JSON 原子寫入及本機權限處理由 `local_io.py` 維護。
 
 `.gitignore` 不會移除既有 Git 歷史。若發現敏感資料誤推，依 [SECURITY](../SECURITY.md) 處理；不要只刪最新檔案。完整開發不變量見 [AGENTS](../AGENTS.md)。

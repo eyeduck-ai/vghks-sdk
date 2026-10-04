@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -12,9 +13,11 @@ from urllib.parse import urlsplit
 from ..build_info import build_identity
 from ..core.errors import ConfigurationError
 from ..core.readiness import AUTH_CHECK_REGISTRY
+from ..live.auth_edges import expected_anonymous_challenge
 from ..live.config import resolve_live_test_config
 from ..live.login import expected_rejection
 from ..local_io import write_json_atomic
+from ..models.auth import PasswordStatus
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .bundle import BundleReader
 from .opd_review import review_weekly_physicians
@@ -78,26 +81,48 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         steps = reader.json("step_results.json")
     if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
         raise ConfigurationError("invalid step results", code="BUNDLE_STEPS_INVALID")
+    steps_by_name = {}
+    steps_by_query: dict[str, list[dict]] = defaultdict(list)
+    for step in steps:
+        if isinstance(step.get("name"), str):
+            steps_by_name.setdefault(step["name"], step)
+        steps_by_query[_step_query(step)].append(step)
+    rows_by_operation: dict[str, list[dict]] = defaultdict(list)
+    error_rows_by_id = {}
+    for row in rows:
+        rows_by_operation[row["operation"]].append(row)
+        if row["error_code"]:
+            error_rows_by_id.setdefault(row["capture_id"], row)
     expected_steps = {step["name"]: step for step in steps if expected_rejection(step)}
+    anonymous_steps = {step["name"]: step for step in steps if expected_anonymous_challenge(step)}
     expected_rows = []
+    anonymous_rows = []
     recovered_auth_ids = set()
+    recovery = next((step for step in steps if _verified_cookie_recovery(step)), None)
+    last_recovery_response = max(
+        (row["capture_id"] for row in rows_by_operation["prq.upload_types"]
+         if recovery and _in_capture_range(row, recovery) and row["status"] in {"PARSED", "EMPTY"}),
+        default="",
+    )
     for row in rows:
         match = next((step for step in expected_steps.values() if _in_capture_range(row, step)), None)
         if match and row["error_code"] == "PORTAL_LOGIN_REJECTED":
             row.update(observed_status=row["status"], status="EXPECTED_NEGATIVE", expected_step=match["name"])
             expected_rows.append(row)
-        recovery = next((step for step in steps if step.get("name") == "login.cookie_loss"
-                         and step.get("status") == "OK"
-                         and (step.get("details") or {}).get("recovered") is True), None)
+        anonymous = next((step for step in anonymous_steps.values()
+                          if _in_capture_range(row, step)), None)
+        if anonymous and row["operation"] == "prq.upload_types" and row["error_code"] in {
+            "HTTP_401", "HTTP_403", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM",
+        }:
+            row.update(observed_status=row["status"], status="EXPECTED_UNAUTHENTICATED",
+                       expected_step=anonymous["name"])
+            anonymous_rows.append(row)
         if (recovery and _in_capture_range(row, recovery)
                 and row["operation"] == "prq.upload_types"
                 and row["error_code"] in {
-                    "AUTH_EXPIRED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM", "HTTP_401", "HTTP_403",
+                    "AUTH_EXPIRED", "AUTH_HTTP_DENIED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM", "HTTP_401", "HTTP_403",
                 }
-                and any(later["capture_id"] > row["capture_id"]
-                        and _in_capture_range(later, recovery)
-                        and later["operation"] == row["operation"]
-                        and later["status"] in {"PARSED", "EMPTY"} for later in rows)):
+                and row["capture_id"] < last_recovery_response):
             row.update(recovered=True, recovery_type="COOKIE_LOSS_RELOGIN")
             recovered_auth_ids.add(row["capture_id"])
     readiness = (
@@ -134,8 +159,13 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         linked = {"capture_id": item.get("linked_capture_id")}
         if code == "PORTAL_LOGIN_REJECTED" and expected_step and _in_capture_range(linked, expected_step):
             continue
-        if code in {"AUTH_EXPIRED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM"} and item.get("linked_capture_id") in recovered_auth_ids:
+        anonymous_step = anonymous_steps.get(item.get("name") or item.get("step"))
+        if code == "AUTH_NOT_AUTHENTICATED" and anonymous_step and _in_capture_range(linked, anonymous_step):
             continue
+        if code in {"AUTH_EXPIRED", "AUTH_HTTP_DENIED", "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_FORM"} and item.get("linked_capture_id") in recovered_auth_ids:
+            continue
+        outer_code = code
+        code = _safe_code(_structured_root_issue(issue).get("code")) or code
         if code and code not in {"DEPENDENCY_FAILED", "READINESS_FAILED"}:
             operation = issue.get("operation", "")
             if operation not in QUERY_BY_KEY and operation not in {
@@ -155,15 +185,15 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
                 "capture_id": "",
                 "step": _safe_network_step(item.get("name") or item.get("step")),
             }
+            if outer_code != code:
+                problem["context_code"] = outer_code
             label = str(item.get("name") or item.get("step") or "")
             destination = preflight_problems if label.startswith("network.") else problems
             # Raw exception/response evidence takes precedence over legacy
             # summary codes (0.10.1 called every SSL error a CA failure).
-            checkpoint = next((step for step in steps if step.get("name") == label), item)
+            checkpoint = steps_by_name.get(label, item)
             last_id = checkpoint.get("last_capture_id")
-            evidence = next(
-                (row for row in rows if row["capture_id"] == last_id and row["error_code"]), None
-            )
+            evidence = error_rows_by_id.get(last_id) if isinstance(last_id, str) else None
             if evidence is not None:
                 code = evidence["error_code"]
                 operation = evidence["operation"]
@@ -197,7 +227,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     problems.sort(key=lambda item: priority.get(item["phase"], 9))
     matrix = []
     for spec in QUERY_SPECS:
-        selected = [step for step in steps if _step_query(step) == spec.key]
+        selected = steps_by_query[spec.key]
         statuses = {step.get("status") for step in selected}
         if statuses & {"ERROR", "BLOCKED", "MISSING"}:
             live = (
@@ -220,13 +250,17 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
             live = "NO_SAMPLE"
         else:
             live = "NOT_TESTED"
-        recorded = [row for row in rows if row["operation"] == spec.key]
+        recorded = rows_by_operation[spec.key]
         matrix.append(
             {
                 "operation": spec.key,
                 "sdk_method": spec.sdk_method,
                 "live_status": live,
                 "live_step_count": len(selected),
+                "live_partial_count": sum(
+                    (step.get("details") or {}).get("acquisition_status") == "PARTIAL"
+                    for step in selected
+                ),
                 "live_counts": {
                     status: sum(step.get("status") == status for step in selected)
                     for status in ("OK", "EMPTY", "ERROR", "BLOCKED", "MISSING", "NO_SAMPLE")
@@ -278,6 +312,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "preflight_findings": preflight_problems,
         "recovered_requests": [row for row in rows if row.get("recovered")],
         "expected_login_rejections": expected_rows,
+        "expected_unauthenticated_responses": anonymous_rows,
         "bundle_status": run_status,
         "analysis_status": analysis_status,
         "bundle": {
@@ -291,6 +326,8 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "root_cause": main,
         "next_action": _next_action(main, has_gaps=has_gaps),
         "portal_login_evidence": _portal_login_evidence(reader),
+        "password_policy": _password_policy_summary(steps, rows),
+        "data_quality": _data_quality_summary(steps, rows),
         "problems": problems,
         "operations": matrix,
         "replay": summarize_replay(rows),
@@ -333,20 +370,74 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             r"login\.(?:cookie_loss|personnel\.(?:options|by_card|employee|name|title|unit|subunits|filters))",
             name,
         )
+        failure_check = name in {
+            "failures.live.password_policy", "failures.live.unauthenticated",
+            "failures.live.negative_before_login", "failures.live.cookie_loss",
+            "failures.live.soap", "failures.live.numeric", "failures.live.orders",
+            "failures.live.detail", "failures.live.report", "failures.live.pacs",
+        }
         reason = _safe_code((step.get("issue") or {}).get("code"))
         detail_reason = (step.get("details") or {}).get("reason")
         if (not reason and login_check and isinstance(detail_reason, str)
                 and detail_reason in {"NO_UNAMBIGUOUS_OPTION", "DEPENDENCY_FAILED"}):
             reason = detail_reason
+        if name == "failures.live.password_policy" and not reason:
+            reason = "PASSWORD_NOTICE_NOT_OBSERVED"
         gaps.append(
             {
                 "step_index": index,
-                "step": name if known_check or login_check else operation,
+                "step": name if known_check or login_check or failure_check else operation,
                 "operation": operation,
                 "reason_code": reason,
             }
         )
     return gaps
+
+
+def _password_policy_summary(steps: list[dict], rows: list[dict]) -> dict[str, Any]:
+    """Keep the original observation separate from parsing the saved responses."""
+
+    recorded = next(
+        ((step.get("details") or {}).get("password_status") for step in steps
+         if step.get("name") == "failures.live.password_policy"),
+        None,
+    )
+    try:
+        status = PasswordStatus(**recorded) if isinstance(recorded, dict) else None
+    except (TypeError, ValueError):
+        status = None
+    return {
+        "recorded": (
+            {"status": status.status, "remaining_days": status.remaining_days,
+             "evidence": status.evidence} if status else None
+        ),
+        "offline_observations": [
+            {"capture_id": row["capture_id"], **row["password_status"]}
+            for row in rows if row.get("password_status")
+        ],
+        "scope": "Saved response parsing only; the original EXE result remains unchanged. This does not establish natural session TTL or a future forced password change.",
+    }
+
+
+def _data_quality_summary(steps: list[dict], rows: list[dict]) -> dict[str, Any]:
+    return {
+        "recorded_partial_steps": [
+            {"operation": _step_query(step),
+             "issue_codes": [_safe_code(code) for code in (step.get("details") or {}).get("parsing_issues", [])]}
+            for step in steps if _step_query(step)
+            and (step.get("details") or {}).get("acquisition_status") == "PARTIAL"
+        ],
+        "offline_partial_responses": [
+            {"capture_id": row["capture_id"], "operation": row["operation"],
+             "issue_codes": row["parsing_issues"]}
+            for row in rows if row.get("data_complete") is False
+        ],
+        "offline_warnings": [
+            {"capture_id": row["capture_id"], "operation": row["operation"],
+             "warning_codes": row["parsing_warnings"]}
+            for row in rows if row.get("parsing_warnings")
+        ],
+    }
 
 
 def _ophthalmology_summary(reader: BundleReader) -> dict[str, Any]:
@@ -760,6 +851,33 @@ def _safe_build(value: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _structured_root_issue(issue: dict[str, Any]) -> dict[str, Any]:
+    current = issue
+    for _ in range(7):
+        linked = current.get("cause")
+        if not isinstance(linked, dict) or not _safe_code(linked.get("code")):
+            break
+        current = linked
+    return current
+
+
+def _verified_cookie_recovery(step: dict[str, Any]) -> bool:
+    if step.get("status") != "OK":
+        return False
+    details = step.get("details") or {}
+    if step.get("name") == "login.cookie_loss":
+        return details.get("recovered") is True
+    return (
+        step.get("name") == "failures.live.cookie_loss"
+        and details.get("evidence") == "LIVE_COOKIE_LOSS"
+        and details.get("recovery_observed") is True
+        and details.get("natural_ttl_verified") is False
+        and type(details.get("generation_before")) is int
+        and type(details.get("generation_after")) is int
+        and details["generation_after"] > details["generation_before"]
+    )
+
+
 def _phase(code: str) -> str:
     if code.startswith(("NETWORK_", "TLS_", "CA_")):
         return "CONNECTIVITY"
@@ -790,6 +908,8 @@ def _next_action(main: dict[str, str] | None, *, has_gaps: bool = False) -> str:
         return "雙擊新版 EXE 重跑 comprehensive：先測正常憑證驗證、TLS 1.2 與 AES／RSA 相容套件；全部失敗時比較略過憑證驗證及 Windows Schannel。預設允許採用能連線的未驗證 HTTPS，在同輪繼續 SSO／查詢，並標示套用的服務。TLS_EOF 本身尚不能判定是 CA、帳密或特定套件問題，略過驗證也可能仍然失敗。"
     if code == "PORTAL_LOGIN_RESPONSE_EMPTY":
         return "登入 HTTP 回應只有空白，不能判定帳密正確或錯誤。新版先載入 index.do、保留同一個 Session／隱藏欄位並補上 Origin／Referer；仍須在內網雙擊新版 EXE 驗證。"
+    if code == "PORTAL_PASSWORD_CHANGE_REQUIRED":
+        return "回應明確要求變更密碼；先透過院方入口完成變更，再以新密碼執行 SDK 或 EXE。SDK 不會自動變更密碼，也不會因這個錯誤重新送出登入。"
     if main["phase"] == "CONNECTIVITY":
         return "先重測 auth profile，依錯誤碼檢查內網連線、DNS、Proxy 或逾時設定。"
     if main["phase"] == "AUTHENTICATION":
@@ -824,6 +944,28 @@ def _markdown(report: dict[str, Any]) -> str:
             for row in report["no_sample_steps"]
         )
         lines.append("")
+    policy = report["password_policy"]
+    if policy["offline_observations"]:
+        lines += [
+            "原始回應的密碼政策重解析（保留原 EXE 觀察，未重送登入）：",
+            "",
+            "| 回應編號 | 狀態 | 剩餘日數 | 證據 |",
+            "| --- | --- | ---: | --- |",
+        ]
+        lines.extend(
+            f"| {row['capture_id']} | {row['status']} | {row['remaining_days']} | {row['evidence']} |"
+            for row in policy["offline_observations"]
+        )
+        lines += ["", "此結果不證實自然 Session 過期或之後強制變更密碼的實際回應。", ""]
+    quality = report["data_quality"]
+    if quality["recorded_partial_steps"] or quality["offline_partial_responses"] or quality["offline_warnings"]:
+        lines += [
+            f"原 EXE 標記部分解析 {len(quality['recorded_partial_steps'])} 步；"
+            f"新版離線重解析仍不完整 {len(quality['offline_partial_responses'])} 份回應，"
+            f"另有 {len(quality['offline_warnings'])} 份回應保留可恢復警示。",
+            "原始表頭問題碼仍留在模型；PDF／JPG 參照不表示已取得或解析附件正文。",
+            "",
+        ]
     lines += ["| 登入／SSO 目標 | 實測狀態 | 錯誤碼 |", "| --- | --- | --- |"]
     lines.extend(
         f"| {row['target']} | {row['status']} | {row['error_code']} |"

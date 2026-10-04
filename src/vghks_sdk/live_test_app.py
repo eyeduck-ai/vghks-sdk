@@ -41,6 +41,7 @@ from .live.defaults import SYNTHETIC_MRN
 from .live.environment import environment_report
 from .live.presets import (
     combined_round,
+    failure_test_round,
     login_test_round,
     regression_round,
     scan_record_round,
@@ -81,13 +82,13 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
     parser.add_argument(
         "--login-negative-attempts", type=int, choices=(0, 1, 2),
-        help="login profile: real wrong-password attempts, after successful positive checks (default: 2)",
+        help="real wrong-password attempts: failures 0/1 before correct login (default 1); login 0/1/2 after positive checks (default 2)",
     )
     parser.add_argument(
         "--only",
@@ -244,9 +245,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits or soap profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans or failures profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -409,6 +410,8 @@ def _configuration_values(args: argparse.Namespace) -> dict[str, Any]:
         return regression_round()
     if getattr(args, "bundled_scans", False):
         return scan_record_round()
+    if getattr(args, "bundled_failures", False):
+        return failure_test_round()
     return combined_round() if getattr(args, "bundled_round", False) else {}
 
 
@@ -430,6 +433,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.bundled_soap = args.profile == "soap"
         args.bundled_regression = args.profile == "regression"
         args.bundled_scans = args.profile == "scans"
+        args.bundled_failures = args.profile == "failures"
         args.bundled_round = args.profile == "comprehensive"
     exit_code = 2
     try:
@@ -689,6 +693,15 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "failures":
+        print("\n失敗分類測試: 指定授權病人的基本資料、掛號、就診與抽樣 SOAP、數值、醫囑報告。")
+        print(f"最多 {config.max_cases} 次門診、每類最多 {config.max_items} 個報告或 JPG 檢視參照。")
+        print("內建 DNS、逾時、HTTP、登入與解析失敗模擬; 模擬結果會分開標示。")
+        print("正常查詢後清除本機 Cookie 測恢復, 不視為自然 TTL 過期證據。")
+        print(f"正常登入前最多送出 {config.login_negative_attempts} 次錯誤密碼; 未明確拒絕時停止後續登入。")
+        print("另以獨立 Session 查未登入回應, 保存密碼倒數/強制變更狀態; 不等待自然過期。")
+        print("原始回應及結果存入 EXE 同目錄的未加密 ZIP。")
+        return config
     if config.profile == "scans":
         print("\n掃描病歷測試: 保存完整歷年清單與病歷類別, 並查眼科門診 SOAP 連結。")
         print(f"預設抽樣最近 {config.max_cases} 次眼科門診, 最多下載 {config.max_items} 份 PDF。")

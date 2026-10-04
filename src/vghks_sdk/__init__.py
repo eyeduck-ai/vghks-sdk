@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from ._version import __version__
+from .acquisition import acquire, assess_data
 from .core.config import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
 from .core.errors import (
     AccessReviewRequiredError,
@@ -12,18 +13,23 @@ from .core.errors import (
     ConfigurationError,
     ErrorInfo,
     LoginRejectedError,
+    NotAuthenticatedError,
     NotFoundError,
     ParseError,
+    PasswordChangeRequiredError,
     RequestError,
     SDKError,
+    error_info,
 )
 from .models import (
+    AcquisitionResult,
     AuthCheckReport,
     AuthCheckTarget,
     BinaryAsset,
     CaseDetail,
     ClinicalOrder,
     ConsultRecord,
+    DataAssessment,
     EarningsReportContext,
     FormSnapshot,
     HtmlDocument,
@@ -44,6 +50,7 @@ from .models import (
     PacsImageRef,
     PacsStudy,
     PacsStudyRef,
+    PasswordStatus,
     PatientBasicInfo,
     PatientDemographics,
     PatientSurgeryRecord,
@@ -108,6 +115,7 @@ def __getattr__(name: str):
 
 __all__ = [
     "AccessReviewRequiredError",
+    "AcquisitionResult",
     "AuthCheckReport",
     "AuthCheckTarget",
     "AuthExpiredError",
@@ -118,6 +126,7 @@ __all__ = [
     "ClinicalOrder",
     "ConfigurationError",
     "ConsultRecord",
+    "DataAssessment",
     "DoctorOpdPatientSource",
     "EarningsCredentials",
     "EarningsReportContext",
@@ -130,6 +139,7 @@ __all__ = [
     "MedicationOrder",
     "MrnPatientSource",
     "MutationReceipt",
+    "NotAuthenticatedError",
     "NotFoundError",
     "NumericHistoryFilter",
     "NumericHistoryReport",
@@ -146,6 +156,8 @@ __all__ = [
     "PacsStudy",
     "PacsStudyRef",
     "ParseError",
+    "PasswordChangeRequiredError",
+    "PasswordStatus",
     "PatientBasicInfo",
     "PatientDemographics",
     "PatientRecordsResult",
@@ -195,7 +207,10 @@ __all__ = [
     "VisitFilter",
     "VisitHistoryRecord",
     "__version__",
+    "acquire",
+    "assess_data",
     "classify_order_execution",
+    "error_info",
     "export_patient_records",
     "scan_soap",
 ]

@@ -328,6 +328,7 @@ class VisitLookupTests(unittest.TestCase):
     def setUp(self):
         self.runtime = object.__new__(SDKRuntime)
         self.runtime.auth = Mock()
+        self.runtime.auth.generation = 1
         self.runtime.auth.hid_for.return_value = "CURRENT-HID"
         self.runtime.settings = SimpleNamespace(prq_base_url="https://internal.test/PRQWeb")
         self.runtime.operation_lock = threading.RLock()

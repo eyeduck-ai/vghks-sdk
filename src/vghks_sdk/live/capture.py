@@ -8,11 +8,9 @@ handled according to the hospital's policy.
 from __future__ import annotations
 
 import base64
-import contextlib
 import json
 import os
 import shutil
-import stat
 import threading
 import traceback
 import uuid
@@ -22,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.errors import ConfigurationError, error_info
+from ..local_io import restrict_permissions
 
 _OWNER_MARKER = ".vghks-live-test"
 _OWNED_FILES = (
@@ -60,14 +59,14 @@ class RawCaptureRecorder:
         self.responses_dir = self.output_dir / "responses"
         self.requests_dir.mkdir(mode=0o700, exist_ok=True)
         self.responses_dir.mkdir(mode=0o700, exist_ok=True)
-        _restrict_permissions(self.requests_dir, directory=True)
-        _restrict_permissions(self.responses_dir, directory=True)
+        restrict_permissions(self.requests_dir, directory=True)
+        restrict_permissions(self.responses_dir, directory=True)
         self.manifest_path = self.output_dir / "capture_manifest.jsonl"
         self._manifest = self.manifest_path.open("x", encoding="utf-8", newline="\n")
-        _restrict_permissions(self.manifest_path)
+        restrict_permissions(self.manifest_path)
         self.errors_path = self.output_dir / "errors.jsonl"
         self._errors = self.errors_path.open("x", encoding="utf-8", newline="\n")
-        _restrict_permissions(self.errors_path)
+        restrict_permissions(self.errors_path)
 
     @property
     def capture_count(self) -> int:
@@ -306,7 +305,7 @@ class RawCaptureRecorder:
             response_body = bytes(getattr(response, "content", b"") or b"")
             response_path = self.responses_dir / (f"{capture_id}{_response_extension(response)}")
             response_path.write_bytes(response_body)
-            _restrict_permissions(response_path)
+            restrict_permissions(response_path)
             response_data = {
                 "status_code": int(getattr(response, "status_code", 0)),
                 "tls": getattr(response, "tls_details", {}),
@@ -413,10 +412,10 @@ class RawCaptureRecorder:
                 elif target.exists():
                     raise ConfigurationError(f"live-test owned path is not a file: {name}")
         self.output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        _restrict_permissions(self.output_dir, directory=True)
+        restrict_permissions(self.output_dir, directory=True)
         marker = self.output_dir / _OWNER_MARKER
         marker.write_text("vghks-sdk live-test capture v2\n", encoding="utf-8")
-        _restrict_permissions(marker)
+        restrict_permissions(marker)
 
 
 def _prepared_request_data(request: Any) -> dict[str, Any]:
@@ -562,14 +561,7 @@ def _write_json(path: Path, value: Any) -> None:
         json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str) + "\n",
         encoding="utf-8",
     )
-    _restrict_permissions(path)
-
-
-def _restrict_permissions(path: Path, *, directory: bool = False) -> None:
-    mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR if directory else stat.S_IRUSR | stat.S_IWUSR
-    # Windows ACLs and some network filesystems do not fully implement chmod.
-    with contextlib.suppress(OSError):
-        os.chmod(path, mode)
+    restrict_permissions(path)
 
 
 def _utc_now() -> str:

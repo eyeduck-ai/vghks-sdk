@@ -19,7 +19,13 @@ from vghks_sdk.live.config import LiveTestConfig
 from vghks_sdk.live.runner import execute_live_test
 from vghks_sdk.live_test_app import analyze_bundle_command
 from vghks_sdk.local_io import write_json_atomic
-from vghks_sdk.offline.analyze import analyze_bundle, compare_reports, inspect_bundle
+from vghks_sdk.offline.analyze import (
+    _no_sample_steps,
+    _password_policy_summary,
+    analyze_bundle,
+    compare_reports,
+    inspect_bundle,
+)
 from vghks_sdk.offline.bundle import BundleReader
 from vghks_sdk.offline.replay import identify_operation, replay_bundle, replay_response
 
@@ -142,6 +148,27 @@ class OfflineAnalysisTests(unittest.TestCase):
             self.assertNotIn("files_manifest.json", reader.names)
             self.assertEqual(reader.json("run_summary.json")["status"], "OK")
 
+    def test_password_gap_has_a_safe_name_and_replay_does_not_rewrite_live_evidence(self):
+        steps = [
+            {"name": "failures.live.password_policy", "operation": "auth.password_status",
+             "status": "NO_SAMPLE", "details": {"password_status": {
+                 "status": "NO_NOTICE", "remaining_days": None, "evidence": ""}}},
+            {"name": SECRET, "status": "NO_SAMPLE"},
+        ]
+        gaps = _no_sample_steps(steps)
+        self.assertEqual(gaps[0]["step"], "failures.live.password_policy")
+        self.assertEqual(gaps[0]["reason_code"], "PASSWORD_NOTICE_NOT_OBSERVED")
+        self.assertNotIn(SECRET, json.dumps(gaps))
+        replayed = replay_response(
+            "portal.login",
+            '<script>alert("密碼將於【4】日後到期，請盡快修改。");targetUrl="myPortal.do";</script>'.encode(),
+            {}, mime="text/html; charset=utf-8",
+        )
+        policy = _password_policy_summary(steps, [{"capture_id": "000001", **replayed}])
+        self.assertEqual(policy["recorded"]["status"], "NO_NOTICE")
+        self.assertEqual(policy["offline_observations"][0]["remaining_days"], 4)
+        self.assertEqual(steps[0]["status"], "NO_SAMPLE")
+
     def test_retry_recovery_requires_same_group_and_preserves_later_http_failure(self):
         failure = {
             "kind": "NETWORK_ERROR", "will_retry": True,
@@ -156,6 +183,7 @@ class OfflineAnalysisTests(unittest.TestCase):
             failure, response,  # Missing group IDs cannot prove recovery.
         ]
         reader = Mock(spec=BundleReader)
+        reader.names = ()
         reader.json.return_value = {}
         reader.jsonl.return_value = rows
         results = replay_bundle(reader)
@@ -423,6 +451,66 @@ class OfflineAnalysisTests(unittest.TestCase):
             with self.subTest(content=content):
                 result = replay_response("portal.login", content, {})
                 self.assertEqual(result["error_code"], "PORTAL_LOGIN_RESPONSE_EMPTY")
+
+    def test_cookie_recovery_keeps_errors_outside_the_verified_capture_range(self):
+        recovery = {
+            "name": "failures.live.cookie_loss",
+            "operation": "prq.upload_types",
+            "status": "OK",
+            "first_capture_id": "000002",
+            "last_capture_id": "000004",
+            "details": {
+                "evidence": "LIVE_COOKIE_LOSS",
+                "recovery_observed": True,
+                "natural_ttl_verified": False,
+                "generation_before": 1,
+                "generation_after": 2,
+            },
+        }
+        for case in ("success_after", "success_before", "different_operation", "outside_range"):
+            with self.subTest(case=case):
+                rows = [
+                    {"capture_id": "000001", "operation": "prq.upload_types",
+                     "status": "HTTP_ERROR", "error_code": "HTTP_401"},
+                    {"capture_id": "000003", "operation": "prq.upload_types",
+                     "status": "HTTP_ERROR", "error_code": "HTTP_401"},
+                    {"capture_id": "000004", "operation": "prq.upload_types",
+                     "status": "PARSED", "error_code": ""},
+                    {"capture_id": "000005", "operation": "prq.upload_types",
+                     "status": "PARSE_ERROR", "error_code": "PRQ_UPLOAD_TYPES_INVALID"},
+                ]
+                if case == "success_before":
+                    rows[2]["capture_id"] = "000002"
+                elif case == "different_operation":
+                    rows[2]["operation"] = "prq.visit_cases"
+                elif case == "outside_range":
+                    rows[2]["capture_id"] = "000006"
+                reader = Mock(spec=BundleReader)
+                reader.names = set()
+                reader.json.return_value = {"status": "OK", "steps": [recovery]}
+                reader.jsonl.return_value = []
+                with patch("vghks_sdk.offline.analyze.replay_bundle", return_value=rows):
+                    report, _ = inspect_bundle(reader)
+                self.assertEqual(
+                    [row["capture_id"] for row in report["recovered_requests"]],
+                    ["000003"] if case == "success_after" else [],
+                )
+                self.assertIn("000001", [p["capture_id"] for p in report["problems"]])
+                self.assertIn("000005", [p["capture_id"] for p in report["problems"]])
+                self.assertEqual(report["analysis_status"], "NEEDS_ATTENTION")
+
+    def test_invalid_checkpoint_capture_metadata_does_not_mask_a_reported_error(self):
+        reader = Mock(spec=BundleReader)
+        reader.names = set()
+        reader.json.return_value = {
+            "status": "COMPLETED_WITH_ERRORS",
+            "steps": [{"name": "prq.soap", "operation": "prq.soap", "status": "ERROR",
+                       "last_capture_id": [], "issue": {"code": "PRQ_SOAP_INVALID"}}],
+        }
+        reader.jsonl.return_value = []
+        with patch("vghks_sdk.offline.analyze.replay_bundle", return_value=[]):
+            report, _ = inspect_bundle(reader)
+        self.assertEqual(report["root_cause"]["code"], "PRQ_SOAP_INVALID")
 
     def test_successful_portal_and_blocked_queries_are_reported_separately(self):
         from vghks_sdk.queries import QUERY_SPECS

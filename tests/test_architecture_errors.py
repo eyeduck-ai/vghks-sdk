@@ -76,6 +76,10 @@ class ErrorModelTests(unittest.TestCase):
                 "http_status": 503,
                 "attempt": 3,
                 "cause_type": "ReadTimeout",
+                "phase": "REQUEST",
+                "retry_safe": None,
+                "retry_recommended": False,
+                "cause": None,
             },
         )
         self.assertNotIn("SECRET", json.dumps(payload))

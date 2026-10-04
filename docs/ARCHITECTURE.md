@@ -21,12 +21,16 @@ Requests Session（鎖、節流、retry、capture）
 | adapters/ | 病人、就診、表單、SSO 模式等請求次序 |
 | parsing/ | 無網路的 HTML／JSON／binary 解析，可用同一份證據反覆測試 |
 | models/ | 不同領域型別、篩選條件與參照；`py.typed` 隨 wheel 發布 |
+| acquisition.py | 對已取得的模型評估資料狀態，分開解析缺漏與可恢復 warnings，或將一次唯讀呼叫包成可選用的 AcquisitionResult；不新增 HTTP 或重試。測試器共用相同眼科欄位對齊判定 |
 | runtime.py / core/ | Session、操作鎖、登入復原、傳輸政策、錯誤與診斷 |
 | workflows/ | 跨多次原子操作的任務、去重、部分失敗及階段輸出 |
 | live/ | 使用 SDK 的內網測試器，與一般 library 使用分離 |
 | contracts/ / offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求 |
+| local_io.py | 共用本機 JSON 原子替換與權限處理；保留各入口的錯誤碼及安全欄位白名單 |
 
-一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。現有 core/full CLI 是既有使用介面，仍有測試覆蓋，未以清理名義移除。
+密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
+
+一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。既有 core/full CLI 持續支援。
 
 **兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。
 
@@ -45,6 +49,8 @@ Requests Session（鎖、節流、retry、capture）
 **測試參數屬於執行，不屬於 SDK**：LiveTestConfig.test_mrn 沿各 profile 傳遞，不使用真實病歷號全域常數。公開預設只有合成識別值；自用 EXE 的 private defaults 在建置時注入，wheel 不包含它。
 
 **診斷有兩層**：一般 DiagnosticRecorder 記錄有限的結構化錯誤；RawCaptureRecorder 為使用者明確啟用的完整未加密證據。所有 raw／parsed 回傳仍可能含個資，不能公開。
+
+**失敗分類由 SDK 提供，處置由應用決定**：Transport 辨識 DNS、逾時、TLS 及 HTTP；Runtime 保留登入恢復階段與安全重試條件；Parser 辨識合法空值與未知 schema。`ErrorInfo.cause` 保留明確 SDK 原因鏈，`root_cause` 不含原始訊息。`acquire`／`queries.run_result` 將這些資訊與資料可用性包成選用的結果，不改變原有 Service 型別。workflow／整合系統決定重試預算、排程、通知與部分資料存檔；不可因底層是網路錯誤而忽略外層 `retry_safe=False`。詳見 [ACQUISITION](ACQUISITION.md)。
 
 **SOAP 結構化屬於純解析**：`parsing/soap.py` 依標籤、rowspan 及摘要標頭處理同一個 SOAP 回應；`parsing/prq.py` 保留原解析器匯入入口。SoapRecord 保留原有 blocks／full_text，新增分段、SoapDiagnosis／SoapOrder／SoapMedication，以及明示「服藥期限」的 SoapChronicPrescriptionPeriod。醫囑與藥囑是頁面列印摘要，不含報告參照；取詳細醫囑及報告仍由 orders／medications 原子操作負責。未知列保留原文及 parsing_issues，不能猜測醫療含義。
 

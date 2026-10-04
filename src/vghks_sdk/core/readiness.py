@@ -8,10 +8,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .._version import __version__
-from ..models import AuthCheckReport, AuthCheckTarget
+from ..models import AuthCheckReport, AuthCheckTarget, PasswordStatus
 from .errors import ConfigurationError, ErrorInfo, error_info
 
-AUTH_REPORT_SCHEMA_VERSION = 2
+AUTH_REPORT_SCHEMA_VERSION = 3
 DEFAULT_AUTH_REPORT_PATH = Path("output/auth-check/auth_check_report.json")
 
 
@@ -84,7 +84,10 @@ def resolve_auth_targets(only: Sequence[str] | None = None) -> tuple[AuthCheckSp
 
 
 def make_auth_report(
-    targets: Iterable[AuthCheckTarget], *, reauthenticated: bool = False
+    targets: Iterable[AuthCheckTarget],
+    *,
+    reauthenticated: bool = False,
+    password_status: PasswordStatus | None = None,
 ) -> AuthCheckReport:
     target_tuple = tuple(targets)
     portal = next((item for item in target_tuple if item.target == "portal"), None)
@@ -101,6 +104,9 @@ def make_auth_report(
         status=status,
         targets=target_tuple,
         reauthenticated=reauthenticated,
+        password_status=password_status
+        if isinstance(password_status, PasswordStatus)
+        else PasswordStatus(),
     )
 
 

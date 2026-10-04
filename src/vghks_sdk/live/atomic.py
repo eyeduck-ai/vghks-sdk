@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
+from ..acquisition import assess_data
 from ..core.config import EarningsCredentials, SDKSettings
 from ..core.errors import AuthenticationError, ErrorInfo
 from ..core.operations import OPERATIONS
@@ -19,7 +20,6 @@ from ..models import (
     NumericHistoryFilter,
     NumericHistoryReport,
     NumericReport,
-    NumericTable,
     OrderHistoryFilter,
     OrderReport,
     PatientSurgeryRecord,
@@ -65,6 +65,10 @@ OPHTHALMOLOGY_QUERIES = (
 
 def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
     config.validate_for_execution()
+    if config.profile == "failures":
+        from .failures import build_failure_plan
+
+        return build_failure_plan(config)
     if config.profile == "login":
         from .login import build_login_plan
 
@@ -801,12 +805,7 @@ def _counts(value: Any) -> dict[str, Any]:
     if isinstance(value, UploadHistory):
         return {"record_count": len(value.pdf_refs), "table_count": len(value.document.tables)}
     if isinstance(value, (NumericReport, NumericHistoryReport)):
-        numeric_warnings = sum(
-            1
-            for table in value.tables
-            for issue in table.parsing_issues
-            if issue == "NUMERIC_HEADER_SPAN_MISMATCH" and _aligned_eye_table(table)
-        )
+        numeric_warnings = sum(len(assess_data(table).warnings) for table in value.tables)
         numeric_issues = sum(len(table.parsing_issues) for table in value.tables)
         return {
             "record_count": len(value.tables),
@@ -858,23 +857,6 @@ def _classify(value: Any) -> str:
     if count.get("numeric_error_count"):
         return "ERROR"
     return "EMPTY" if count.get("record_count") == 0 else "OK"
-
-
-def _aligned_eye_table(table: NumericTable) -> bool:
-    """A stale group colspan is harmless only with an exact OD/OS cell grid."""
-
-    if len(table.header_rows) != 2 or tuple(map(len, table.header_rows)) != (2, 2):
-        return False
-    first, second = table.header_rows
-    if first[0] != "日期" or not first[1] or set(second) != {"OD", "OS"}:
-        return False
-    if table.column_paths != (
-        ("日期",),
-        (first[1], second[0]),
-        (first[1], second[1]),
-    ):
-        return False
-    return bool(table.rows) and all(len(row) == 3 for row in table.rows)
 
 
 def _raise(error: Exception) -> None:

@@ -34,6 +34,8 @@
 
 每次原子查詢最多恢復一次；第二次仍過期回報 `AUTH_RELOGIN_FAILED`。若重新登入本身失敗，保留其具體 AuthenticationError 型別與 `info.code`，不再以籠統的恢復失敗碼覆蓋。HTTP 401／403 也可能是權限問題；一次恢復機會不表示 SDK 已確認原因就是過期。
 
+0.21.0 將查詢階段的 401／403 標為 `AUTH_HTTP_DENIED`，保留 `http_status` 與 HTTP 原因；恢復後仍遭拒時，外層 `AUTH_RELOGIN_FAILED` 的 `cause` 保留該資訊。重新登入途中若 DNS／連線失敗，`info.root_cause` 可取得網路錯誤碼，`phase` 可辨識恢復階段。`retry_safe` 與 `retry_recommended` 供應用決定後續處置，不增加自動請求；密碼 POST、異動及已送出調閱審查的整段操作不可自動補送。完整契約見 [ACQUISITION](ACQUISITION.md)。
+
 | 情況 | 對外結果 | 自動再次提交密碼 |
 | --- | --- | --- |
 | 帳號／密碼空白 | ConfigurationError；`CREDENTIAL_USERNAME_MISSING`／`CREDENTIAL_PASSWORD_MISSING` | 不會；尚未發出登入請求 |
@@ -47,6 +49,12 @@
 | MIS 提交後仍要求輸入獨立密碼 | LoginRejectedError；`EARNINGS_PASSWORD_REJECTED` | 不會 |
 
 `LoginRejectedError` 與 `AuthExpiredError` 都繼承 `AuthenticationError`，可從 `vghks_sdk` 匯入；兩者互不繼承。登入遭拒只代表系統沒有接受這次登入，無足夠證據時不進一步猜測密碼錯誤、帳號鎖定或密碼到期。未知頁面保留錯誤，不當成查詢空清單。
+
+0.22.0 增加 `NotAuthenticatedError`（`AUTH_NOT_AUTHENTICATED`）：尚未建立登入時直接讀取遭遇 401／403、登入表單或已知登入轉址。正常 Service 仍會按需登入；已建立登入後的同類挑戰保留原有過期恢復。這個區分依 SDK 登入歷程，不表示已證明院方 TTL。
+
+`sdk.auth.password_status` 是不發 HTTP 的安全觀察值，也存於 `AuthCheckReport.password_status`（報告 schema 3）。`NO_NOTICE` 表示沒有辨識到支援的通知，`EXPIRING` 表示倒數提醒，`remaining_days` 是來源明示的天數（不明時 None），`CHANGE_REQUIRED` 表示明確要求變更密碼。只讀取可見文字、script 頂層 literal alert／confirm、登入階段的明確舊／新密碼表單或同來源固定變更路徑；忽略隱藏通知、註解與 callback，不執行 JavaScript。
+
+倒數提醒可與成功登入並存；整合系統讀取狀態並提示使用者。遇到明確強制變更時拋出 `PasswordChangeRequiredError`（`PORTAL_PASSWORD_CHANGE_REQUIRED`、retry_safe=False），相依查詢停止；由使用者透過院方入口改密碼，再建立新 SDK。SDK 不送變更密碼表單，未知頁面也不猜成到期。2026-10-04 上午回傳確認頂層 alert 有「【4】日後到期」，0.22.0 漏讀括號；0.22.1 原始頁重解析可取得 EXPIRING／4，下午新版院內 EXE 又實際取得 EXPIRING／3，登入、readiness 與 Cookie 恢復後皆一致。強制變更格式仍只有合成證據，不能由倒數提醒推論。
 
 在已建立的 `sdk` 中，應用程式可這樣處理：
 

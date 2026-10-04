@@ -5,7 +5,12 @@ import unittest
 from types import SimpleNamespace
 
 from vghks_sdk.adapters.auth import AppSession
-from vghks_sdk.core.errors import AuthenticationError, AuthExpiredError, RequestError
+from vghks_sdk.core.errors import (
+    AuthenticationError,
+    AuthExpiredError,
+    NotAuthenticatedError,
+    RequestError,
+)
 from vghks_sdk.core.operations import operation_spec
 from vghks_sdk.runtime import SDKRuntime
 
@@ -110,11 +115,13 @@ class ContextReauthenticationTests(unittest.TestCase):
 
         context = object.__new__(SDKRuntime)
         context.transport = ExpiredTransport()  # type: ignore[assignment]
-        with self.assertRaises(AuthExpiredError):
-            context.request_json(
-                operation_spec("prq.visit_cases"),
-                "https://example.test/PRQWeb/QueryCaseList.do",
-            )
+        for generation, error_type in ((0, NotAuthenticatedError), (1, AuthExpiredError)):
+            context.auth = SimpleNamespace(generation=generation)
+            with self.subTest(generation=generation), self.assertRaises(error_type):
+                context.request_json(
+                    operation_spec("prq.visit_cases"),
+                    "https://example.test/PRQWeb/QueryCaseList.do",
+                )
 
     def test_auth_check_retries_one_expired_sso(self) -> None:
         class ExpiringAuth:

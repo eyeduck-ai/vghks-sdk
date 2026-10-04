@@ -130,13 +130,17 @@ def expected_rejection(step: dict) -> bool:
     """Only this completed, bounded live scenario can explain a rejection capture."""
     details = step.get("details") or {}
     return (
-        step.get("name") in {"login.negative.1", "login.negative.2"}
+        step.get("name") in {"login.negative.1", "login.negative.2", "failures.live.negative_before_login"}
         and step.get("status") == "OK"
         and details.get("evidence") == "LIVE"
         and details.get("expected_failure") is True
         and details.get("observed_code") == "PORTAL_LOGIN_REJECTED"
         and details.get("password_posts") == 1
         and details.get("blocked_posts") == 0
+        and (step.get("name") != "failures.live.negative_before_login" or (
+            step.get("operation") == "portal.login"
+            and details.get("position") == "BEFORE_CORRECT_LOGIN"
+        ))
     )
 
 

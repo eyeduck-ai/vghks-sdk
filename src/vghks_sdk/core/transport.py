@@ -88,6 +88,7 @@ class SafeSessionTransport:
             ),
         )
         attempts = self.policy.max_attempts if (method == "GET" or retry_safe) else 1
+        safe_to_repeat = method == "GET" or retry_safe
         safe_path = urlsplit(url).path or "/"
 
         with self._lock:
@@ -163,6 +164,13 @@ class SafeSessionTransport:
                             endpoint_path=safe_path,
                             attempt=attempt,
                             cause_type=exc.__class__.__name__,
+                            phase="CONNECTION_PROBE" if _connection_probe else "REQUEST",
+                            retry_safe=safe_to_repeat,
+                            retry_recommended=code in {
+                                "NETWORK_DNS_FAILED", "NETWORK_CONNECT_TIMEOUT",
+                                "NETWORK_READ_TIMEOUT", "NETWORK_TIMEOUT",
+                                "NETWORK_CONNECTION_FAILED", "NETWORK_REQUEST_FAILED",
+                            },
                         ) from exc
                     delay = self._backoff_delay(attempt, None)
                     if self.raw_capture is not None:
@@ -240,6 +248,8 @@ class SafeSessionTransport:
                         code=f"HTTP_{status}",
                         endpoint_path=safe_path,
                         attempt=attempt,
+                        retry_safe=safe_to_repeat,
+                        retry_recommended=status in self.policy.retry_statuses,
                     )
                 return response
 
@@ -248,6 +258,7 @@ class SafeSessionTransport:
             code="REQUEST_ATTEMPTS_EXHAUSTED",
             endpoint_path=safe_path,
             attempt=attempts,
+            retry_safe=safe_to_repeat,
         )
 
     def text(self, response: requests.Response) -> str:

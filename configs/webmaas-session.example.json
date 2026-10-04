@@ -1,0 +1,8 @@
+{
+  "schema_version": 7,
+  "profile": "session",
+  "login_negative_attempts": 0,
+  "session_pause": false,
+  "download_assets": false,
+  "test_mrn": "0000000"
+}

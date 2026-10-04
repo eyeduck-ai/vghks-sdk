@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from time import monotonic
 from typing import Any
-from urllib.parse import parse_qsl, unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 
 import bs4
 import requests
@@ -38,6 +38,7 @@ _STATIC_PATH_SEGMENTS = {
     "DDPortal",
     "webmaas",
     "RSV",
+    "QUY",
     "Page",
     "JSP",
     "ajax",
@@ -54,12 +55,14 @@ _STATIC_ENDPOINT_SEGMENTS = {
     "QueryRecordList.do",
     "QueryResNumCenter.do",
     "RSV11W001.do",
+    "QUY15W001.do",
     "ReportIndex.jsp",
     "TestReport_A.jsp",
     "TestReport_Select.jsp",
     "aptreePath.do",
     "login.do",
     "myPortal.do",
+    "sessionCheck.do",
     "so.do",
     "ssoFromDn.do",
     "ssoLogAdd.do",
@@ -72,6 +75,9 @@ _STATIC_ENDPOINT_SEGMENTS = {
 _HTML_SELECTORS = (
     "form",
     "form#RSV11WForm",
+    "form#QUY15WForm",
+    "#DETAIL",
+    "#LIST",
     "#data",
     "#data .soap",
     "#data .soap pre",
@@ -175,6 +181,10 @@ class DiagnosticRecorder:
                 {
                     "status_code": _safe_int(getattr(prior, "status_code", 0)),
                     "path": _safe_path(str(getattr(prior, "url", ""))),
+                    "location_path": _safe_path(urljoin(
+                        str(getattr(prior, "url", "")),
+                        str(getattr(prior, "headers", {}).get("Location", "")),
+                    )) if getattr(prior, "headers", {}).get("Location") else "",
                 }
             )
         self._write(
@@ -408,6 +418,12 @@ def _html_shape(text: str) -> Mapping[str, Any]:
                         for node in form.find_all(["input", "select", "textarea"])
                         if node.get("name")
                     }
+                ),
+                "query_token_present": any(
+                    str(node.get("value", "")).strip()
+                    for node in form.select(
+                        'input[type="hidden"][name="org.apache.struts.taglib.html.TOKEN"]'
+                    )
                 ),
             }
         )

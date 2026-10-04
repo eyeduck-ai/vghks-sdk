@@ -168,7 +168,7 @@ class FailureIntranet(VisitIntranet):
         return self.reply('<div id="pacsContent">查無資料!</div>')
 
 
-def verify_mode(command: list[str], helper, origin: str, mode: str, *, source: bool) -> dict:
+def verify_mode(command: list[str], helper, origin: str, mode: str, *, source: bool, explicit_profile: bool = False) -> dict:
     state = test_state(mode, origin)
     state["catalog_requests"] = 0
     state.update(wrong_posts=0, correct_posts=0, credential_order=[])
@@ -181,6 +181,8 @@ def verify_mode(command: list[str], helper, origin: str, mode: str, *, source: b
             executable = directory / "vghks-live-test.exe"
             shutil.copy2(command[0], executable)
             arguments = [str(executable)]  # Verify the double-click build scope.
+            if explicit_profile:
+                arguments.extend(["--profile", "failures", "--non-interactive"])
         else:
             arguments = [*command, "--profile", "failures", "--non-interactive"]
         environment = {
@@ -362,6 +364,8 @@ def verify_mode(command: list[str], helper, origin: str, mode: str, *, source: b
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", action="store_true")
+    parser.add_argument("--explicit-profile", action="store_true",
+                        help="verify failures via CLI when the EXE defaults to another profile")
     args = parser.parse_args()
     output = ROOT / "output"
     if output.is_symlink() or output.resolve().parent != ROOT:
@@ -378,7 +382,7 @@ def main() -> int:
     origin = f"https://localhost:{helper.server.server_port}"
     try:
         results = [
-            verify_mode(command, helper, origin, mode, source=args.source)
+            verify_mode(command, helper, origin, mode, source=args.source, explicit_profile=args.explicit_profile)
             for mode in (
                 "normal",
                 "empty",

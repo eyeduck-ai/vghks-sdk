@@ -38,6 +38,7 @@ class FakeReadinessAuth:
         self.portal_failures = list(portal_failures or [])
         self.login_forces: list[bool] = []
         self.ensure_calls: list[str] = []
+        self.webmaas_checks = 0
         self.portal_landing_url = "https://portal.example/myPortal.do"
 
     def login(self, *, force: bool = False) -> None:
@@ -58,6 +59,10 @@ class FakeReadinessAuth:
             "SENSITIVE-HID",
             f"https://{app}.example/landing.do?token=SENSITIVE-TOKEN",
         )
+
+    def check_webmaas_session(self) -> AppSession:
+        self.webmaas_checks += 1
+        return self.ensure("webmaas")
 
 
 def make_context(auth: FakeReadinessAuth) -> SDKRuntime:
@@ -106,6 +111,7 @@ class AuthSweepTests(unittest.TestCase):
             ["prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
         )
         self.assertEqual([row.status for row in report.targets], ["OK"] * 9)
+        self.assertEqual(auth.webmaas_checks, 1)
 
     def test_portal_failure_blocks_all_children_without_probing_them(self) -> None:
         auth = FakeReadinessAuth(portal_failures=[AuthenticationError("fixture portal failure")])

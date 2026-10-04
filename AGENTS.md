@@ -59,6 +59,8 @@
 - 手術異動必須經 SurgeryCommand，測試 EXE 排除手術與同意書異動。PRQ 病歷調閱審查是獨立的院方原因送出：遇到錄製的審查頁時，預設在核對病歷號、HID 與當頁可選原因後，自動提交錄製的照護原因 `1A` 一次；呼叫端可明確覆寫原因。未知送出結果不重送整個操作。0.20.11 院內 `regression` ZIP 在未指定原因時，病歷號就診清單自然觸發審查，SDK 只送出一次 `1A`，接著取得清單與 SOAP；SOAP 頁獨立觸發等其他入口仍僅有合成測試。
 - WebMAAS SSO 轉址若已到達指定表單頁且有有效 token，首次掛號查詢直接用當次 HTML；單獨的 CHECK_PAT 不消耗表單。若 SSO 頁缺表單或 token，只對固定查詢頁 GET 一次，仍缺則明確報解析錯誤；已送出的掛號 POST 不重送。0.20.8 的聯合醫院 HAR 可離線解析表單與 12 筆掛號，但原 debug 沒有失敗頁原文。0.20.10／0.20.11 院內 ZIP 已驗證高榮及聯合醫院帳號各自成功查掛號，兩輪皆未自然觸發缺表單備援，也無法回溯證明舊錯誤原因。回歸 EXE 的雙帳號比較須使用獨立 SDK Session，帳密不進 config。
 
+- 0.22.3 的 `auth.check` 對 WebMAAS 驗證當次表單／token；新 SSO 有有效頁時直接使用，快取存在則重新 GET。缺表單／token 保留 PARSE 與 HTTP 狀態，清除 WebMAAS 快取供下一次獨立操作重建 SSO；不能據此推論 TTL 或自動強制重送密碼。其他 readiness 目標不擴大為所有資料頁保證。
+
 ## 以 HAR 新增功能
 
 完整流程見 docs/HAR_RECORDING.md。依序檢查錄製範圍／缺少 body、抽出請求形狀與動態相依、設計模型及純 Parser、接 Adapter／Service，再登錄操作與測試。
@@ -90,6 +92,8 @@ Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
 
 結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
+
+WebMAAS Session 專項用 `--default-profile session` 建置及 `tools/verify_session_exe.py` 驗證。只有單一授權病人的 CHECK_PAT／基本資料；錯誤密碼預算為零，不做附件或異動。預設只清可隔離的 WebMAAS JSESSIONID，沒有樣本為 NO_SAMPLE；`--session-pause` 改為同一 SDK 等 Enter，不清 Cookie，非互動模式拒絕。缺表單／token 僅允許一次獨立 SSO 複查，Runtime 已恢復則不另補登入；原 ERROR 即使恢復仍保留。九種 localhost 情境不等於自然 TTL 或院內恢復成功。
 
 失敗分類用 `--default-profile failures` 建置、`tools/verify_failure_exe.py` 驗證。68 個無 socket 模擬與實際觀察分開。依本次明確授權，先以獨立 Session 直接查 PRQ 目錄（密碼 POST 預算 0），再以另一 Session 送一次錯誤密碼，明確拒絕後才正確登入；負向結果不明、HTTP 拒絕、意外成功或強制變更即停止後續登入。`--login-negative-attempts 0` 可略過，failures 不接受 2。單一授權病人最多抽兩次門診及兩份報告／JPG 參照，不下載附件。偵測倒數與強制變更，後者不重送登入、不送變更密碼表單。使用者選擇不等待自然過期；清 Cookie 僅驗證遺失恢復，不等於 TTL，未出現通知／分類維持 NO_SAMPLE。0.22.0 院內 90 步已確認預期未登入／錯誤密碼拒絕、正常查詢與 Cookie 恢復；0.22.1 院內 89 步另確認三日倒數、兩份數值警示完整性與相同登入／恢復情境，PDF 按鈕沒有本輪樣本，強制變更仍無院內證據。已確認負向登入後，不為補通知或資料樣本重送錯誤密碼。
 

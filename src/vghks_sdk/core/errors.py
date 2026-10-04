@@ -106,6 +106,7 @@ class SDKError(Exception):
         operation: str = "",
         app: str = "",
         endpoint_path: str = "",
+        http_status: int | None = None,
         attempt: int | None = None,
         phase: str = "",
         retry_safe: bool | None = None,
@@ -117,6 +118,7 @@ class SDKError(Exception):
             operation=self.info.operation or operation,
             app=self.info.app or app,
             endpoint_path=self.info.endpoint_path or endpoint_path,
+            http_status=self.info.http_status if self.info.http_status is not None else http_status,
             attempt=self.info.attempt or attempt,
             phase=self.info.phase or phase,
             # Unsafe context always wins, including a write within a read query.

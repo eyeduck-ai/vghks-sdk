@@ -14,6 +14,7 @@ class AuthService:
         self._adapter.login()
 
     def check(self, only: Sequence[str] | None = None) -> AuthCheckReport:
+        """Check readiness; WebMAAS also validates a fresh query form and token."""
         return self._adapter.auth_check(only)
 
     @property

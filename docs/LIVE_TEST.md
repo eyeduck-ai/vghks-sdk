@@ -1,11 +1,12 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.2，整理共用寫檔及離線分析邏輯；EXE 內建 `failures` 計畫。最近院內證據為 2026-10-04 下午的 0.22.1：完成 89 步，確認三日倒數、數值警示、預期未登入／錯誤密碼拒絕、正常登入與 Cookie 恢復。該輪唯一醫囑報告為合法空值，沒有 PDF 按鈕樣本；此修正只有先前原始頁重解析與 localhost 證據。0.22.2 的本機檢查不代替院內執行，完整範圍見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.3，EXE 內建 `session` 計畫，針對整合平台閒置後的 WebMAAS 查詢頁失敗補證據。0.22.2 的整合平台 debug 缺失敗 HTML 與重連後對照，尚無法證明自然 TTL；0.22.3 的修正也尚未院內複驗。最近完整院內測試仍是 2026-10-04 下午的 0.22.1：89 步，三日倒數、數值警示、預期未登入／錯誤密碼拒絕、正常登入與 Cookie 恢復已確認，見 [VALIDATION](VALIDATION.md)。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
+| `session` | WebMAAS 表單驗證、基本資料、Cookie 遺失或手動閒置對照 | 一名授權病人的病歷號、Portal 帳密 |
 | `failures` | 資料狀態、登入拒絕／通知及 Cookie 恢復 | 授權病歷號、Portal 帳密 |
 | `regression` | 病人／SOAP／數值回歸、調閱審查、兩院掛號比較 | 授權病歷號、Portal 帳密，第二組帳密可略過 |
 | `scans` | 單次及歷年眼科掃描與 PDF 抽樣 | 授權病歷號、Portal 帳密 |
@@ -15,6 +16,22 @@
 | `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
 
 建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## WebMAAS Session 專項（session）
+
+雙擊新版 EXE：輸入一名授權病人的病歷號與正確 Portal 帳密，先驗證目前表單／token，再查 CHECK_PAT 與完整基本資料。正常階段成功後，只清除可隔離至 WebMAAS 的 JSESSIONID，保留共用 Portal Cookie，再檢查同一 SDK 與病人的回應。找不到可隔離 Cookie 為 NO_SAMPLE，不改成清掉所有 Cookie。此計畫沒有 PRQ 調閱審查、錯誤密碼、異動或附件下載。
+
+明確登入挑戰由 Runtime 至多恢復一次。若只有 WebMAAS 缺表單／token，且 Runtime 尚未恢復，EXE 可另外做一次 SSO readiness 複查；SDK 此時已清除無法驗證的快取。不主動強制 Portal 登入，複查仍失敗就停止病人查詢。原解析錯誤即使後來恢復仍保留 ERROR，因此 ZIP 可能是 COMPLETED_WITH_ERRORS；應同時查看 `parsed/session/comparison.json` 的 `sso_recheck_succeeded`，不能只看 ZIP 檔名。
+
+預設不等待自然過期。若要重現本次閒置問題，從命令列啟動：
+
+```powershell
+.\vghks-live-test.exe --profile session --session-pause
+```
+
+正常階段完成後，視窗停在按 Enter 的提示；保持視窗開啟並閒置到要測試的時間，再按 Enter。等待期間沒有背景請求，也不清 Cookie、不另建 SDK，輸出記錄實際閒置秒數。這是原 Session 的閒置觀察；沒有明確來源回應時仍不宣稱確認自然 TTL。此選項需要互動主控台，不能和 `--non-interactive` 使用。
+
+ZIP 保存完整原始 HTTP、轉址、失敗 HTML、當次安全登入報告與前後兩組基本資料。`parsed/session/comparison.json` 連結原失敗及恢復結果，`step_results.json` 保留各步 capture 範圍。可用 [webmaas-session.example.json](../configs/webmaas-session.example.json) 指定設定；範例只有合成病歷號。建置後使用 `tools/verify_session_exe.py`，其九種 localhost HTTPS 情境與院內結果分開。
 
 ## 資料獲取與失敗分類（failures）
 

@@ -116,7 +116,7 @@
 | 入口 | 用途 |
 | --- | --- |
 | `sdk.auth.login()` | 建立 Portal Session；一般查詢會按需登入。 |
-| `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；不代表已有查詢資料。 |
+| `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；WebMAAS 另驗證當次表單與 token，快取存在時重新 GET。以 report.ok／targets.issue 判定，不代表已有病人查詢資料。見 [CONNECTIONS](CONNECTIONS.md)。 |
 | `sdk.auth.password_status` | 查看已觀察的 PasswordStatus：NO_NOTICE、EXPIRING、CHANGE_REQUIRED；remaining_days 可為 None。不發請求、不含原始文字或帳密；同值納入 AuthCheckReport（schema 3）。 |
 | `sdk.connection_status()` | 查看每個服務實際選擇的 TLS／憑證驗證及連線確認狀態；不發出請求，不含帳密。 |
 | `sdk.configure_connection(app, tls_profile=...)` | 進階覆寫指定服務的 TLS；一般使用已有自動相容與恢復，見 [CONNECTIONS](CONNECTIONS.md)。 |

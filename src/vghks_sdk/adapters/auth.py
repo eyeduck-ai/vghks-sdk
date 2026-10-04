@@ -15,6 +15,7 @@ from ..core.errors import (
     AuthExpiredError,
     LoginRejectedError,
     NotAuthenticatedError,
+    ParseError,
     PasswordChangeRequiredError,
     RequestError,
     SDKError,
@@ -31,6 +32,7 @@ from ..parsing.portal import (
     parse_login_target,
     parse_password_status,
 )
+from ..parsing.webmaas import parse_query_form
 
 _PORTAL_ENTRY = operation_spec("portal.entry")
 _PORTAL_LOGIN = operation_spec("portal.login")
@@ -385,6 +387,50 @@ class AuthenticationAdapter:
             return ""
         self._apps["webmaas"] = replace(session, landing_html="")
         return session.landing_html
+
+    def invalidate_webmaas_session(self) -> None:
+        """Discard unverified WebMAAS state without changing Portal credentials."""
+        self._apps.pop("webmaas", None)
+        self._webmaas_page = ""
+
+    def check_webmaas_session(self) -> AppSession:
+        """Verify a query page returned in this check, including its form token."""
+        cached = "webmaas" in self._apps
+        page_id = self._webmaas_page or "RSV11W001"
+        session = self.ensure_webmaas_page(page_id)
+        basic = page_id == "QUY15W001"
+        spec = operation_spec(
+            "webmaas.basic_info_landing" if basic else "webmaas.registration_landing"
+        )
+        form_id = "QUY15WForm" if basic else "RSV11WForm"
+        if not cached and session.landing_html:
+            try:
+                parse_query_form(session.landing_html, form_id)
+                return session
+            except ParseError as exc:
+                if exc.info.code not in {"WEBMAAS_QUERY_FORM_MISSING", "WEBMAAS_QUERY_TOKEN_MISSING"}:
+                    raise
+        url = self._operation_url(self.settings.webmaas_base_url, spec)
+        response = None
+        try:
+            response = self._request(spec, url)
+            text = self.transport.text(response)
+            self.assert_not_expired(text, response.url)
+            self._validate_host(response.url, self.settings.webmaas_base_url, "WebMAAS session check")
+            self._validate_base_path(response.url, self.settings.webmaas_base_url, "WebMAAS session check")
+            parse_query_form(text, form_id)
+        except SDKError as exc:
+            self.invalidate_webmaas_session()
+            exc.with_context(
+                operation="webmaas.session_check", app="webmaas", endpoint_path=spec.path,
+                http_status=response.status_code if response is not None else None,
+            )
+            raise
+        # This newly verified form can serve the next query once. Retain neither
+        # the stale SSO landing nor a token taken from a failed response.
+        verified = replace(session, landing_url=response.url, landing_html=text)
+        self._apps["webmaas"] = verified
+        return verified
 
     def assert_not_expired(self, text: str, response_url: str) -> None:
         self._observe_password_status(text, response_url)

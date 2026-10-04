@@ -25,7 +25,7 @@ from ..search import SoapSearch
 from .defaults import default_test_mrn
 from .presets import FAILURE_QUERIES, REGRESSION_QUERIES, SCAN_RECORD_QUERIES
 
-LIVE_CONFIG_SCHEMA_VERSION = 6
+LIVE_CONFIG_SCHEMA_VERSION = 7
 DEFAULT_SOAP_TEST_DATE = date(2026, 9, 21)
 _ENDPOINT_FIELDS = (
     "portal_base_url",
@@ -51,6 +51,7 @@ _CREDENTIAL_KEYS = {
 }
 _TOP_LEVEL_KEYS = {
     "login_negative_attempts",
+    "session_pause",
     "test_mrn",
     "access_review_reason",
     "schema_version",
@@ -91,6 +92,7 @@ class LiveTestConfig:
 
     profile: str = "full"
     login_negative_attempts: int | None = None
+    session_pause: bool = False
     test_mrn: str = field(default_factory=default_test_mrn)
     access_review_reason: str | None = None
     output_root: Path | None = None
@@ -199,18 +201,28 @@ class LiveTestConfig:
             "regression",
             "scans",
             "failures",
+            "session",
             "core",
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session, core or full"
             )
         if self.login_negative_attempts is None:
-            object.__setattr__(self, "login_negative_attempts", 1 if profile == "failures" else 2)
+            object.__setattr__(self, "login_negative_attempts", 0 if profile == "session" else 1 if profile == "failures" else 2)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if profile == "failures" and self.login_negative_attempts > 1:
             raise ConfigurationError("failures profile permits at most one wrong-password attempt")
+        if type(self.session_pause) is not bool or (self.session_pause and profile != "session"):
+            raise ConfigurationError("session_pause must be a boolean used with the session profile")
+        if profile == "session":
+            if self.login_negative_attempts:
+                raise ConfigurationError("session profile does not submit wrong passwords")
+            if self.include_surgery or self.include_unsigned or self.include_earnings:
+                raise ConfigurationError("session profile only checks WebMAAS patient reads")
+            object.__setattr__(self, "download_assets", False)
+            object.__setattr__(self, "weekly_opd_soap", False)
         if self.max_cases is None:
             object.__setattr__(
                 self,
@@ -275,7 +287,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -404,6 +416,7 @@ class LiveTestConfig:
             "schema_version": LIVE_CONFIG_SCHEMA_VERSION,
             "profile": self.profile,
             "login_negative_attempts": self.login_negative_attempts,
+            "session_pause": self.session_pause,
             "only_operations": list(self.only_operations),
             "max_cases": self.max_cases,
             "max_items": self.max_items,
@@ -515,7 +528,7 @@ def load_live_test_config(path: Path) -> dict[str, Any]:
     unknown = set(payload) - _TOP_LEVEL_KEYS
     if unknown:
         raise ConfigurationError("live-test configuration contains unknown fields")
-    if payload.get("schema_version", LIVE_CONFIG_SCHEMA_VERSION) not in {2, 3, 4, 5, 6}:
+    if payload.get("schema_version", LIVE_CONFIG_SCHEMA_VERSION) not in {2, 3, 4, 5, 6, 7}:
         raise ConfigurationError(
             "unsupported live-test configuration schema version",
             code="LIVE_CONFIG_SCHEMA_UNSUPPORTED",
@@ -640,6 +653,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         access_review_reason=values.get("access_review_reason"),
         profile=str(values.get("profile", "full")),
         login_negative_attempts=values.get("login_negative_attempts"),
+        session_pause=values.get("session_pause", False),
         output_root=Path(str(values["output_root"])) if values.get("output_root") else None,
         visit_filter=visit_filter,
         soap_search=soap_search,

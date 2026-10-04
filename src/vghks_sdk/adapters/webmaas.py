@@ -174,8 +174,16 @@ class WebMaasAdapter:
                     "WEBMAAS_QUERY_FORM_MISSING", "WEBMAAS_QUERY_TOKEN_MISSING"
                 }:
                     raise
-        fresh = self.runtime.request_text(spec, url)
-        return parse_query_form(fresh, form_id)
+        response = self.runtime.request_response(spec, url)
+        fresh = self.runtime.transport.text(response)
+        try:
+            return parse_query_form(fresh, form_id)
+        except ParseError as exc:
+            self.runtime.auth.invalidate_webmaas_session()
+            exc.with_context(
+                app="webmaas", endpoint_path=spec.path, http_status=response.status_code,
+            )
+            raise
 
     def _get_demographics_raw(self, mrn: str, *, page_id: str = "RSV11W001") -> PatientDemographics:
         base = self.runtime.settings.webmaas_base_url.rstrip("/")

@@ -82,9 +82,13 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
+    )
+    parser.add_argument(
+        "--session-pause", action="store_true", default=None,
+        help="session profile: keep the SDK idle until Enter; replaces the cookie-loss test",
     )
     parser.add_argument(
         "--login-negative-attempts", type=int, choices=(0, 1, 2),
@@ -245,9 +249,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans or failures profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures or session profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -273,6 +277,8 @@ def run_live_test_namespace(
         interactive = not bool(getattr(args, "non_interactive", False)) and (
             force_interactive or sys.stdin.isatty()
         )
+        if config.session_pause and not interactive:
+            raise ConfigurationError("--session-pause requires an interactive console")
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
         patient_required = config.profile != "soap" and (
             plan is None or any(
@@ -580,6 +586,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
         "access_review_reason",
         "profile",
         "login_negative_attempts",
+        "session_pause",
         "output_root",
         "doctor_card",
         "opd_date",
@@ -693,6 +700,12 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "session":
+        print("\nWebMAAS Session 測試: 單一病人的基本資料與 CHECK_PAT, 保存完整回應及轉址。")
+        print("不送錯誤密碼、不下載附件; 登入檢查會驗證當次表單與 token。")
+        print("同一 SDK 閒置後按 Enter 繼續, 不清 Cookie。" if config.session_pause else
+              "預設只清 WebMAAS Cookie 測恢復; 不等待自然過期。")
+        return config
     if config.profile == "failures":
         print("\n失敗分類測試: 指定授權病人的基本資料、掛號、就診與抽樣 SOAP、數值、醫囑報告。")
         print(f"最多 {config.max_cases} 次門診、每類最多 {config.max_items} 個報告或 JPG 檢視參照。")

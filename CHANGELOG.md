@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.3
+
+- 根據整合平台閒置後的 WebMAAS debug，修正 `auth.check` 對快取登入狀態的判定。WebMAAS 必須驗證當次查詢頁的表單與 token；新 SSO 已取得有效頁時直接使用，已快取的 Session 則重新 GET。其他子系統的 readiness 範圍不擴大。
+- 缺表單／token 保留 `PARSE`、穩定錯誤碼及 HTTP 狀態／端點，並清除 WebMAAS 快取；下一次獨立操作重新建立 SSO。未知頁面不當作過期，不因解析失敗自動重送密碼或已送出的病人查詢。
+- 新增 `session` EXE 計畫：單一病人的 CHECK_PAT／完整基本資料，正常、WebMAAS Cookie 遺失及有限 SSO 複查的原始回應對照。錯誤密碼預算為零；可用 `--session-pause` 保持同一 SDK 閒置，按 Enter 後複查，且不清 Cookie。自然 TTL 預設不測，閒置觀察不宣稱已確認伺服器 TTL。
+- 診斷新增安全的轉址目的路徑、QUY 表單／DETAIL 結構及 token 存在狀態；不保存 token 值。設定 schema 升至 7 並相容 2–6，AuthCheckReport 仍為 schema 3。新增合成及 localhost EXE 情境，新版院內恢復仍待回傳驗證。
+
 ## 0.22.2
 
 - 共用本機 JSON 原子寫入與測試輸出權限處理，移除重複實作，保留各入口錯誤碼及安全登入報告的欄位白名單。

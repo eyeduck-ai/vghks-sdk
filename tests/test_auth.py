@@ -15,6 +15,7 @@ from vghks_sdk.runtime import SDKRuntime
 class FakeResponse:
     url: str
     body: str
+    status_code: int = 200
 
 
 class ScriptedTransport:
@@ -66,7 +67,9 @@ class ScriptedTransport:
             return FakeResponse(
                 target_url,
                 '<frameset><frame src="DRQuerySql.jsp"></frameset>'
-                if "/DDPortal/" in target_url else "application",
+                if "/DDPortal/" in target_url else
+                '<form id="RSV11WForm"><input type="hidden" name="org.apache.struts.taglib.html.TOKEN" value="synthetic-token"></form>'
+                if "/webmaas/" in target_url else "application",
             )
         if path.endswith("/SectOrdWeb/so.do"):
             return FakeResponse(url, "ssID=s&keyOne=1&keyTwo=2&keyThree=3")

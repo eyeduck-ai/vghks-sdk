@@ -1,3 +1,3 @@
 """Single source of truth for the SDK release version."""
 
-__version__ = "0.22.2"
+__version__ = "0.22.3"

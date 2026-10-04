@@ -221,7 +221,14 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile == "failures":
+            if config.profile == "session":
+                from .session import run_session_test
+
+                result = run_session_test(
+                    sdk, config, output_dir=manager.run_directory,
+                    raw_capture=raw_capture, diagnostics=diagnostics, run_id=manager.run_id,
+                )
+            elif config.profile == "failures":
                 from .failures import run_failure_test
 
                 result = run_failure_test(

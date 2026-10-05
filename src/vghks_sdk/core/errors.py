@@ -147,6 +147,12 @@ class AuthExpiredError(AuthenticationError):
     code = "AUTH_EXPIRED"
 
 
+class ApplicationSessionExpiredError(AuthExpiredError):
+    """A named application session is lost; Portal expiry is not established."""
+
+    code = "AUTH_APPLICATION_SESSION_EXPIRED"
+
+
 class NotAuthenticatedError(AuthenticationError):
     """An authentication challenge occurred before this SDK established a login."""
 

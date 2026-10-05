@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from ..core.config import AppProfile, PortalCredentials, SDKSettings
 from ..core.errors import (
+    ApplicationSessionExpiredError,
     AuthenticationError,
     AuthExpiredError,
     LoginRejectedError,
@@ -32,7 +33,7 @@ from ..parsing.portal import (
     parse_login_target,
     parse_password_status,
 )
-from ..parsing.webmaas import parse_query_form
+from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form
 
 _PORTAL_ENTRY = operation_spec("portal.entry")
 _PORTAL_LOGIN = operation_spec("portal.login")
@@ -99,6 +100,7 @@ class AuthenticationAdapter:
         self._portal_landing_url = ""
         self._apps: dict[str, AppSession] = {}
         self._webmaas_page = ""
+        self._webmaas_recovery_page = ""
         self._generation = 0
         self._password_status = PasswordStatus()
 
@@ -175,6 +177,7 @@ class AuthenticationAdapter:
             self.transport.reset_cookies()
         self._apps.clear()
         self._webmaas_page = ""
+        self._webmaas_recovery_page = ""
         self._portal_authenticated = False
         self._portal_landing_url = ""
         entry_url = self._operation_url(self.settings.portal_base_url, _PORTAL_ENTRY)
@@ -392,6 +395,13 @@ class AuthenticationAdapter:
         """Discard unverified WebMAAS state without changing Portal credentials."""
         self._apps.pop("webmaas", None)
         self._webmaas_page = ""
+        self._webmaas_recovery_page = ""
+
+    def recover_webmaas_session(self) -> AppSession:
+        """Renew the interrupted query's recorded SSO role without Portal login."""
+        page_id = self._webmaas_recovery_page or "RSV11W001"
+        self.invalidate_webmaas_session()
+        return self.ensure_webmaas_page(page_id)
 
     def check_webmaas_session(self) -> AppSession:
         """Verify a query page returned in this check, including its form token."""
@@ -434,6 +444,16 @@ class AuthenticationAdapter:
 
     def assert_not_expired(self, text: str, response_url: str) -> None:
         self._observe_password_status(text, response_url)
+        if is_webmaas_session_timeout(text, response_url, self.settings.webmaas_base_url):
+            page_id = self._webmaas_page
+            self.invalidate_webmaas_session()
+            self._webmaas_recovery_page = page_id
+            error_type = ApplicationSessionExpiredError if self._portal_authenticated else NotAuthenticatedError
+            raise error_type(
+                "WebMAAS returned its explicit session timeout page",
+                code="WEBMAAS_SESSION_TIMEOUT" if self._portal_authenticated else "AUTH_NOT_AUTHENTICATED",
+                app="webmaas", endpoint_path=urlsplit(response_url).path,
+            )
         error_type = AuthExpiredError if self._portal_authenticated else NotAuthenticatedError
         path = urlsplit(response_url).path.lower()
         if path.endswith("/login.do") or "syserrorexception.jsp" in path:
@@ -585,7 +605,12 @@ class AuthenticationAdapter:
             allow_redirects=True,
         )
         landing_text = self.transport.text(posted)
-        self.assert_valid_landing(landing_text, posted.url)
+        try:
+            self.assert_valid_landing(landing_text, posted.url)
+        except SDKError as exc:
+            exc.with_context(operation=_WEBMAAS_SSO_LOGON.key, app="webmaas",
+                             http_status=getattr(posted, "status_code", None))
+            raise
         self._validate_host(posted.url, self.settings.webmaas_base_url, "webmaas landing")
         self._validate_base_path(posted.url, self.settings.webmaas_base_url, "webmaas landing")
         landing_html = (
@@ -594,6 +619,7 @@ class AuthenticationAdapter:
         session = AppSession("webmaas", sectord.hid, posted.url, landing_html)
         self._apps["webmaas"] = session
         self._webmaas_page = page_id
+        self._webmaas_recovery_page = ""
         return session
 
     def _request(self, spec: OperationSpec, url: str, **kwargs: object):

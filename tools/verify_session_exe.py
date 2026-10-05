@@ -18,6 +18,7 @@ sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests"), str(ROOT / "tools")]
 
 from test_tls import LegacyAesLoopbackTests  # noqa: E402
 from test_webmaas import landing  # noqa: E402
+from test_webmaas_session import TIMEOUT_HTML  # noqa: E402
 from verify_patient_exe import PatientIntranet  # noqa: E402
 from verify_visit_exe import test_state  # noqa: E402
 
@@ -26,6 +27,7 @@ from vghks_sdk._version import __version__  # noqa: E402
 MODES = (
     "cookie_ignored", "form_missing", "token_missing", "persistent_missing",
     "expiry_redirect", "http_denied", "relogin_rejected", "no_cookie", "baseline_broken",
+    "timeout", "persistent_timeout", "timeout_post",
 )
 
 
@@ -49,6 +51,8 @@ class SessionIntranet(PatientIntranet):
         state = self.server.test_state
         mode = state["mode"]
         path = urlsplit(self.path).path
+        if path == "/webmaas/comm/pageTimeOut.do":
+            return self.reply(TIMEOUT_HTML)
         if path == "/login.do" and self.command == "GET":
             return self.reply('<form><input name="muid"><input name="mpassword" type="password"></form>')
         if path == "/login.do" and self.command == "POST" and mode == "relogin_rejected" and state["login_posts"]:
@@ -56,12 +60,19 @@ class SessionIntranet(PatientIntranet):
             state["login_posts"] += 1
             return self.reply("<h3>登入失敗</h3><p>帳號或密碼錯誤</p>")
         query_page = path in {"/webmaas/RSV/RSV11W001.do", "/webmaas/QUY/QUY15W001.do"}
+        has_web_cookie = any(part.strip() == "JSESSIONID=webmaas-synthetic"
+                             for part in self.headers.get("Cookie", "").split(";"))
+        if query_page and self.command == "POST" and not has_web_cookie and mode == "timeout_post":
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            state["timeout_post_rejections"] += 1
+            return self.reply("", 302, location=state["origin"] + "/webmaas/comm/pageTimeOut.do")
         if query_page and self.command == "GET":
-            has_web_cookie = any(part.strip() == "JSESSIONID=webmaas-synthetic"
-                                 for part in self.headers.get("Cookie", "").split(";"))
             if not has_web_cookie and mode not in {"no_cookie", "cookie_ignored"}:
                 state["challenge_seen"] = True
             broken = state["challenge_seen"] and mode == "persistent_missing"
+            if ((not has_web_cookie and mode == "timeout") or
+                    (state["challenge_seen"] and mode == "persistent_timeout")):
+                return self.reply("", 302, location=state["origin"] + "/webmaas/comm/pageTimeOut.do")
             if mode == "baseline_broken" or broken or (not has_web_cookie and mode == "form_missing"):
                 return self.reply("<html>synthetic unknown query page</html>")
             if not has_web_cookie and mode == "token_missing":
@@ -91,6 +102,7 @@ def main() -> int:
         for mode in MODES:
             state = test_state(mode, origin)
             state["challenge_seen"] = False
+            state["timeout_post_rejections"] = 0
             helper.server.test_state = state
             with tempfile.TemporaryDirectory(prefix="session-exe-", dir=output) as temporary:
                 directory = Path(temporary)
@@ -130,7 +142,7 @@ def main() -> int:
                 summaries = list((directory / "run").glob("run_summary.json"))
                 assert len(summaries) == 1, process.stdout + process.stderr
                 summary = json.loads(summaries[0].read_text(encoding="utf-8"))
-                expected = "OK" if mode in {"cookie_ignored", "expiry_redirect", "http_denied"} else (
+                expected = "OK" if mode in {"cookie_ignored", "expiry_redirect", "http_denied", "timeout_post"} else (
                     "COMPLETED_WITH_GAPS" if mode == "no_cookie" else "COMPLETED_WITH_ERRORS"
                 )
                 assert summary["status"] == expected, (mode, summary["status"])
@@ -139,13 +151,22 @@ def main() -> int:
                 assert comparison["natural_ttl"] == {"status": "NOT_TESTED", "verified": False}
                 assert state["login_posts"] == (2 if mode in {"expiry_redirect", "http_denied", "relogin_rejected"} else 1)
                 assert state["query_posts"] == (0 if mode == "baseline_broken" else
-                                                1 if mode in {"persistent_missing", "relogin_rejected", "no_cookie"} else 2)
+                                                1 if mode in {"persistent_missing", "persistent_timeout", "relogin_rejected", "no_cookie"} else
+                                                3 if mode in {"cookie_ignored", "timeout", "timeout_post"} else 2)
                 if mode in {"form_missing", "token_missing"}:
                     observation = comparison["observations"][-1]
                     assert observation["sso_recheck_succeeded"]
                     assert any(step.get("issue", {}).get("category") == "PARSE" for step in summary["steps"] if step.get("issue"))
                 if mode == "relogin_rejected":
                     assert any(step.get("issue", {}).get("code") == "PORTAL_LOGIN_REJECTED" for step in summary["steps"] if step.get("issue"))
+                if mode == "timeout":
+                    assert comparison["observations"][-1]["sso_recheck_succeeded"]
+                    assert any(step.get("issue", {}).get("code") == "WEBMAAS_SESSION_TIMEOUT"
+                               for step in summary["steps"] if step.get("issue"))
+                if mode in {"timeout", "timeout_post"}:
+                    assert comparison["direct_read_after_cookie_loss"]["status"] == "OK"
+                    assert comparison["direct_read_after_cookie_loss"]["exe_retry_attempts"] == 0
+                assert state["timeout_post_rejections"] == (1 if mode == "timeout_post" else 0)
                 archives = list(directory.glob("*.zip"))
                 assert len(archives) == 1
                 with zipfile.ZipFile(archives[0]) as archive:
@@ -154,6 +175,12 @@ def main() -> int:
                     assert response_files
                     if mode in {"form_missing", "persistent_missing", "baseline_broken"}:
                         assert any(b"synthetic unknown query page" in archive.read(name) for name in response_files)
+                    if mode in {"timeout", "persistent_timeout", "timeout_post"}:
+                        assert any(b"Page time out" in archive.read(name) for name in response_files)
+                    traces = [name for name in archive.namelist() if name.endswith("diagnostics.jsonl")]
+                    events = [json.loads(line) for name in traces for line in archive.read(name).decode().splitlines()]
+                    recovery_events = [row for row in events if row.get("event") == "application_session_recovery_started"]
+                    assert len(recovery_events) == (1 if mode in {"timeout", "timeout_post"} else 0)
                     environment = json.loads(archive.read("environment.json"))
                     assert environment["sdk_version"] == __version__
                 results.append({"mode": mode, "status": expected, "login_posts": state["login_posts"],

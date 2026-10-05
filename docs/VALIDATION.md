@@ -6,9 +6,9 @@
 
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |
 | --- | --- | --- |
-| SDK／單檔 EXE | 0.22.1 院內 `failures` 已完成 89 步；0.22.3 補 WebMAAS readiness 與 Session 專項 | 0.22.3 尚無院內複驗；PDF 按鈕只有舊原頁重解析及 localhost 證據 |
-| WebMAAS 閒置後失敗 | 0.22.2 整合平台 debug：快取 readiness OK 後，固定查詢頁 302→200 缺表單；0.22.3 合成及 localhost 回歸通過 | 失敗 HTML、確切轉址目的與重連成功對照未包含在原 ZIP；自然 TTL 根因未證實 |
-| 失敗分類與密碼狀態 | 0.22.1 已實測三日倒數、未登入／一次錯誤密碼拒絕、正常登入及 Cookie 恢復 | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
+| SDK／單檔 EXE | 0.22.1 院內 `failures` 已完成 89 步；0.22.3 `session` 八步含獨立 SSO 恢復成功 | 0.22.4 直接 API 自動 SSO 恢復尚待院內複驗；PDF 按鈕只有舊原頁重解析及 localhost 證據 |
+| WebMAAS 閒置後失敗 | 舊 debug 固定查詢頁 302→200 缺表單；0.22.3 院內 Cookie 遺失已取得 timeout 原頁及恢復後資料對照 | 舊平台自然閒置未保存失敗 HTML；自然 TTL 及 0.22.4 直接 API 恢復尚未院內證實 |
+| 失敗分類與密碼狀態 | 0.22.1 三日倒數、未登入／錯誤密碼拒絕及 Cookie 恢復；0.22.3 兩日倒數與 WebMAAS timeout | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
 | 高榮與聯合醫院掛號 | 0.20.11 的兩組帳號均完成直接掛號、先查 `CHECK_PAT` 後掛號；同帳號兩次結果一致 | WebMAAS 缺表單備援未自然觸發；舊應用失敗頁缺原始回應，根因仍未證實 |
 | PRQ 調閱審查 | 0.20.11 無手動原因設定時，自動送出一次 `1A`，接著取得就診清單及 SOAP | SOAP／明細／歷年掃描頁各自觸發審查、身分證查詢遇審查 |
 | 掃描病歷 | 0.20.5 院內抽樣驗證兩條來源及 4 份 PDF；0.20.7 分類邏輯有原始頁只讀重解析與 localhost 測試 | 0.20.7 完整分類及組合流程仍無院內執行結果；0.20.11 本輪沒有掃描 PDF 樣本 |
@@ -16,15 +16,26 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.22.3，WebMAAS readiness 驗證當次表單／token，缺表單時保留 PARSE／HTTP 狀態並清除該子系統快取；未知回應不推論過期、不因解析問題重送密碼。AuthCheckReport 仍為 schema 3。
-- 本機現行 EXE：0.22.3、`session` 計畫，build_id=`20261004T193223Z`，沒有 private defaults。預設正常查詢及可隔離 WebMAAS Cookie 遺失，不送錯誤密碼或等待自然 TTL；`--session-pause` 是同一 SDK 的手動閒置觀察。舊 `failures` 計畫仍可明確選用，已驗證的負向登入不需為補樣本重跑。
-- 0.22.3 完整 suite 617 項：605 項通過、12 項私有條件測試跳過。`session` 原始碼及 frozen EXE 各九種 HTTPS localhost 情境通過，核對表單／token、隔離 Cookie、原失敗 HTML、有限恢復、持續失敗及登入拒絕停止。舊 `failures` 原始碼與同一 frozen EXE（明確指定 profile）各 23 種情境及每輪 68 個模擬亦通過。這些都是本機合成證據，尚無新版院內結果。
+- SDK 原始碼：0.22.4，WebMAAS readiness 驗證當次表單／token，未知缺表單保留 PARSE；同來源固定 timeout 頁與可見通知則為 ApplicationSessionExpiredError。唯讀 Runtime 最多重建原頁角色的 SSO 一次，不強制 Portal 登入；AuthCheckReport 仍為 schema 3。
+- 本機現行 EXE：0.22.4、`session` 計畫，build_id=`20261005T104253Z`，沒有 private defaults。預設隔離 Cookie 對照與直接基本資料 API 恢復測試，不送錯誤密碼或等待自然 TTL；`--session-pause` 是同一 SDK 的手動閒置觀察，不加第二次 Cookie 挑戰。舊 `failures` 計畫仍可明確選用。
+- 0.22.4 完整 suite 628 項：616 項通過、12 項私有條件測試跳過。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境通過，包括固定 timeout 轉址、GET／唯讀 POST 的 SSO 自動恢復、原角色及新 token、持續 timeout 停止，明確情境只有一次初始密碼 POST。`failures` 原始碼與同一 EXE（明確指定 profile）各 23 種情境及每輪 68 個模擬通過；Ruff、API、公開內容、實際 wheel／sdist 與獨立安裝的禁止 socket 匯入／CLI 檢查通過。合成 TLS 伺服器先讀完 POST 再回 501，避免 Windows 未讀 body 關閉造成連線重設；不修改 SDK 的 TLS 政策。這些仍非 0.22.4 院內證據。
+- 0.22.3 完整 suite 617 項：605 項通過、12 項私有條件測試跳過。`session` 原始碼及 frozen EXE 各九種 HTTPS localhost 情境通過，核對表單／token、隔離 Cookie、原失敗 HTML、有限恢復、持續失敗及登入拒絕停止。舊 `failures` 原始碼與同一 frozen EXE（明確指定 profile）各 23 種情境及每輪 68 個模擬亦通過；以下另列其後的院內 Session 回傳，不能混用版本。
 - 0.22.2 用原 0.22.1 院內 ZIP 做禁止 socket 的只讀比較：除了 analyzer_build 版本，完整分析報告及 retest 設定完全一致。新增合成檢查確認範圍外的登入錯誤、先前／不同操作／範圍外的成功與後續解析錯誤不會被 Cookie 恢復掩蓋；原始 ZIP 保留不動。
 - 0.22.2 完整 suite 602 項：590 項通過、12 項私有條件測試跳過。原始碼與 frozen EXE（build_id=`20261004T091257Z`）各 23 種 HTTPS localhost 情境通過，每輪 68 個模擬通過；沒有將預期拒絕或刻意失敗情境宣稱為真實成功讀取。新版尚無院內執行結果。
 - 本機 0.22.0 的既有驗證：完整 suite 595 項，583 項通過、12 項私有條件測試跳過；build_id=`20261004T021459Z` 的 22 種 localhost 情境及每輪 67 個模擬通過。此建置即本次 2026-10-04 院內 ZIP 的來源。
 - 0.22.1 的原頁私有回歸全程禁止 socket：SDK 以記憶體 adapter 完成登入並保留 EXPIRING／4，五張數值表的十二列、表頭、逐欄路徑及三個來源問題碼完全不變；兩份報告的原欄位、正文狀態及一／兩個 PDF 參照維持一致，僅移除可靜態辨識按鈕造成的錯誤 extraction note。新版重解析零份 PARTIAL，一份數值回應保留警示；原 ZIP 位元組與執行結果未改寫。
 - 0.22.1 完整 suite 執行 600 項：588 項通過、12 項私有條件測試跳過；23 種原始碼與 frozen EXE（build_id=`20261004T031550Z`）HTTPS localhost 情境全部通過，每輪 68 個模擬通過。新增情境核對四日倒數在登入與 readiness 中一致、已對齊數值完整且保留 warnings、正常 PDF 按鈕維持 ATTACHMENT_ONLY 並無解析缺漏；實際 EXE 的結果仍不能取代內網重跑。
 - 2026-10-04 下午同一 0.22.1 建置的院內回傳已確認三日倒數與數值警示修正；全輪沒有執行或解析錯誤。PDF 按鈕未出現在本輪樣本，原始 ZIP 與新版重解析結果分開保留，見下節。
+
+## 2026-10-05：0.22.3 院內 Session 回傳
+
+原 ZIP build_id=`20261004T193223Z`，91 個檔案完整可讀，32 筆 capture；八步中七步 OK、一個 ERROR，exit code 1／COMPLETED_WITH_ERRORS。流程已跑完，錯誤為刻意移除一個可隔離 WebMAAS JSESSIONID 後的原 readiness，恢復成功仍保留。`errors.jsonl` 為空，因為這次錯誤存於回傳的 AuthCheckReport 與步驟 issue；不能只用錯誤日誌是否為空判斷測試成功。
+
+捕獲的固定基本資料 GET 先回 302，再導向 `/webmaas/comm/pageTimeOut.do` 的 HTTP 200；原頁無查詢表單，明確顯示 `Page time out` 與重新登入提示。Portal、SectOrd 維持 OK，沒有 HTTP／網路或 TLS 失敗。原 0.22.3 記為 `WEBMAAS_QUERY_FORM_MISSING`／PARSE；0.22.4 的禁止 socket 只讀重解析將 capture 000022 辨識為 `WEBMAAS_SESSION_TIMEOUT`／AUTHENTICATION，原 ZIP 位元組及實測結果不改寫。
+
+下一個獨立 SSO 複查成功，隨後 CHECK_PAT 與完整基本資料成功；恢復前後的全部結構化病人欄位一致，只有 raw HTML 的動態內容不同。整輪只在正常初始登入送出一次密碼 POST；恢復為 SectOrd 金鑰橋接與 WebMAAS SSO，沒有強制 Portal 重登入。原與恢復後登入報告均保存 EXPIRING／2 日，提醒未阻止查詢。沒有錯誤密碼、強制改密碼或附件測試。
+
+這輪證實 **Cookie 遺失、明確 WebMAAS timeout 與獨立 SSO 恢復**，不證實自然閒置 TTL，也不能回溯證明舊 67 分鐘 debug 的失敗原頁相同。0.22.4 增加的是正常唯讀 API 自行有限恢復；新版 EXE 的直接 API 步驟仍需另一次院內回傳驗證，無須重測錯誤密碼或等待自然過期。
 
 ## 2026-10-05：整合平台閒置後的 WebMAAS debug
 

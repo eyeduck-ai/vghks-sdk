@@ -33,7 +33,7 @@ with VghksSDK(
 
 SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證的 TLS12_COMPAT，同一主機／埠共用成功設定。連線失敗會依原因有限重試；明確的憑證錯誤預設可對該服務略過驗證，HTTPS 加密仍保留。一般使用不需設定 TLS；要求嚴格驗證時設 `SDKSettings(allow_unverified_tls=False)`。完整行為見 [連線與自動恢復](docs/CONNECTIONS.md)。
 
-一般查詢的 Session 過期會自動重登入並重做一次；登入遭拒則以 `LoginRejectedError` 結束，不自動重送相同帳密。應用程式可依 `SDKError.info.code` 提示更正帳密或檢查連線；[錯誤處理與例外範圍](docs/CONNECTIONS.md#session-過期與登入失敗) 說明 MIS 獨立登入及寫入操作的處理。
+一般查詢的 Session 過期最多自動恢復一次。明確 WebMAAS timeout 只重建該頁 SSO，不強制 Portal 登入；登入遭拒以 `LoginRejectedError` 結束。應用程式可依 `SDKError.info.code` 提示更正帳密或檢查連線；[錯誤處理與例外範圍](docs/CONNECTIONS.md#session-過期與登入失敗) 說明恢復範圍及寫入操作的處理。
 
 整合系統可用 `acquire(lambda: sdk.records.get_visit_cases(mrn))` 或 `sdk.queries.run_result(...)` 取得統一結果，區分正常回傳、合法空值、部分解析與失敗。SDK 提供來源狀態、結構化底層原因與安全重試提示；應用決定排程、提示及如何接受缺資料。用法見 [資料獲取與失敗分類](docs/ACQUISITION.md)。
 

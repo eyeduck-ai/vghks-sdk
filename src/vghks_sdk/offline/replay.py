@@ -24,6 +24,7 @@ from ..adapters.oppl import mutation_acknowledged
 from ..adapters.prq_extensions import parse_text_history, parse_upload_history
 from ..contracts.check import discover_har_files
 from ..contracts.har import BASELINE_CONTRACTS, HarEntry, HarSignature, load_har
+from ..core.config import SDKSettings
 from ..core.errors import NotFoundError, ParseError, PasswordChangeRequiredError, error_code
 from ..core.network_errors import recorded_network_error_code
 from ..core.operations import OPERATION_BY_KEY, OPERATIONS
@@ -65,6 +66,7 @@ from ..parsing.surgery_cases import (
     parse_surgery_departments,
     parse_surgery_note,
 )
+from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
 
@@ -133,6 +135,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     visit_context_ready = False
     results: list[dict[str, Any]] = []
     portal_base = "https://portal.vghks.gov.tw"
+    webmaas_base = SDKSettings().webmaas_base_url
     # An anonymous query can precede the first captured Portal entry request.
     config = reader.json("run_config.json") if "run_config.json" in reader.names else {}
     overrides = config.get("endpoint_overrides") or {}
@@ -141,6 +144,11 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         address = urlsplit(configured_portal)
         if address.scheme in {"http", "https"} and address.hostname and not address.username:
             portal_base = configured_portal
+    configured_webmaas = overrides.get("webmaas_base_url") if isinstance(overrides, dict) else None
+    if isinstance(configured_webmaas, str):
+        address = urlsplit(configured_webmaas)
+        if address.scheme in {"http", "https"} and address.hostname and not address.username:
+            webmaas_base = configured_webmaas
     redirected_operations: dict[str, tuple[str, dict[str, str]]] = {}
     exchanges = [
         row for row in reader.jsonl("capture_manifest.jsonl")
@@ -241,7 +249,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
-            or operation in {"prq.patient_identity", "prq.access_review"}
+            or operation in {"prq.patient_identity", "prq.access_review", "webmaas.basic_info_landing"}
         ):
             body_path = row.get("response_file")
             if not body_path:
@@ -262,8 +270,9 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         context_hid=context_hid,
                         context_national_id=context_national_id,
                         trusted_visit_context=visit_context_ready,
-                        response_url=str(request.get("url", "")),
+                        response_url=str(response.get("url") or request.get("url", "")),
                         portal_base_url=portal_base,
+                        webmaas_base_url=webmaas_base,
                     )
                 )
                 if operation == "prq.patient_identity":
@@ -436,6 +445,7 @@ def replay_response(
     trusted_visit_context: bool = False,
     response_url: str = "",
     portal_base_url: str = "https://portal.vghks.gov.tw",
+    webmaas_base_url: str = SDKSettings().webmaas_base_url,
 ) -> dict[str, Any]:
     notice: dict[str, Any] = {}
     try:
@@ -456,10 +466,16 @@ def replay_response(
             }
         if password_status.status == "CHANGE_REQUIRED":
             raise PasswordChangeRequiredError("recorded response requires password change")
+        if operation.startswith("webmaas.") and is_webmaas_session_timeout(text, response_url, webmaas_base_url):
+            raise ParseError("recorded WebMAAS response is its explicit timeout page",
+                             code="WEBMAAS_SESSION_TIMEOUT")
         if operation == "portal.login":
             target = parse_login_target(text)
             if is_password_change_destination(target, response_url or portal_base_url, portal_base_url):
                 raise PasswordChangeRequiredError("recorded login requires password change")
+        if operation in {"webmaas.basic_info_landing", "webmaas.registration_landing"}:
+            parse_query_form(text, "QUY15WForm" if operation == "webmaas.basic_info_landing" else "RSV11WForm")
+            return {"status": "CONTRACT_OK", "error_code": "", "record_count": None}
         if operation == "prq.patient_identity":
             parsing.parse_patient_identity(text, expected_national_id=context_national_id)
             return {"status": "PARSED", "error_code": "", "record_count": 1}

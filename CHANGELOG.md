@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.4
+
+- 依 0.22.3 Session 院內回傳，辨識同來源 `/webmaas/comm/pageTimeOut.do` 與可見 `Page time out` 通知。以 `ApplicationSessionExpiredError`／`WEBMAAS_SESSION_TIMEOUT` 區分 WebMAAS Session 遺失及未知缺表單，不推論 Portal 過期或自然 TTL。
+- 唯讀操作遇到此明確回應時，Runtime 最多重建原查詢頁的 WebMAAS SSO 一次，再用新表單／token 續查；不強制 Portal 登入，異動與已送出審查不重播。安全診斷另存原錯誤及 SSO 恢復事件；持續失效保留具體錯誤碼。
+- `session` EXE 在原 readiness／獨立複查之後，增加第二次隔離 Cookie 遺失及直接基本資料 API 測試，EXE 不補重試。已發生 Portal 恢復或手動閒置時不加此步；原 ERROR 仍保留。
+- 離線分析同樣辨識 timeout、驗證基本資料 landing 的表單／token，分列原失敗、限定 capture 範圍的 SSO 複查、前後結構化資料比較與直接 API 結果；重測設定保留 `session` 的零錯誤密碼及 Cookie／閒置範圍。
+- 2026-10-05 原 ZIP 共八步，刻意 Cookie 遺失後的一步 ERROR 保留；獨立 SSO 複查及前後資料成功，只有首次登入送出密碼。這是 0.22.3 的院內證據，0.22.4 自動 SSO 恢復仍需院內複驗。
+
 ## 0.22.3
 
 - 根據整合平台閒置後的 WebMAAS debug，修正 `auth.check` 對快取登入狀態的判定。WebMAAS 必須驗證當次查詢頁的表單與 token；新 SSO 已取得有效頁時直接使用，已快取的 Session 則重新 GET。其他子系統的 readiness 範圍不擴大。

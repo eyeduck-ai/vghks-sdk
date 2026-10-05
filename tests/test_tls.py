@@ -257,6 +257,12 @@ class LegacyAesLoopbackTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(b"ok")
 
+            def do_POST(self):
+                # Drain the body before closing with 501. Otherwise Windows
+                # may reset the connection and hide the expected HTTP response.
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                self.send_error(501, "Unsupported method")
+
             def log_message(self, *args):
                 pass
 
@@ -376,7 +382,7 @@ class LegacyAesLoopbackTests(unittest.TestCase):
             # mislabeled as a connectivity failure or sent again automatically.
             with self.assertRaises(RequestError) as failure:
                 sdk._runtime.transport.request("POST", url, data={"synthetic": "only"})
-            self.assertEqual(failure.exception.status_code, 501)
+            self.assertEqual(failure.exception.status_code, 501, failure.exception.info.code)
         self.assertTrue(selections["prq"]["applied"])
         self.assertFalse(selections["prq"]["certificate_verification"])
         self.assertEqual(selections["prq"]["tls_profile"], TLS12_COMPAT)

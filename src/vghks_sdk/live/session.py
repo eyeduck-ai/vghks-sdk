@@ -20,20 +20,23 @@ from .profile import (
 
 SESSION_QUERIES = ("webmaas.demographics", "webmaas.basic_info")
 _FORM_ERRORS = {"WEBMAAS_QUERY_FORM_MISSING", "WEBMAAS_QUERY_TOKEN_MISSING"}
+_SSO_RECHECK_ERRORS = _FORM_ERRORS | {"WEBMAAS_SESSION_TIMEOUT"}
 
 
 def build_session_plan(config) -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": "session",
         "auth_targets": ["portal", "sectord", "webmaas"],
         "negative_password_post_limit": 0,
         "max_patients": 1,
+        "max_cookie_loss_challenges": 0 if config.session_pause else 2,
+        "direct_basic_info_recovery": not config.session_pause,
         "download_assets": False,
         "session_pause": config.session_pause,
         "challenge": "MANUAL_IDLE" if config.session_pause else "WEBMAAS_COOKIE_LOSS",
         "natural_ttl": "No configured TTL is assumed; default does not wait for expiry.",
-        "recovery": "Runtime handles explicit expiry once; an unverified form permits one fresh SSO check without forcing Portal login.",
+        "recovery": "Explicit WebMAAS timeout renews only its SSO once during a read. Readiness retains the original issue; a separate check can renew SSO once.",
         "operations": [
             {"key": key, "sdk_method": query_spec(key).sdk_method,
              "scope": query_spec(key).scope, "inputs": list(query_spec(key).inputs),
@@ -107,11 +110,11 @@ def run_session_test(
         if report is None or report.ok:
             return bool(report and report.ok)
         failures = [target for target in report.targets if target.status == "ERROR"]
-        # Missing HTML is not classified as expiry. The first check invalidates
-        # only WebMAAS; a separate, bounded check can re-enter its SSO flow.
+        # An explicit application timeout and an unverified form both discard
+        # WebMAAS state. Keep their distinct issues during this independent check.
         can_recheck = recover_form and not report.reauthenticated and failures and all(
             target.target == "webmaas" and target.issue is not None
-            and target.issue.code in _FORM_ERRORS for target in failures
+            and target.issue.code in _SSO_RECHECK_ERRORS for target in failures
         )
         if not can_recheck:
             return False
@@ -151,6 +154,7 @@ def run_session_test(
     baseline_ready = readiness("baseline")
     baseline_ok = patient_reads("baseline", baseline_ready)
     challenge = {"evidence": "NOT_TESTED", "performed": False}
+    direct_read = {"status": "NOT_TESTED", "evidence": "NOT_TESTED"}
     if baseline_ok:
         if config.session_pause:
             print("保持此視窗開啟; 閒置期間不會送出請求。要複查時按 Enter。", flush=True)
@@ -171,10 +175,34 @@ def run_session_test(
             phase = "after_cookie_loss"
         if challenge.get("performed"):
             ready = readiness(phase, recover_form=True)
-            patient_reads(phase, ready)
+            after_ok = patient_reads(phase, ready)
+            if (after_ok and not config.session_pause
+                    and not observations[-1]["readiness"].get("reauthenticated")):
+                second_loss, _ = _run_step(
+                    steps, name="session.direct_cookie_loss",
+                    operation=lambda: clear_webmaas_cookies(sdk), root=root,
+                    output_path=parsed / "direct_cookie_loss.json",
+                    classify=lambda value: "OK" if value["removed_count"] else "NO_SAMPLE", **capture,
+                )
+                if second_loss and second_loss["removed_count"]:
+                    # No readiness call or EXE retry: exercise the public API's
+                    # Runtime recovery using the same SDK and authorized patient.
+                    _, direct_error = _run_step(
+                        steps, name="session.direct_after_cookie_loss.webmaas.basic_info",
+                        operation=lambda: sdk.patients.get_basic_info(config.test_mrn), root=root,
+                        output_path=parsed / "direct_after_cookie_loss/webmaas.basic_info.json",
+                        operation_key=SESSION_QUERIES[1], **capture,
+                    )
+                    direct_read = {"status": "ERROR" if direct_error else "OK",
+                                   "evidence": "LIVE", "challenge": second_loss,
+                                   "exe_retry_attempts": 0,
+                                   "scope": "A successful read alone does not prove SSO recovery; inspect its captures and diagnostics."}
+                else:
+                    direct_read = {"status": "NO_SAMPLE", "evidence": "LIVE"}
     status = _overall_status(steps, fatal_auth=False)
     session_summary = {
-        "schema_version": 1, "challenge": challenge, "observations": observations,
+        "schema_version": 2, "challenge": challenge, "observations": observations,
+        "direct_read_after_cookie_loss": direct_read,
         "baseline_succeeded": baseline_ok,
         "natural_ttl": {"status": "IDLE_OBSERVATION" if config.session_pause and
                         challenge.get("performed") else "NOT_TESTED", "verified": False},

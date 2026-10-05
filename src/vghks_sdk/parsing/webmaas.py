@@ -7,12 +7,27 @@ import re
 from collections.abc import Mapping
 from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 
 from ..core.errors import NotFoundError, ParseError
 from ..models import PatientBasicInfo, PatientDemographics, RegistrationRecord
 from .common import direct_rows, map_columns, normalize_inline_text, unique_headers
+
+
+def is_webmaas_session_timeout(html_text: str, response_url: str, base_url: str) -> bool:
+    """Match the recorded timeout destination and visible notice, without JS."""
+    actual, base = urlsplit(response_url), urlsplit(base_url)
+    if (actual.scheme.lower(), actual.netloc.lower()) != (base.scheme.lower(), base.netloc.lower()):
+        return False
+    if actual.path != base.path.rstrip("/") + "/comm/pageTimeOut.do":
+        return False
+    soup = BeautifulSoup(html_text, "html.parser")
+    for tag in soup.select("script,style,template,[hidden],[aria-hidden='true']"):
+        tag.decompose()
+    text = normalize_inline_text(soup.get_text(" ", strip=True))
+    return re.search(r"\bpage\s+time\s+out\b", text, re.IGNORECASE) is not None
 
 
 def parse_patient_demographics(payload: Any, expected_mrn: str) -> PatientDemographics:

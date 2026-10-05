@@ -82,6 +82,12 @@ except SDKError as exc:
 
 `WEBMAAS_QUERY_FORM_MISSING`／`WEBMAAS_QUERY_TOKEN_MISSING` 保留 PARSE 分類及收到的 HTTP 狀態，表示目前頁面無法驗證，不能單憑它判定自然過期、密碼錯誤或病人不存在。SDK 同時清除 WebMAAS 的快取，下一次獨立呼叫可以重建 SSO；當次不重播查詢或強制 Portal 登入。整合系統若安排一次複查，應先確認 Portal 目標為 OK、失敗僅限這兩個 WebMAAS 錯誤且 `reauthenticated=False`；若 Runtime 已嘗試恢復或複查仍失敗，就保留原始原因並停止相依工作。`session` EXE 將原失敗與複查結果分開保存，恢復成功也不抹除原錯誤。
 
+0.22.4 以同來源固定 `/webmaas/comm/pageTimeOut.do` 及可見 `Page time out` 通知辨識 `ApplicationSessionExpiredError`（繼承 AuthExpiredError，code=`WEBMAAS_SESSION_TIMEOUT`，app=`webmaas`）。只憑缺表單、一般錯誤頁、script／註解內的字串或其他來源同名路徑不作此判定；這個錯誤也不證明 Portal 過期或自然 TTL。
+
+一般唯讀 API 遇到此回應，Runtime 在操作鎖內最多重建原頁的 WebMAAS SSO 一次，以新角色／表單／token 續查；保留 Portal 與 SectOrd 狀態，不強制送 Portal 密碼。成功仍回傳原模型，診斷 `application_session_recovery_started` 保留原 ErrorInfo，須與同一操作的完成狀態對照；持續 timeout 保留具體錯誤碼，不追加第二次 SSO 或 Portal 恢復。異動及曾送出調閱審查的操作不套用此恢復。
+
+`auth.check` 則保留 WebMAAS 的 AUTHENTICATION／HTTP 200 問題並清除快取，不強制 Portal 登入；呼叫端可以像缺表單一樣安排一次獨立 SSO 複查，但必須確認 Portal OK、失敗僅限 WebMAAS，且尚未經 Runtime 恢復。2026-10-05 的 0.22.3 院內測試確認清除 Cookie 後進入該 timeout 頁、獨立 SSO 複查成功及前後結構化病人資料一致；只發生一次初始密碼 POST，另觀察到兩日倒數。0.22.4 的直接 API 自動恢復尚待院內複驗。
+
 自動恢復的例外範圍：
 
 - MIS 的二次驗證不自動重播；`EARNINGS_SESSION_EXPIRED` 或 `EARNINGS_CONTEXT_EXPIRED` 需重新開啟報表，取得新的 context。

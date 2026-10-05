@@ -102,6 +102,26 @@ class SessionProfileTests(unittest.TestCase):
         self.assertTrue(observation["sso_recheck_succeeded"])
         self.assertFalse(summary["session_test"]["natural_ttl"]["verified"])
 
+    def test_timeout_recheck_and_direct_api_read_preserve_original_failure(self):
+        sdk = fake_sdk((report(), report("WEBMAAS_SESSION_TIMEOUT"), report()))
+        def basic_info(_):
+            sdk._runtime.transport.session.cookies.set(
+                "JSESSIONID", "WEBMAAS-SECRET", domain="synthetic.test", path="/webmaas",
+            )
+            return {"synthetic": "details"}
+        sdk.patients.get_basic_info.side_effect = basic_info
+        with tempfile.TemporaryDirectory() as directory:
+            result = run_session_test(sdk, LiveTestConfig(profile="session"), output_dir=Path(directory))
+            summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
+        self.assertEqual(sdk.auth.check.call_count, 3)
+        self.assertEqual(sdk.patients.get_basic_info.call_count, 3)
+        self.assertEqual(result.status, "COMPLETED_WITH_ERRORS")
+        self.assertEqual(result.steps[4].issue.code, "WEBMAAS_SESSION_TIMEOUT")
+        direct = summary["session_test"]["direct_read_after_cookie_loss"]
+        self.assertEqual(direct["status"], "OK")
+        self.assertEqual(direct["exe_retry_attempts"], 0)
+
+
     def test_persistent_failure_stops_before_patient_posts(self):
         sdk = fake_sdk((report(), report("WEBMAAS_QUERY_TOKEN_MISSING"), report("WEBMAAS_QUERY_TOKEN_MISSING")))
         with tempfile.TemporaryDirectory() as directory:

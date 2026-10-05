@@ -172,6 +172,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
                 "portal.login",
                 "portal.entry",
                 "portal.session_check",
+                "webmaas.session_check",
                 "portal.sso_from_dn",
                 "auth_check",
                 "mis.performance",
@@ -331,6 +332,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "problems": problems,
         "operations": matrix,
         "replay": summarize_replay(rows),
+        "session_test": _session_test_summary(reader, steps, rows),
         "opd_evidence": _opd_evidence(reader, steps, rows),
         "weekly_opd_workflow": _weekly_opd_summary(reader),
         "weekly_physician_review": review_weekly_physicians(reader),
@@ -343,6 +345,49 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     }
     config = reader.json("run_config.json") if "run_config.json" in reader.names else {}
     return report, _retest_config(config, matrix, main, run_status)
+
+
+def _session_test_summary(reader: BundleReader, steps: list[dict], rows: list[dict]) -> dict:
+    """Keep cookie/idle observations separate from retained failures and TTL."""
+    path = "parsed/session/comparison.json"
+    if path not in reader.names:
+        return {"status": "NOT_RUN"}
+    source = reader.json(path)
+    challenge = source.get("challenge") or {}
+    kind = challenge.get("evidence")
+    kind = kind if kind in {"LOCAL_COOKIE_LOSS", "MANUAL_IDLE", "NOT_TESTED"} else "UNKNOWN"
+    rechecks = []
+    for phase in ("after_cookie_loss", "after_idle"):
+        step = next((s for s in steps if s.get("name") == f"session.{phase}.sso_recheck"), None)
+        if step is not None:
+            # A later success outside this exact step is not recovery evidence.
+            verified = step.get("status") == "OK" and any(
+                row["operation"] in {"webmaas.registration_landing", "webmaas.basic_info_landing"}
+                and row["status"] == "CONTRACT_OK" and _in_capture_range(row, step) for row in rows
+            )
+            rechecks.append({"phase": phase, "status": step.get("status") if
+                             step.get("status") in {"OK", "ERROR", "BLOCKED"} else "UNKNOWN",
+                             "query_form_verified_in_capture_range": verified})
+    equality = {}
+    for key in ("webmaas.demographics", "webmaas.basic_info"):
+        baseline = f"parsed/session/baseline/{key}.json"
+        after = f"parsed/session/after_cookie_loss/{key}.json"
+        if baseline in reader.names and after in reader.names:
+            before_value, after_value = reader.json(baseline), reader.json(after)
+            # HTML may change its SSO token even when all parsed values agree.
+            equality[key] = ({k: v for k, v in before_value.items() if k != "raw_html"} ==
+                             {k: v for k, v in after_value.items() if k != "raw_html"})
+    direct = next((s for s in steps if s.get("name") ==
+                   "session.direct_after_cookie_loss.webmaas.basic_info"), None)
+    return {
+        "status": "OBSERVED", "challenge": kind,
+        "natural_ttl_verified": False, "original_failures_retained": True,
+        "timeout_responses": [{"capture_id": row["capture_id"], "operation": row["operation"]}
+                              for row in rows if row["error_code"] == "WEBMAAS_SESSION_TIMEOUT"],
+        "sso_rechecks": rechecks, "parsed_patient_values_equal": equality,
+        "direct_read_status": direct["status"] if direct and direct.get("status") in
+                              {"OK", "ERROR", "BLOCKED"} else "NOT_TESTED",
+    }
 
 
 def _in_capture_range(row: dict, step: dict) -> bool:
@@ -766,6 +811,15 @@ def _retest_config(
         "review_query",
     }
     value = {key: item for key, item in config.items() if key in allowed}
+    if config.get("profile") == "session":
+        value.update(schema_version=7, profile="session", only_operations=[],
+                     session_pause=config.get("session_pause", False), login_negative_attempts=0,
+                     download_assets=False)
+        resolved = resolve_live_test_config(json_values=value, environ={})
+        resolved.validate_for_execution()
+        result = resolved.to_safe_dict()
+        result.pop("output_root", None)
+        return result
     auth_failed = main and main["phase"] in {"CONNECTIVITY", "AUTHENTICATION"}
     value.update(schema_version=6, profile="auth" if auth_failed else "atomic")
     value["only_operations"] = (
@@ -881,8 +935,10 @@ def _verified_cookie_recovery(step: dict[str, Any]) -> bool:
 def _phase(code: str) -> str:
     if code.startswith(("NETWORK_", "TLS_", "CA_")):
         return "CONNECTIVITY"
-    if code.startswith(("AUTH_", "PORTAL_", "SSO_", "SECTORD_")):
+    if code in {"WEBMAAS_SESSION_TIMEOUT", "WEBMAAS_SSO_RECOVERY_FAILED"} or code.startswith(("AUTH_", "PORTAL_", "SSO_", "SECTORD_")):
         return "AUTHENTICATION"
+    if code in {"WEBMAAS_QUERY_FORM_MISSING", "WEBMAAS_QUERY_TOKEN_MISSING"}:
+        return "PARSE"
     if code.startswith("HTTP_"):
         return "HTTP"
     if any(term in code for term in ("PARSE", "INVALID", "STRUCTURE", "CONTAINER", "REPLAY_")):
@@ -910,6 +966,8 @@ def _next_action(main: dict[str, str] | None, *, has_gaps: bool = False) -> str:
         return "登入 HTTP 回應只有空白，不能判定帳密正確或錯誤。新版先載入 index.do、保留同一個 Session／隱藏欄位並補上 Origin／Referer；仍須在內網雙擊新版 EXE 驗證。"
     if code == "PORTAL_PASSWORD_CHANGE_REQUIRED":
         return "回應明確要求變更密碼；先透過院方入口完成變更，再以新密碼執行 SDK 或 EXE。SDK 不會自動變更密碼，也不會因這個錯誤重新送出登入。"
+    if code == "WEBMAAS_SESSION_TIMEOUT":
+        return "WebMAAS 明確回傳 timeout 頁；這不證明 Portal 過期或自然 TTL。檢查 session_test 的原錯誤、獨立 SSO 複查及直接 API 恢復結果；新版唯讀查詢最多重建 WebMAAS SSO 一次，原始錯誤仍保留。"
     if main["phase"] == "CONNECTIVITY":
         return "先重測 auth profile，依錯誤碼檢查內網連線、DNS、Proxy 或逾時設定。"
     if main["phase"] == "AUTHENTICATION":
@@ -932,6 +990,14 @@ def _markdown(report: dict[str, Any]) -> str:
         report["next_action"],
         "",
     ]
+    session = report.get("session_test", {})
+    if session.get("status") == "OBSERVED":
+        lines += [
+            f"WebMAAS Session 情境：{session['challenge']}；辨識到 {len(session['timeout_responses'])} 份明確 timeout 回應。",
+            f"獨立 SSO 複查：{session['sso_rechecks']}；直接 API 讀取：{session['direct_read_status']}。",
+            f"前後結構化病人欄位一致：{session['parsed_patient_values_equal']}（排除 raw HTML 的動態 token）。",
+            "原始失敗仍保留；Cookie 遺失不證明自然閒置 TTL。", "",
+        ]
     if report["no_sample_steps"]:
         lines += [
             "缺少樣本的檢查（不列為執行錯誤）：",

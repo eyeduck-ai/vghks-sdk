@@ -56,4 +56,6 @@ Requests Session（鎖、節流、retry、capture）
 
 **歷年掃描病歷先完整列出再篩選**：Parser 依歷年頁的表格列保存每個 PDF 的病歷類別、顯示日期、表格來源及 subtype；`UploadHistory` 提供完整清單和類別精確篩選。眼科便利入口依「門診-記錄-眼科紀錄」病歷類別選取，不能把 subtype `OPG` 當成科別。單次 SOAP 的掃描參照由獨立 Parser／Adapter／Service 處理；`collect_ophthalmology_scans` 再查眼科就診、比對參照並去重，保留其他類別、未分類項目及查詢不完整狀態。
 
+**子系統 timeout 與 Portal 恢復分開**：`parsing/webmaas.py` 純辨識同來源固定 timeout 頁及可見通知；AuthenticationAdapter 清除 WebMAAS 狀態並保留中斷頁的允許角色。Runtime 只在可重做的唯讀操作內，以原角色重建一次 SSO，再用新表單續查；不強制 Portal 登入。`auth.check` 保留原問題供獨立複查，EXE 不把後續成功抹成沒有失敗。一般缺表單仍是 PARSE。
+
 修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。

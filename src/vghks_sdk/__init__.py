@@ -7,6 +7,7 @@ from .acquisition import acquire, assess_data
 from .core.config import EarningsCredentials, PortalCredentials, RequestPolicy, SDKSettings
 from .core.errors import (
     AccessReviewRequiredError,
+    ApplicationSessionExpiredError,
     AuthenticationError,
     AuthExpiredError,
     AuthorizationError,
@@ -116,6 +117,7 @@ def __getattr__(name: str):
 __all__ = [
     "AccessReviewRequiredError",
     "AcquisitionResult",
+    "ApplicationSessionExpiredError",
     "AuthCheckReport",
     "AuthCheckTarget",
     "AuthExpiredError",

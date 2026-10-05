@@ -14,6 +14,7 @@ from .core.capture import RawCaptureSink
 from .core.config import PortalCredentials, SDKSettings
 from .core.diagnostics import DiagnosticRecorder
 from .core.errors import (
+    ApplicationSessionExpiredError,
     AuthenticationError,
     AuthExpiredError,
     ErrorInfo,
@@ -54,6 +55,8 @@ class AuthenticationProtocol(Protocol):
     def take_webmaas_landing(self, page_id: str) -> str: ...
 
     def invalidate_webmaas_session(self) -> None: ...
+
+    def recover_webmaas_session(self) -> AuthSessionProtocol: ...
 
     def check_webmaas_session(self) -> AuthSessionProtocol: ...
 
@@ -255,7 +258,12 @@ class SDKRuntime:
                     code="QUERY_REDIRECT_UNRECOGNIZED", operation=spec.key, app=spec.app,
                     endpoint_path=spec.path,
                 )
-        self._raise_if_expired_response(response)
+        try:
+            self._raise_if_expired_response(response)
+        except SDKError as exc:
+            exc.with_context(operation=spec.key, app=spec.app, endpoint_path=spec.path,
+                             http_status=getattr(response, "status_code", None))
+            raise
         return response
 
     def close(self) -> None:
@@ -390,7 +398,8 @@ class SDKRuntime:
 
     @staticmethod
     def _is_authentication_expiry(exc: BaseException) -> bool:
-        return isinstance(exc, AuthExpiredError) or (
+        return (isinstance(exc, AuthExpiredError) and
+                not isinstance(exc, ApplicationSessionExpiredError)) or (
             isinstance(exc, RequestError) and exc.status_code in {401, 403}
         )
 
@@ -436,12 +445,40 @@ class SDKRuntime:
                             )
                             return result
                         except (AuthExpiredError, RequestError) as exc:
+                            application_expired = (
+                                isinstance(exc, ApplicationSessionExpiredError)
+                                and app_key == exc.info.app == "webmaas"
+                                and exc.info.code == "WEBMAAS_SESSION_TIMEOUT"
+                            )
                             if (
                                 not allow_reauthentication
                                 or self._operation_write_attempts[-1]
-                                or not self._is_authentication_expiry(exc)
+                                or not (application_expired or self._is_authentication_expiry(exc))
                             ):
                                 raise
+                            if application_expired:
+                                if attempt == 1:
+                                    exc.with_context(attempt=2, retry_safe=False)
+                                    raise
+                                if diagnostics is not None:
+                                    diagnostics.record_application_session_recovery(
+                                        operation_id=operation_id, app_key=app_key, exc=exc,
+                                    )
+                                # Re-enter the interrupted page's recorded SSO
+                                # role once, with no forced Portal login.
+                                try:
+                                    self.auth.recover_webmaas_session()
+                                except AuthenticationError as recovery_exc:
+                                    recovery_exc.with_context(attempt=2, retry_safe=False)
+                                    raise
+                                except SDKError as recovery_exc:
+                                    raise AuthenticationError(
+                                        "WebMAAS SSO recovery failed",
+                                        code="WEBMAAS_SSO_RECOVERY_FAILED", operation=operation_name,
+                                        app=app_key, attempt=2, phase="REAUTHENTICATION",
+                                        cause=error_info(recovery_exc),
+                                    ) from recovery_exc
+                                continue
                             if attempt == 1:
                                 raise AuthenticationError(
                                     "application remained expired after one re-login",

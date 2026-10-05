@@ -159,6 +159,7 @@ phase、retry_safe、retry_recommended 與結構化 cause 提供失敗階段與�
 DataAssessment.warnings 保留已完整對齊的眼科表頭警示，不使 complete=False；其他解析缺漏仍在 issues／PARTIAL。原 NumericTable.parsing_issues 與資料不刪除。
 `assess_data(value)` 可在不發 HTTP 的情況下判斷既有結果；不推論未知 JSON 的空值語意、臨床意義或全院資料是否不存在。完整使用方式見 [ACQUISITION](ACQUISITION.md)。
 `LoginRejectedError` 表示登入遭拒，與 `AuthExpiredError` 分開；兩者均繼承 AuthenticationError。
+`ApplicationSessionExpiredError` 繼承 AuthExpiredError；`WEBMAAS_SESSION_TIMEOUT` 表示同來源固定 timeout 頁及明確通知，不證明 Portal 過期或自然 TTL。唯讀操作最多重建該頁的 WebMAAS SSO 一次；auth.check 保留此問題供獨立複查，不強制重送 Portal 密碼。
 `NotAuthenticatedError` 表示尚未建立登入的查詢挑戰；`PasswordChangeRequiredError` 表示來源明確要求變更密碼。兩者繼承 AuthenticationError，均不觸發過期恢復。密碼倒數以 PasswordStatus 保留，不將成功登入誤判為失敗；NO_NOTICE 只表示未辨識到通知。
 `AccessReviewRequiredError` 表示當頁沒有錄製的照護原因 `1A`，SDK 無法自動送出；可確認院方當頁選項後，以 access_review_reason 明確覆寫。一次送出後不會自動重送。
 一般查詢過期最多自動恢復一次；登入遭拒、原因未明的登入失敗與 MIS 二次驗證不盲目重送密碼。

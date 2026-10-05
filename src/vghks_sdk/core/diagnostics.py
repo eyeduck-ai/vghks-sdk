@@ -63,6 +63,8 @@ _STATIC_ENDPOINT_SEGMENTS = {
     "login.do",
     "myPortal.do",
     "sessionCheck.do",
+    "comm",
+    "pageTimeOut.do",
     "so.do",
     "ssoFromDn.do",
     "ssoLogAdd.do",
@@ -280,6 +282,14 @@ class DiagnosticRecorder:
                 "application": _safe_code(app_key),
             },
         )
+
+    def record_application_session_recovery(
+        self, *, operation_id: int, app_key: str, exc: BaseException,
+    ) -> None:
+        self._write("application_session_recovery_started", {
+            "operation_id": operation_id, "application": _safe_code(app_key),
+            "recovery": "APPLICATION_SSO", "issue": asdict(error_info(exc)),
+        })
 
     def record_probe_step(
         self,

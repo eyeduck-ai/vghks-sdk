@@ -2,7 +2,7 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.3，EXE 內建 `session` 計畫，針對整合平台閒置後的 WebMAAS 查詢頁失敗補證據。0.22.2 的整合平台 debug 缺失敗 HTML 與重連後對照，尚無法證明自然 TTL；0.22.3 的修正也尚未院內複驗。最近完整院內測試仍是 2026-10-04 下午的 0.22.1：89 步，三日倒數、數值警示、預期未登入／錯誤密碼拒絕、正常登入與 Cookie 恢復已確認，見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.4，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 頁、獨立 SSO 恢復及前後病人欄位一致；八步中原失敗一步保留 ERROR。0.22.4 補 timeout 分類及唯讀 API 自動 SSO 恢復，仍需院內複驗；自然 TTL 尚未測試。較完整的失敗分類院內證據仍是 0.22.1 的 89 步，見 [VALIDATION](VALIDATION.md)。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
@@ -21,7 +21,9 @@
 
 雙擊新版 EXE：輸入一名授權病人的病歷號與正確 Portal 帳密，先驗證目前表單／token，再查 CHECK_PAT 與完整基本資料。正常階段成功後，只清除可隔離至 WebMAAS 的 JSESSIONID，保留共用 Portal Cookie，再檢查同一 SDK 與病人的回應。找不到可隔離 Cookie 為 NO_SAMPLE，不改成清掉所有 Cookie。此計畫沒有 PRQ 調閱審查、錯誤密碼、異動或附件下載。
 
-明確登入挑戰由 Runtime 至多恢復一次。若只有 WebMAAS 缺表單／token，且 Runtime 尚未恢復，EXE 可另外做一次 SSO readiness 複查；SDK 此時已清除無法驗證的快取。不主動強制 Portal 登入，複查仍失敗就停止病人查詢。原解析錯誤即使後來恢復仍保留 ERROR，因此 ZIP 可能是 COMPLETED_WITH_ERRORS；應同時查看 `parsed/session/comparison.json` 的 `sso_recheck_succeeded`，不能只看 ZIP 檔名。
+明確 Portal 挑戰由 Runtime 至多恢復一次。若 Portal 正常、只有 WebMAAS 缺表單／token 或 `WEBMAAS_SESSION_TIMEOUT`，且 Runtime 尚未恢復，EXE 可另外做一次 SSO readiness 複查；SDK 此時已清除 WebMAAS 快取。不主動強制 Portal 登入，複查仍失敗就停止病人查詢。原錯誤即使後來恢復仍保留 ERROR，因此 ZIP 可能是 COMPLETED_WITH_ERRORS；應同時查看 `parsed/session/comparison.json` 的 `sso_recheck_succeeded`，不能只看 ZIP 檔名。
+
+Cookie 對照恢復及病人讀取成功後，再清除一次同樣可隔離的 WebMAAS Cookie，直接呼叫基本資料 API；這次沒有 EXE readiness 或重試，驗證 Runtime 對明確 GET／唯讀 POST timeout 的一次 SSO 恢復。`direct_read_after_cookie_loss.status` 保存 API 結果，原回應及 `application_session_recovery_started`／同一操作完成事件才證明確實發生恢復；成功讀取本身不證明過期。若前一步已經重送 Portal 登入，或使用手動閒置模式，省略第二次挑戰。正常情況最多三份基本資料結果，不擴大病人樣本。
 
 預設不等待自然過期。若要重現本次閒置問題，從命令列啟動：
 
@@ -31,7 +33,7 @@
 
 正常階段完成後，視窗停在按 Enter 的提示；保持視窗開啟並閒置到要測試的時間，再按 Enter。等待期間沒有背景請求，也不清 Cookie、不另建 SDK，輸出記錄實際閒置秒數。這是原 Session 的閒置觀察；沒有明確來源回應時仍不宣稱確認自然 TTL。此選項需要互動主控台，不能和 `--non-interactive` 使用。
 
-ZIP 保存完整原始 HTTP、轉址、失敗 HTML、當次安全登入報告與前後兩組基本資料。`parsed/session/comparison.json` 連結原失敗及恢復結果，`step_results.json` 保留各步 capture 範圍。可用 [webmaas-session.example.json](../configs/webmaas-session.example.json) 指定設定；範例只有合成病歷號。建置後使用 `tools/verify_session_exe.py`，其九種 localhost HTTPS 情境與院內結果分開。
+ZIP 保存完整原始 HTTP、轉址、失敗 HTML、當次安全登入報告與前後基本資料。`parsed/session/comparison.json`（schema 2）連結原失敗、獨立 SSO 複查及直接 API 結果，`step_results.json` 保留各步 capture 範圍。可用 [webmaas-session.example.json](../configs/webmaas-session.example.json) 指定設定；範例只有合成病歷號。建置後使用 `tools/verify_session_exe.py`，其十二種 localhost HTTPS 情境與院內結果分開。
 
 ## 資料獲取與失敗分類（failures）
 
@@ -62,7 +64,7 @@ dist/vghks-live-test.exe --plan
 
 ## 高榮與聯合醫院掛號比較、病歷調閱審查（regression）
 
-以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `failures` profile。
+以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `session` profile。
 
 只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
@@ -92,7 +94,7 @@ dist/vghks-live-test.exe --plan
 
 ## 單次門診與歷年眼科掃描病歷（scans）
 
-以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `failures` profile。
+以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `session` profile。
 
 只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 

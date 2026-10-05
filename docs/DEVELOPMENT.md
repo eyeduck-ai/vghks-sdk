@@ -40,8 +40,8 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.3-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.3.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.4-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.4.tar.gz
 ```
 
 若本機尚未安裝 `build`，先安裝 `.[dev]`；建置環境也須有 `wheel`。專案的 PyInstaller 暫存目錄也叫 `build/`，在 Python 將它誤判為模組時，改從 `output/` 目錄執行 `python -m build .. --outdir package`。產生封包後逐一檢查實際內容。
@@ -64,7 +64,7 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 | profile | localhost 驗證工具 | 主要檢查 |
 | --- | --- | --- |
-| `session` | `tools/verify_session_exe.py` | 九種 HTTPS 情境、表單／token 真實驗證、隔離 Cookie、有限恢復及完整失敗 HTML |
+| `session` | `tools/verify_session_exe.py` | 十二種 HTTPS 情境、表單／token、隔離 Cookie、明確 timeout 的 GET／唯讀 POST 自動 SSO 恢復及持續失效停止 |
 | `failures` | `tools/verify_failure_exe.py` | 68 個無 socket 模擬、23 種 HTTPS 情境、未登入與錯誤密碼計數、通知、資料狀態及離線分類 |
 | `login` | `tools/verify_login_exe.py` | 登入／SSO、人事條件、Cookie 恢復及有限負向測試 |
 | `visits` | `tools/verify_visit_exe.py` | 病歷號／身分證、篩選、fallback 與部分失敗續跑 |

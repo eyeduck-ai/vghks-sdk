@@ -6,6 +6,7 @@ import secrets
 import string
 from pathlib import Path
 
+from ..contracts.auth_evidence import expected_anonymous_challenge as expected_anonymous_challenge
 from ..core.config import PortalCredentials
 from ..core.errors import ErrorInfo, NotAuthenticatedError, error_info
 from ..core.operations import operation_spec
@@ -15,21 +16,6 @@ from ..models import to_jsonable
 from ..sdk import VghksSDK
 from .login import negative_login, password_post_budget
 from .profile import LiveTestStep, _run_step
-
-
-def expected_anonymous_challenge(step: dict) -> bool:
-    details = step.get("details") or {}
-    return (
-        step.get("name") == "failures.live.unauthenticated"
-        and step.get("operation") == "prq.upload_types"
-        and step.get("status") == "OK"
-        and details.get("evidence") == "LIVE_UNAUTHENTICATED"
-        and details.get("prior_login") is False
-        and details.get("expected_challenge") is True
-        and details.get("observed_code") == "AUTH_NOT_AUTHENTICATED"
-        and details.get("password_posts") == 0
-        and details.get("blocked_posts") == 0
-    )
 
 
 def run_before_login_checks(config, steps, *, credentials, settings, root: Path, **capture) -> bool:

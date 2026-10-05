@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from ..contracts.auth_evidence import expected_rejection as expected_rejection
 from ..core.config import PortalCredentials
 from ..core.errors import ErrorInfo, LoginRejectedError, SDKError, error_code
 from ..core.operations import OPERATIONS
@@ -124,24 +125,6 @@ def negative_login(sdk, *, lazy: bool, audit_path: Path | None = None) -> dict:
         raise SDKError(
             "wrong password was unexpectedly accepted", code="LOGIN_TEST_UNEXPECTED_SUCCESS"
         )
-
-
-def expected_rejection(step: dict) -> bool:
-    """Only this completed, bounded live scenario can explain a rejection capture."""
-    details = step.get("details") or {}
-    return (
-        step.get("name") in {"login.negative.1", "login.negative.2", "failures.live.negative_before_login"}
-        and step.get("status") == "OK"
-        and details.get("evidence") == "LIVE"
-        and details.get("expected_failure") is True
-        and details.get("observed_code") == "PORTAL_LOGIN_REJECTED"
-        and details.get("password_posts") == 1
-        and details.get("blocked_posts") == 0
-        and (step.get("name") != "failures.live.negative_before_login" or (
-            step.get("operation") == "portal.login"
-            and details.get("position") == "BEFORE_CORRECT_LOGIN"
-        ))
-    )
 
 
 def _personnel_option_value(label: str, options: Sequence[PersonnelOption]) -> str | None:

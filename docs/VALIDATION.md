@@ -6,7 +6,7 @@
 
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |
 | --- | --- | --- |
-| SDK／單檔 EXE | 0.22.1 院內 `failures` 已完成 89 步；0.22.4 `session` 十步含直接 API 自動 SSO 恢復成功 | 0.22.5 證據串接及分析改善以舊 ZIP 只讀與 localhost 驗證；PDF 按鈕只有舊原頁重解析及 localhost 證據 |
+| SDK／單檔 EXE | 0.22.1 院內 `failures` 已完成 89 步；0.22.4 `session` 十步含直接 API 自動 SSO 恢復成功 | 0.22.5 證據串接及 0.22.6 架構整理以舊 ZIP 只讀與 localhost 驗證；PDF 按鈕只有舊原頁重解析及 localhost 證據 |
 | WebMAAS 閒置後失敗 | 0.22.3 院內 Cookie 遺失已取得 timeout 原頁；0.22.4 直接 API 自行 SSO 恢復且三份基本資料一致 | 舊平台自然閒置未保存失敗 HTML；自然 TTL 仍未院內證實 |
 | 失敗分類與密碼狀態 | 0.22.1 三日倒數、未登入／錯誤密碼拒絕及 Cookie 恢復；0.22.3 兩日倒數與 WebMAAS timeout | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
 | 高榮與聯合醫院掛號 | 0.20.11 的兩組帳號均完成直接掛號、先查 `CHECK_PAT` 後掛號；同帳號兩次結果一致 | WebMAAS 缺表單備援未自然觸發；舊應用失敗頁缺原始回應，根因仍未證實 |
@@ -16,8 +16,9 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.22.5，維持 0.22.4 已有院內證據的 WebMAAS 唯讀 SSO 恢復政策，未知缺表單保留 PARSE。新增安全操作連結及離線完整恢復驗證，不增加 HTTP／重試；AuthCheckReport 仍為 schema 3。
-- 本機現行 EXE：0.22.5、`session` 計畫，build_id=`20261005T124558Z`，沒有 private defaults。預設隔離 Cookie 對照與直接基本資料 API 恢復測試，不送錯誤密碼或等待自然 TTL；`--session-pause` 是同一 SDK 的手動閒置觀察，不加第二次 Cookie 挑戰。舊 `failures` 計畫仍可明確選用。
+- SDK 原始碼：0.22.6，分拆純登入證據、Session 分析與重測設定，`live` 公開匯出改為按需載入。維持 0.22.4 已有院內證據的 WebMAAS 唯讀 SSO 恢復政策、0.22.5 安全操作連結與完整恢復驗證，不增加 HTTP／重試；未知缺表單保留 PARSE，AuthCheckReport 仍為 schema 3。
+- 本機現行 EXE：0.22.6、`session` 計畫，build_id=`20261005T144028Z`，沒有 private defaults。預設隔離 Cookie 對照與直接基本資料 API 恢復測試，不送錯誤密碼或等待自然 TTL；`--session-pause` 是同一 SDK 的手動閒置觀察，不加第二次 Cookie 挑戰。舊 `failures` 計畫仍可明確選用。
+- 0.22.6 完整 suite 637 項：625 項通過、12 項私有條件測試跳過。新增獨立程序驗證離線分析不載入測試執行模組，舊公開匯出保持相容，禁止 import／建構／計畫發 socket。相同 0.22.4 院內 ZIP 的完整分析報告（排除 analyzer build）及重測設定與 0.22.5 完全一致。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境、`failures` 各 23 種情境及每輪 68 個無 socket 模擬通過；Ruff、API、公開內容、實際 wheel／sdist 及獨立安裝檢查通過。這些架構與封裝回歸不新增院內或自然 TTL 證據。
 - 0.22.5 完整 suite 636 項：624 項通過、12 項私有條件測試跳過。新增合成證據核對不同 recorder 計數器、舊版唯一請求匹配、缺少完成／表單／結果、錯誤角色／來源及範圍外成功不能掩蓋 timeout。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境通過，且實際 CLI 的離線分析驗證直接 API 的 VERIFIED、結構化資料比較及原錯誤保留。0.22.4 晚間原 ZIP 禁止 socket 重解析確認只將 000034 標為恢復，000022 的原 ERROR 保留；不宣稱自然 TTL。
 - 0.22.4 完整 suite 628 項：616 項通過、12 項私有條件測試跳過。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境通過，包括固定 timeout 轉址、GET／唯讀 POST 的 SSO 自動恢復、原角色及新 token、持續 timeout 停止，明確情境只有一次初始密碼 POST。`failures` 原始碼與同一 EXE（明確指定 profile）各 23 種情境及每輪 68 個模擬通過；Ruff、API、公開內容、實際 wheel／sdist 與獨立安裝的禁止 socket 匯入／CLI 檢查通過。合成 TLS 伺服器先讀完 POST 再回 501，避免 Windows 未讀 body 關閉造成連線重設；不修改 SDK 的 TLS 政策。這些本機測試與下列院內回傳分開。
 - 0.22.3 完整 suite 617 項：605 項通過、12 項私有條件測試跳過。`session` 原始碼及 frozen EXE 各九種 HTTPS localhost 情境通過，核對表單／token、隔離 Cookie、原失敗 HTML、有限恢復、持續失敗及登入拒絕停止。舊 `failures` 原始碼與同一 frozen EXE（明確指定 profile）各 23 種情境及每輪 68 個模擬亦通過；以下另列其後的院內 Session 回傳，不能混用版本。

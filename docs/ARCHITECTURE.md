@@ -24,13 +24,16 @@ Requests Session（鎖、節流、retry、capture）
 | acquisition.py | 對已取得的模型評估資料狀態，分開解析缺漏與可恢復 warnings，或將一次唯讀呼叫包成可選用的 AcquisitionResult；不新增 HTTP 或重試。測試器共用相同眼科欄位對齊判定 |
 | runtime.py / core/ | Session、操作鎖、登入復原、傳輸政策、錯誤與診斷 |
 | workflows/ | 跨多次原子操作的任務、去重、部分失敗及階段輸出 |
-| live/ | 使用 SDK 的內網測試器，與一般 library 使用分離 |
-| contracts/ / offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求 |
+| live/ | 使用 SDK 的內網測試器；公開匯出按需載入，讀取設定不載入測試執行流程 |
+| contracts/ | 錄製契約與純證據判斷；`auth_evidence.py` 共用預期登入拒絕、未登入挑戰及 capture 範圍的驗證條件 |
+| offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求；`analyze.py` 組裝報告，`session.py` 解讀 Session 對照，`recovery.py` 核對完整恢復次序，`retest.py` 產生重測設定 |
 | local_io.py | 共用本機 JSON 原子替換與權限處理；保留各入口的錯誤碼及安全欄位白名單 |
 
 密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
 
 一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。既有 core/full CLI 持續支援。
+
+離線分析與院內測試器共用純 `contracts/auth_evidence.py`，避免為辨認一筆預期拒絕而載入執行錯誤密碼的流程。重測設定由 `offline/retest.py` 呼叫同一份 `live/config.py` 驗證；此相依只讀設定，不建立 SDK 或送出請求。`live` 原有匯出及登入測試的證據函式匯入保持相容。
 
 **兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。
 

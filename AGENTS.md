@@ -23,7 +23,7 @@
 | acquisition | 可選用的統一結果與純資料狀態評估，不新增 HTTP 或重試 | acquisition.py；models/acquisition.py |
 | workflows | 多原子操作組合、去重、階段存檔、錯誤續跑 | workflows/ |
 | live | EXE 參數、讀取測試、coverage、結果 ZIP | live/、live_test_app.py |
-| contracts/offline | 只讀 HAR／ZIP 的結構驗證與重解析 | contracts/、offline/ |
+| contracts/offline | 共用純證據判斷、只讀 HAR／ZIP 驗證與重解析 | contracts/auth_evidence.py；offline/analyze.py 組裝報告；session.py／recovery.py／retest.py 各處理對照、恢復與重測設定 |
 
 新增原子操作以「一份有意義結果」為單位；SSO、病人 context 及必要分頁可以包含多次 HTTP。不要把 HTTP 細節交給 workflow，也不要讓 Parser 自動選下一名病人。
 
@@ -115,6 +115,7 @@ WebMAAS Session 專項用 `--default-profile session` 建置及 `tools/verify_se
 - 更新 VALIDATION 的驗證層級，區分合成、HAR、localhost EXE、內網回傳；不複製個別病人與薪資內容。
 - 不為整理而移除仍被公開匯入、CLI 或測試使用的相容層。原始 HAR／return 是不可再生的證據，與可重建 cache／舊 wheel／EXE 分開。
 - `local_io.py` 共用 JSON 原子寫入與本機權限處理；安全登入報告仍經欄位白名單，維持各入口錯誤碼。離線索引與效能整理需保持同一原始 ZIP 的分析／重測設定一致，不把範圍外成功當成登入恢復。
+- `live/__init__.py` 按需載入相容匯出；offline 可讀 `live.config`，不可因此載入 login／auth_edges／runner 等測試執行流程。預期負向證據由 `contracts/auth_evidence.py` 共用，不能在 offline 重新實作較寬鬆規則。
 - Windows 移除／搬移前驗證完整路徑在 workspace 內，使用原生 LiteralPath；不可跨 shell 組字串刪除。
 
 ## 發布

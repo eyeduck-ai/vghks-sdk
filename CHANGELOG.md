@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.22.6
+
+- 分拆離線 Session 對照、最後一次 readiness 與重測設定；`analyze.py` 專注組裝報告，恢復次序仍由 `recovery.py` 驗證。
+- 預期登入拒絕、未登入挑戰與 capture 範圍移入純證據契約；離線分析不再依賴登入測試執行模組。`live` 公開匯出按需載入，既有匯入方式保留。
+- 以相同院內 ZIP 禁止 socket 重解析；完整分析報告（排除 analyzer build）及重測設定與 0.22.5 一致，維持原 timeout ERROR、直接 API 恢復證據與自然 TTL 缺口。
+- 更新架構及開發文件，套件範例改以唯一版本來源組成檔名，補充清理可重建產物及保留原始證據的原則。
+
 ## 0.22.5
 
 - 0.22.4 院內 Session 回傳完成十步；直接基本資料 API 在隔離 Cookie 遺失後自行重建一次原角色 WebMAAS SSO，取得與基準相同的結構化資料，整輪只有一次初始 Portal 密碼 POST。原 readiness 的 timeout ERROR 仍保留；自然 TTL 未測。

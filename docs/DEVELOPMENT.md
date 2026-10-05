@@ -38,10 +38,12 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 ## 建置
 
+下列 `VERSION` 為檔名佔位，請替換為 `src/vghks_sdk/_version.py` 的版本；wheel／sdist 使用同一來源，文件不另維護套件版本。
+
 ```sh
 python -m build --outdir output/package
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.4-py3-none-any.whl
-python tools/check_public_tree.py --archive output/package/vghks_sdk-0.22.4.tar.gz
+python tools/check_public_tree.py --archive output/package/vghks_sdk-VERSION-py3-none-any.whl
+python tools/check_public_tree.py --archive output/package/vghks_sdk-VERSION.tar.gz
 ```
 
 若本機尚未安裝 `build`，先安裝 `.[dev]`；建置環境也須有 `wheel`。專案的 PyInstaller 暫存目錄也叫 `build/`，在 Python 將它誤判為模組時，改從 `output/` 目錄執行 `python -m build .. --outdir package`。產生封包後逐一檢查實際內容。
@@ -89,14 +91,14 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 ```sh
 python -m pip install "vghks-sdk @ git+https://github.com/eyeduck-ai/vghks-sdk.git@main"
-python -m pip install output/package/vghks_sdk-0.22.2-py3-none-any.whl
+python -m pip install output/package/vghks_sdk-VERSION-py3-none-any.whl
 ```
 
 SDK wheel 為純 Python `py3-none-any`，仍需 requests、beautifulsoup4，以及 Windows 的 truststore。完全離線部署時，在與目標相符的 Python／OS 環境先準備 wheel 及依賴：
 
 ```sh
-python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-0.22.2-py3-none-any.whl
-python -m pip install --no-index --find-links wheelhouse vghks-sdk==0.22.2
+python -m pip download --only-binary=:all: --dest wheelhouse output/package/vghks_sdk-VERSION-py3-none-any.whl
+python -m pip install --no-index --find-links wheelhouse vghks-sdk==VERSION
 ```
 
 ## 發布檢查
@@ -119,6 +121,8 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 | `dist/vghks-live-test.exe`、`output/build-info.json` | 保留現行 EXE 與其建置資訊，更新後完成 localhost 驗證 |
 | `output/package/`、驗證報告 | 保留目前版本套件及近期檢查結果，舊套件、重複 log 與安裝副本可移除 |
 | `build/`、`__pycache__/`、`.ruff_cache/` | 可重建快取；建置相依環境需核對無其他用途後才清除 |
+
+每次整理先記錄清理清單、檔案數與大小，再核對用途。同一版本驗證的逐情境 log 可在總結報告已通過後移除；保留近期完整測試、EXE 驗證總結與建置資訊。暫存安裝副本及舊 wheel／sdist 可重建，原始 HAR／ZIP 和失去原檔後的分析證據不能用版本新舊判斷是否多餘。重構離線分析時，應以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定，避免整理改變結論或範圍。
 
 Windows 清理前解析完整目標路徑，確認仍在 workspace 內；使用 `Remove-Item -LiteralPath`，不跨 shell 組字串刪除。仍被公開匯入、CLI 或測試使用的相容層保留。共用 JSON 原子寫入及本機權限處理由 `local_io.py` 維護。
 

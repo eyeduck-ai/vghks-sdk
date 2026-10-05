@@ -4,7 +4,9 @@ import ast
 import importlib.util
 import io
 import json
+import os
 import socket
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -139,6 +141,48 @@ class ErrorModelTests(unittest.TestCase):
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_offline_import_stays_independent_and_live_exports_remain_compatible(self) -> None:
+        code = """
+import importlib
+import socket
+import sys
+
+def forbid_connection(*args, **kwargs):
+    raise AssertionError('imports attempted a connection')
+
+socket.socket.connect = forbid_connection
+importlib.import_module('vghks_sdk.offline.analyze')
+for module in ('profile', 'runner', 'login', 'auth_edges', 'atomic', 'preflight'):
+    assert 'vghks_sdk.live.' + module not in sys.modules, module
+live = importlib.import_module('vghks_sdk.live')
+exports = {
+    'bundle': ('LiveTestBundleManager', 'pack_incomplete_run'),
+    'config': ('LiveTestConfig',),
+    'profile': ('LIVE_TEST_MRN', 'LiveTestResult', 'run_live_test'),
+}
+for module, names in exports.items():
+    source = importlib.import_module('vghks_sdk.live.' + module)
+    for name in names:
+        assert getattr(live, name) is getattr(source, name), name
+assert set(live.__all__) <= set(dir(live))
+try:
+    live.unknown_export
+except AttributeError:
+    pass
+else:
+    raise AssertionError('unknown export should raise AttributeError')
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, "-c", code],
+                cwd=directory,
+                env={**os.environ, "PYTHONPATH": str(PACKAGE.parent)},
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_operation_registry_and_contract_coverage_are_complete(self) -> None:
         validate_operation_registry()
         validate_contract_coverage()

@@ -86,6 +86,8 @@ python -m build --outdir output/package
 
 一般測試使用合成資料及 localhost，不需要內網、HAR 或帳密。0.22.4 院內回傳已確認 WebMAAS Cookie 遺失後直接 API 自動 SSO 恢復；強制改密碼、自然 TTL 及未出現的失敗仍保留驗證缺口。各功能實際證據集中於 [VALIDATION](docs/VALIDATION.md)。
 
+離線分析只讀原始回傳，Session 對照、恢復證據與重測設定分別處理；讀取設定不載入院內測試流程。原始 HAR／ZIP 保留，舊套件與可重建暫存的清理方式見 [DEVELOPMENT](docs/DEVELOPMENT.md#本機資料整理)。
+
 SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格式標頭。平行任務應各自建立 SDK／Session，並限制所有工作合計的請求量。
 
 ## 本機資料與測試 EXE

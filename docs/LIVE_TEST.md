@@ -2,7 +2,7 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.5，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 與獨立 SSO 恢復；後續 0.22.4 回傳另確認直接 API 自動 SSO 恢復及三份結構化資料一致。0.22.5 改善證據串接與離線判讀，同一 Cookie 情境已無待補的院內測試；自然 TTL 及強制變更仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.6，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 與獨立 SSO 恢復；後續 0.22.4 回傳另確認直接 API 自動 SSO 恢復及三份結構化資料一致。0.22.5 改善證據串接與離線判讀，0.22.6 分拆共用證據及分析模組，測試範圍與登入政策相同。同一 Cookie 情境已無待補的院內測試；自然 TTL 及強制變更仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |

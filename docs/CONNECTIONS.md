@@ -86,7 +86,9 @@ except SDKError as exc:
 
 一般唯讀 API 遇到此回應，Runtime 在操作鎖內最多重建原頁的 WebMAAS SSO 一次，以新角色／表單／token 續查；保留 Portal 與 SectOrd 狀態，不強制送 Portal 密碼。成功仍回傳原模型，診斷 `application_session_recovery_started` 保留原 ErrorInfo，須與同一操作的完成狀態對照；持續 timeout 保留具體錯誤碼，不追加第二次 SSO 或 Portal 恢復。異動及曾送出調閱審查的操作不套用此恢復。
 
-`auth.check` 則保留 WebMAAS 的 AUTHENTICATION／HTTP 200 問題並清除快取，不強制 Portal 登入；呼叫端可以像缺表單一樣安排一次獨立 SSO 複查，但必須確認 Portal OK、失敗僅限 WebMAAS，且尚未經 Runtime 恢復。2026-10-05 的 0.22.3 院內測試確認清除 Cookie 後進入該 timeout 頁、獨立 SSO 複查成功及前後結構化病人資料一致；只發生一次初始密碼 POST，另觀察到兩日倒數。0.22.4 的直接 API 自動恢復尚待院內複驗。
+`auth.check` 則保留 WebMAAS 的 AUTHENTICATION／HTTP 200 問題並清除快取，不強制 Portal 登入；呼叫端可以像缺表單一樣安排一次獨立 SSO 複查，但必須確認 Portal OK、失敗僅限 WebMAAS，且尚未經 Runtime 恢復。2026-10-05 的 0.22.3 院內測試確認清除 Cookie 後進入該 timeout 頁及獨立 SSO 恢復；後續 0.22.4 院內回傳又確認直接基本資料 API 自行重建一次 SSO，EXE 沒有補重試，三份結構化基本資料一致。兩輪各只有一次初始密碼 POST，另觀察到兩日倒數；這些是 Cookie 遺失證據，自然 TTL 仍未測。
+
+0.22.5 的恢復與完成診斷事件增加有限格式的 `capture_operation_id`，可與 raw capture 直接對照。離線分析只有在同一操作的 timeout、SSO、新表單及資料成功完整匹配時，才標記 `WEBMAAS_SSO` 已恢復；事件本身或其他操作的成功都不足以證明。查詢及恢復的 HTTP 行為維持 0.22.4。
 
 自動恢復的例外範圍：
 

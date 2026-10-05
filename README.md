@@ -84,7 +84,7 @@ python tools/check_public_tree.py
 python -m build --outdir output/package
 ```
 
-一般測試使用合成資料及 localhost，不需要內網、HAR 或帳密。近期 0.22.1 院內回傳已確認三日倒數與數值警示；強制改密碼、自然 TTL 及未出現的失敗仍保留驗證缺口。各功能實際證據集中於 [VALIDATION](docs/VALIDATION.md)。
+一般測試使用合成資料及 localhost，不需要內網、HAR 或帳密。0.22.4 院內回傳已確認 WebMAAS Cookie 遺失後直接 API 自動 SSO 恢復；強制改密碼、自然 TTL 及未出現的失敗仍保留驗證缺口。各功能實際證據集中於 [VALIDATION](docs/VALIDATION.md)。
 
 SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格式標頭。平行任務應各自建立 SDK／Session，並限制所有工作合計的請求量。
 

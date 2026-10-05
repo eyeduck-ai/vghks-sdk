@@ -58,4 +58,6 @@ Requests Session（鎖、節流、retry、capture）
 
 **子系統 timeout 與 Portal 恢復分開**：`parsing/webmaas.py` 純辨識同來源固定 timeout 頁及可見通知；AuthenticationAdapter 清除 WebMAAS 狀態並保留中斷頁的允許角色。Runtime 只在可重做的唯讀操作內，以原角色重建一次 SSO，再用新表單續查；不強制 Portal 登入。`auth.check` 保留原問題供獨立複查，EXE 不把後續成功抹成沒有失敗。一般缺表單仍是 PARSE。
 
+**恢復證據必須屬於同一次操作**：Runtime 診斷的 `capture_operation_id` 連到 raw 操作，不能用兩個 recorder 的相同流水號推論。`offline/recovery.py` 核對完整請求次序、明確 timeout、原角色 SSO、新表單、成功結果與完成事件，才標記該回應已恢復；原 readiness 錯誤及後續解析失敗仍保留。舊事件只在完整次序有唯一匹配時驗證，不增加 HTTP。
+
 修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。

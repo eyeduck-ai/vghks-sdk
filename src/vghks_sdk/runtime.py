@@ -463,6 +463,7 @@ class SDKRuntime:
                                 if diagnostics is not None:
                                     diagnostics.record_application_session_recovery(
                                         operation_id=operation_id, app_key=app_key, exc=exc,
+                                        capture_operation_id=raw_operation_id,
                                     )
                                 # Re-enter the interrupted page's recorded SSO
                                 # role once, with no forced Portal login.
@@ -597,6 +598,7 @@ class SDKRuntime:
                 name=name,
                 status=status,
                 exc=exc,
+                capture_operation_id=raw_operation_id,
             )
         if self.raw_capture is not None:
             self.raw_capture.finish_operation(raw_operation_id)

@@ -183,6 +183,36 @@ def main() -> int:
                     assert len(recovery_events) == (1 if mode in {"timeout", "timeout_post"} else 0)
                     environment = json.loads(archive.read("environment.json"))
                     assert environment["sdk_version"] == __version__
+                # Exercise the analyzer inside the actual source/frozen CLI.
+                # An operation OK event alone must not hide an unknown page.
+                analysis_directory = directory / "analysis"
+                analyzed = subprocess.run(
+                    [*command, "--analyze-bundle", str(archives[0]),
+                     "--analysis-output", str(analysis_directory)],
+                    cwd=directory, env=env, capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=60,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                )
+                (output / f"session-{'source' if args.source else 'exe'}-{mode}-analysis.log").write_text(
+                    analyzed.stdout + analyzed.stderr, encoding="utf-8"
+                )
+                analysis = json.loads((analysis_directory / "analysis.json").read_text(encoding="utf-8"))
+                targets = {row["target"]: row["status"] for row in analysis["authentication"]}
+                assert targets["portal"] == ("ERROR" if mode == "relogin_rejected" else "OK")
+                assert targets["webmaas"] == ("BLOCKED" if mode == "relogin_rejected" else
+                                               "ERROR" if mode in {"persistent_missing", "baseline_broken", "persistent_timeout"} else "OK")
+                recovery_status = analysis["session_test"]["direct_api_recovery"]["status"]
+                assert (recovery_status == "VERIFIED") == (mode in {"timeout", "timeout_post"}), (mode, recovery_status)
+                if mode in {"timeout", "timeout_post"}:
+                    assert analysis["session_test"]["direct_patient_values_equal"] is True
+                    assert len(analysis["application_session_recoveries"]) == 1
+                    recovered = analysis["application_session_recoveries"][0]
+                    assert recovered["status"] == "RECOVERED"
+                    assert recovered["correlation"] == "EXPLICIT_OPERATION_LINK"
+                    assert not any(row["capture_id"] == recovered["timeout_capture_id"]
+                                   for row in analysis["problems"])
+                    assert any(row["recovery_type"] == "WEBMAAS_SSO"
+                               for row in analysis["recovered_requests"])
                 results.append({"mode": mode, "status": expected, "login_posts": state["login_posts"],
                                 "raw_response_captured": True, "natural_ttl_verified": False})
                 print(f"PASS {mode}: {expected}", flush=True)

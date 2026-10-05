@@ -156,6 +156,8 @@ class WebMaasSessionTests(unittest.TestCase):
             runtime, auth, transport = readiness_runtime("timeout")
             recorder = DiagnosticRecorder(Path(directory))
             runtime.diagnostics = recorder
+            runtime.raw_capture = MagicMock()
+            runtime.raw_capture.start_operation.return_value = "op-000107"
             spec = operation_spec("webmaas.registration_landing")
             url = runtime.settings.webmaas_base_url + "/RSV/RSV11W001.do"
             result = runtime.execute(spec, lambda: runtime.request_text(spec, url), operation_name="synthetic_read")
@@ -168,6 +170,10 @@ class WebMaasSessionTests(unittest.TestCase):
             self.assertEqual(len(recovery), 1)
             self.assertEqual(recovery[0]["issue"]["code"], "WEBMAAS_SESSION_TIMEOUT")
             self.assertEqual(recovery[0]["issue"]["http_status"], 200)
+            self.assertEqual(recovery[0]["capture_operation_id"], "op-000107")
+            finished = next(row for row in rows if row["event"] == "operation_finished")
+            self.assertEqual(finished["capture_operation_id"], "op-000107")
+            self.assertEqual(finished["operation_id"], recovery[0]["operation_id"])
 
     def test_persistent_application_timeout_stops_after_one_sso_and_keeps_code(self):
         runtime, auth, transport = readiness_runtime("persistent_timeout")

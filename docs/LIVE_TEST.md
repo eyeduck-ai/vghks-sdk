@@ -2,7 +2,7 @@
 
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.4，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 頁、獨立 SSO 恢復及前後病人欄位一致；八步中原失敗一步保留 ERROR。0.22.4 補 timeout 分類及唯讀 API 自動 SSO 恢復，仍需院內複驗；自然 TTL 尚未測試。較完整的失敗分類院內證據仍是 0.22.1 的 89 步，見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.5，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 與獨立 SSO 恢復；後續 0.22.4 回傳另確認直接 API 自動 SSO 恢復及三份結構化資料一致。0.22.5 改善證據串接與離線判讀，同一 Cookie 情境已無待補的院內測試；自然 TTL 及強制變更仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
@@ -24,6 +24,10 @@
 明確 Portal 挑戰由 Runtime 至多恢復一次。若 Portal 正常、只有 WebMAAS 缺表單／token 或 `WEBMAAS_SESSION_TIMEOUT`，且 Runtime 尚未恢復，EXE 可另外做一次 SSO readiness 複查；SDK 此時已清除 WebMAAS 快取。不主動強制 Portal 登入，複查仍失敗就停止病人查詢。原錯誤即使後來恢復仍保留 ERROR，因此 ZIP 可能是 COMPLETED_WITH_ERRORS；應同時查看 `parsed/session/comparison.json` 的 `sso_recheck_succeeded`，不能只看 ZIP 檔名。
 
 Cookie 對照恢復及病人讀取成功後，再清除一次同樣可隔離的 WebMAAS Cookie，直接呼叫基本資料 API；這次沒有 EXE readiness 或重試，驗證 Runtime 對明確 GET／唯讀 POST timeout 的一次 SSO 恢復。`direct_read_after_cookie_loss.status` 保存 API 結果，原回應及 `application_session_recovery_started`／同一操作完成事件才證明確實發生恢復；成功讀取本身不證明過期。若前一步已經重送 Portal 登入，或使用手動閒置模式，省略第二次挑戰。正常情況最多三份基本資料結果，不擴大病人樣本。
+
+離線分析的 `session_test.direct_api_recovery.status=VERIFIED` 表示 timeout、原角色 SSO、新表單及最終資料都在同一 SDK 操作中核對成功；`direct_patient_values_equal` 另比對第三份資料與基準。UNVERIFIED 表示缺少完整恢復證據，NOT_OBSERVED 表示成功讀取但沒有觀察到 timeout／恢復，NO_SAMPLE 表示沒有可隔離的 Cookie。`recovered_requests` 保存已恢復的原錯誤，原 readiness ERROR 仍在 `problems`，因此 COMPLETED_WITH_ERRORS 與直接 API 恢復成功可以同時成立。
+
+Session 的登入／SSO 表取最後一個實際執行的 readiness 報告，先前問題另留 `problems`。未執行的複查檔及較早的成功不能替代最後一次失敗；若最後一次沒有返回報告，就維持沒有 readiness 證據。
 
 預設不等待自然過期。若要重現本次閒置問題，從命令列啟動：
 

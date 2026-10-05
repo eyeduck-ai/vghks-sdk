@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.5
+
+- 0.22.4 院內 Session 回傳完成十步；直接基本資料 API 在隔離 Cookie 遺失後自行重建一次原角色 WebMAAS SSO，取得與基準相同的結構化資料，整輪只有一次初始 Portal 密碼 POST。原 readiness 的 timeout ERROR 仍保留；自然 TTL 未測。
+- 修正離線分析把已自動恢復的 timeout 當成未解問題。必須核對同一 SDK 操作的恢復事件、HTTP 請求次序、橋接、原角色、新表單／token、成功資料及完成狀態，才將該 timeout 列入 `recovered_requests`；其他錯誤不被後續成功掩蓋。
+- Runtime 診斷新增有限格式的 `capture_operation_id`，明確串接恢復與操作完成事件，不假設診斷和 raw recorder 的計數器相同。舊回傳以完整請求次序的唯一匹配驗證；缺證據、重複匹配或後續解析失敗仍未確認。
+- Session 離線報告增加直接 API 恢復的 VERIFIED／UNVERIFIED 等狀態，另比對第三份基本資料；整份動態 raw HTML 排除於結構化比較之外。EXE 的原 ERROR、檔名及 exit code 不改寫；唯讀 SSO 恢復政策維持 0.22.4。
+- 修正 Session 計畫的登入／SSO 表錯列 NOT_TESTED，改讀最後一個實際執行的 readiness 報告；未執行的複查檔不能掩蓋失敗，未返回報告時不沿用較早成功。
+
 ## 0.22.4
 
 - 依 0.22.3 Session 院內回傳，辨識同來源 `/webmaas/comm/pageTimeOut.do` 與可見 `Page time out` 通知。以 `ApplicationSessionExpiredError`／`WEBMAAS_SESSION_TIMEOUT` 區分 WebMAAS Session 遺失及未知缺表單，不推論 Portal 過期或自然 TTL。

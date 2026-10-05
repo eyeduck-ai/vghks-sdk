@@ -21,6 +21,7 @@ from ..models.auth import PasswordStatus
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .bundle import BundleReader
 from .opd_review import review_weekly_physicians
+from .recovery import verify_webmaas_recoveries
 from .replay import replay_bundle, request_parts, summarize_replay
 
 _NETWORK_TARGETS = (*(spec.key for spec in AUTH_CHECK_REGISTRY), "mis")
@@ -81,6 +82,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         steps = reader.json("step_results.json")
     if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
         raise ConfigurationError("invalid step results", code="BUNDLE_STEPS_INVALID")
+    application_recoveries = verify_webmaas_recoveries(reader, rows)
     steps_by_name = {}
     steps_by_query: dict[str, list[dict]] = defaultdict(list)
     for step in steps:
@@ -128,7 +130,12 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     readiness = (
         reader.json("parsed/readiness.json") if "parsed/readiness.json" in reader.names else {}
     )
-    authentication = _authentication_results(readiness, steps)
+    session_readiness = _recorded_session_readiness(reader, steps)
+    # Session step issues already retain every original check. Use its latest
+    # report only for the readiness table, without adding duplicate problems.
+    authentication = _authentication_results(
+        session_readiness if session_readiness is not None else readiness, steps,
+    )
     connection_profiles = _connection_profiles(reader)
     problems: list[dict[str, str]] = []
     preflight_problems: list[dict[str, str]] = []
@@ -312,6 +319,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "unverified_tls_services": unverified_services,
         "preflight_findings": preflight_problems,
         "recovered_requests": [row for row in rows if row.get("recovered")],
+        "application_session_recoveries": application_recoveries,
         "expected_login_rejections": expected_rows,
         "expected_unauthenticated_responses": anonymous_rows,
         "bundle_status": run_status,
@@ -332,7 +340,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "problems": problems,
         "operations": matrix,
         "replay": summarize_replay(rows),
-        "session_test": _session_test_summary(reader, steps, rows),
+        "session_test": _session_test_summary(reader, steps, rows, application_recoveries),
         "opd_evidence": _opd_evidence(reader, steps, rows),
         "weekly_opd_workflow": _weekly_opd_summary(reader),
         "weekly_physician_review": review_weekly_physicians(reader),
@@ -347,7 +355,8 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     return report, _retest_config(config, matrix, main, run_status)
 
 
-def _session_test_summary(reader: BundleReader, steps: list[dict], rows: list[dict]) -> dict:
+def _session_test_summary(reader: BundleReader, steps: list[dict], rows: list[dict],
+                          application_recoveries: list[dict] | None = None) -> dict:
     """Keep cookie/idle observations separate from retained failures and TTL."""
     path = "parsed/session/comparison.json"
     if path not in reader.names:
@@ -379,6 +388,26 @@ def _session_test_summary(reader: BundleReader, steps: list[dict], rows: list[di
                              {k: v for k, v in after_value.items() if k != "raw_html"})
     direct = next((s for s in steps if s.get("name") ==
                    "session.direct_after_cookie_loss.webmaas.basic_info"), None)
+    direct_equality = None
+    baseline_path = "parsed/session/baseline/webmaas.basic_info.json"
+    direct_path = "parsed/session/direct_after_cookie_loss/webmaas.basic_info.json"
+    if baseline_path in reader.names and direct_path in reader.names:
+        before, after = reader.json(baseline_path), reader.json(direct_path)
+        direct_equality = ({k: v for k, v in before.items() if k != "raw_html"} ==
+                           {k: v for k, v in after.items() if k != "raw_html"})
+    verified = next((r for r in application_recoveries or [] if r["status"] == "RECOVERED"
+                     and r["operation"] == "webmaas.basic_info" and direct
+                     and _in_capture_range({"capture_id": r["timeout_capture_id"]}, direct)
+                     and _in_capture_range({"capture_id": r["result_capture_id"]}, direct)), None)
+    direct_status = direct.get("status") if direct else None
+    recovery_status = ("NOT_TESTED" if direct is None else
+                       "FAILED" if direct_status in {"ERROR", "BLOCKED"} else
+                       "VERIFIED" if direct_status == "OK" and verified else
+                       "UNVERIFIED" if any(row["error_code"] == "WEBMAAS_SESSION_TIMEOUT"
+                                           and _in_capture_range(row, direct) for row in rows) else
+                       "NOT_OBSERVED")
+    if direct is None and (source.get("direct_read_after_cookie_loss") or {}).get("status") == "NO_SAMPLE":
+        recovery_status = "NO_SAMPLE"
     return {
         "status": "OBSERVED", "challenge": kind,
         "natural_ttl_verified": False, "original_failures_retained": True,
@@ -386,7 +415,12 @@ def _session_test_summary(reader: BundleReader, steps: list[dict], rows: list[di
                               for row in rows if row["error_code"] == "WEBMAAS_SESSION_TIMEOUT"],
         "sso_rechecks": rechecks, "parsed_patient_values_equal": equality,
         "direct_read_status": direct["status"] if direct and direct.get("status") in
-                              {"OK", "ERROR", "BLOCKED"} else "NOT_TESTED",
+                              {"OK", "ERROR", "BLOCKED"} else "NO_SAMPLE" if
+                              recovery_status == "NO_SAMPLE" else "NOT_TESTED",
+        "direct_patient_values_equal": direct_equality,
+        "direct_api_recovery": {"status": recovery_status,
+                                "timeout_capture_id": verified["timeout_capture_id"] if verified else "",
+                                "result_capture_id": verified["result_capture_id"] if verified else ""},
     }
 
 
@@ -628,6 +662,22 @@ def _safe_network_step(value: Any) -> str:
         )
         else ""
     )
+
+
+def _recorded_session_readiness(reader: BundleReader, steps: list[dict]) -> dict | None:
+    paths = {f"session.{phase}.{check}": f"parsed/session/{phase}/{check}.json"
+             for phase in ("baseline", "after_cookie_loss", "after_idle")
+             for check in ("auth_check", "sso_recheck")}
+    selected = next((s for s in reversed(steps) if s.get("name") in paths), None)
+    if selected is None:
+        return None
+    path = paths[selected["name"]]
+    # Unexecuted/stale files cannot replace the latest recorded check. If it
+    # threw before returning a report, earlier readiness is not current proof.
+    if selected.get("status") not in {"OK", "ERROR"} or path not in reader.names:
+        return {}
+    report = reader.json(path)
+    return report if isinstance(report, dict) and isinstance(report.get("targets"), list) else {}
 
 
 def _authentication_results(
@@ -995,7 +1045,10 @@ def _markdown(report: dict[str, Any]) -> str:
         lines += [
             f"WebMAAS Session 情境：{session['challenge']}；辨識到 {len(session['timeout_responses'])} 份明確 timeout 回應。",
             f"獨立 SSO 複查：{session['sso_rechecks']}；直接 API 讀取：{session['direct_read_status']}。",
-            f"前後結構化病人欄位一致：{session['parsed_patient_values_equal']}（排除 raw HTML 的動態 token）。",
+            f"直接 API 的 Runtime SSO 恢復證據：{session['direct_api_recovery']['status']}；"
+            f"直接查詢與基準的結構化資料一致：{session['direct_patient_values_equal']}。",
+            f"前後結構化病人欄位一致：{session['parsed_patient_values_equal']}（排除整份動態 raw HTML）。",
+            "已證實恢復的 timeout 另列 recovered_requests；未恢復及原 readiness 錯誤仍保留。",
             "原始失敗仍保留；Cookie 遺失不證明自然閒置 TTL。", "",
         ]
     if report["no_sample_steps"]:

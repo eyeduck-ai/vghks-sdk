@@ -260,12 +260,15 @@ class DiagnosticRecorder:
         name: str,
         status: str,
         exc: BaseException | None = None,
+        capture_operation_id: str = "",
     ) -> None:
         payload: dict[str, Any] = {
             "operation_id": operation_id,
             "operation": _safe_code(name),
             "status": _safe_code(status),
         }
+        if re.fullmatch(r"op-\d{6,12}", capture_operation_id, re.ASCII):
+            payload["capture_operation_id"] = capture_operation_id
         if exc is not None:
             payload["error_code"] = _safe_code(error_code(exc))
             payload["error_type"] = _safe_code(exc.__class__.__name__)
@@ -285,11 +288,15 @@ class DiagnosticRecorder:
 
     def record_application_session_recovery(
         self, *, operation_id: int, app_key: str, exc: BaseException,
+        capture_operation_id: str = "",
     ) -> None:
-        self._write("application_session_recovery_started", {
+        payload = {
             "operation_id": operation_id, "application": _safe_code(app_key),
             "recovery": "APPLICATION_SSO", "issue": asdict(error_info(exc)),
-        })
+        }
+        if re.fullmatch(r"op-\d{6,12}", capture_operation_id, re.ASCII):
+            payload["capture_operation_id"] = capture_operation_id
+        self._write("application_session_recovery_started", payload)
 
     def record_probe_step(
         self,

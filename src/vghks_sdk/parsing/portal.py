@@ -87,6 +87,22 @@ def is_password_change_destination(target: str, source_url: str, portal_base_url
     )
 
 
+def find_password_change_target(text: str, response_url: str, portal_base_url: str, *, location: str = "") -> str | None:
+    """Select one trusted recorded GET destination; never a form action/callback."""
+    source, portal = urlsplit(response_url), urlsplit(portal_base_url)
+    if source.scheme != portal.scheme or source.netloc.lower() != portal.netloc.lower():
+        return None
+    if location:
+        return urljoin(response_url, location) if is_password_change_destination(
+            location, response_url, portal_base_url
+        ) else None
+    candidates = {urljoin(response_url, target) for _, target in _navigation_literals(text)}
+    if len(candidates) != 1:
+        return None
+    target = next(iter(candidates))
+    return target if is_password_change_destination(target, response_url, portal_base_url) else None
+
+
 def has_portal_login_redirect(text: str, response_url: str, portal_base_url: str) -> bool:
     if "location" not in text:
         return False

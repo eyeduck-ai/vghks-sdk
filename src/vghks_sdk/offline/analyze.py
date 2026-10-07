@@ -28,6 +28,7 @@ from ..models.auth import PasswordStatus
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .bundle import BundleReader
 from .opd_review import review_weekly_physicians
+from .password import password_test_summary
 from .recovery import verify_webmaas_recoveries
 from .replay import replay_bundle, request_parts, summarize_replay
 from .retest import build_retest_config as _retest_config
@@ -365,6 +366,9 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "no_sample_steps": no_sample_steps,
         "scope": "Per-run evidence only. Offline parsing does not verify current intranet access or request sequencing.",
     }
+    password_test = password_test_summary(reader)
+    if password_test is not None:
+        report["password_change_test"] = password_test
     config = reader.json("run_config.json") if "run_config.json" in reader.names else {}
     return report, _retest_config(config, matrix, main, run_status)
 
@@ -388,6 +392,7 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             name,
         )
         failure_check = name in {
+            "password.change_page", "password.basic_info",
             "failures.live.password_policy", "failures.live.unauthenticated",
             "failures.live.negative_before_login", "failures.live.cookie_loss",
             "failures.live.soap", "failures.live.numeric", "failures.live.orders",
@@ -397,6 +402,10 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         detail_reason = (step.get("details") or {}).get("reason")
         if (not reason and login_check and isinstance(detail_reason, str)
                 and detail_reason in {"NO_UNAMBIGUOUS_OPTION", "DEPENDENCY_FAILED"}):
+            reason = detail_reason
+        if not reason and name in {"password.change_page", "password.basic_info"} and isinstance(detail_reason, str) and detail_reason in {
+            "NO_TRUSTED_CHANGE_DESTINATION", "NO_AUTHORIZED_PATIENT",
+        }:
             reason = detail_reason
         if name == "failures.live.password_policy" and not reason:
             reason = "PASSWORD_NOTICE_NOT_OBSERVED"
@@ -416,7 +425,7 @@ def _password_policy_summary(steps: list[dict], rows: list[dict]) -> dict[str, A
 
     recorded = next(
         ((step.get("details") or {}).get("password_status") for step in steps
-         if step.get("name") == "failures.live.password_policy"),
+         if step.get("name") in {"failures.live.password_policy", "password.policy"}),
         None,
     )
     try:
@@ -612,6 +621,8 @@ def _authentication_results(
         target = next((row for row in readiness.get("targets", []) if row.get("target") == key), {})
         if not target:
             target = next((row for row in steps if row.get("name") == f"auth_check.{key}"), {})
+        if not target and key == "portal":
+            target = next((row for row in steps if row.get("name") == "password.login"), {})
         status = target.get("status")
         result.append(
             {
@@ -745,6 +756,9 @@ def _portal_login_evidence(reader: BundleReader) -> list[dict[str, Any]]:
 
 
 def _step_query(step: dict[str, Any]) -> str:
+    # Source-level probes are observations, never Service result coverage.
+    if step.get("name") in {"password.unauthenticated_catalog", "password.existing_cookie_catalog"}:
+        return ""
     key = step.get("operation")
     if key in QUERY_BY_KEY:
         return key
@@ -867,6 +881,17 @@ def _markdown(report: dict[str, Any]) -> str:
             f"前後結構化病人欄位一致：{session['parsed_patient_values_equal']}（排除整份動態 raw HTML）。",
             "已證實恢復的 timeout 另列 recovered_requests；未恢復及原 readiness 錯誤仍保留。",
             "原始失敗仍保留；Cookie 遺失不證明自然閒置 TTL。", "",
+        ]
+    password = report.get("password_change_test")
+    if password:
+        lines += [
+            f"舊帳密登入：{password['login_status']}；帳密判斷：{password['credential_validity']}；"
+            f"原因碼：{password['login_error_code']}。",
+            f"額外密碼頁擷取：{password['change_page']['status']}；"
+            f"SDK 基本資料讀取：{password['patient_read_status']}。",
+            f"匿名目錄可讀：{password['anonymous_catalog_accepted']}；"
+            f"既有 Cookie 的目錄可讀：{password['existing_cookie_catalog']['query_accepted']}。",
+            "目錄可讀不證明帳密有效或可讀所有病歷；未送出密碼變更、未測自然 TTL，原登入錯誤仍保留。", "",
         ]
     if report["no_sample_steps"]:
         lines += [

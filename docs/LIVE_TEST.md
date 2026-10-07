@@ -1,11 +1,12 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.6，EXE 內建 `session` 計畫。2026-10-05 的 0.22.3 院內回傳已確認 Cookie 遺失後的 WebMAAS timeout 與獨立 SSO 恢復；後續 0.22.4 回傳另確認直接 API 自動 SSO 恢復及三份結構化資料一致。0.22.5 改善證據串接與離線判讀，0.22.6 分拆共用證據及分析模組，測試範圍與登入政策相同。同一 Cookie 情境已無待補的院內測試；自然 TTL 及強制變更仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.7，EXE 內建 `password` 計畫，以一次舊密碼登入收集目前強制改密碼的院內回應。這是新增的專項測試；強制變更尚待實際 ZIP 驗證。先前 0.22.4 `session` 院內回傳已確認隔離 Cookie 遺失後直接 API 自行恢復 SSO 及三份結構化資料一致，自然 TTL 仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
+| `password` | 一次舊帳密登入、強制變更頁面及限定唯讀對照 | 舊 Portal 帳密，可選一名授權病人的病歷號 |
 | `session` | WebMAAS 表單驗證、基本資料、Cookie 遺失或手動閒置對照 | 一名授權病人的病歷號、Portal 帳密 |
 | `failures` | 資料狀態、登入拒絕／通知及 Cookie 恢復 | 授權病歷號、Portal 帳密 |
 | `regression` | 病人／SOAP／數值回歸、調閱審查、兩院掛號比較 | 授權病歷號、Portal 帳密，第二組帳密可略過 |
@@ -16,6 +17,31 @@
 | `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
 
 建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## 強制改密碼與舊帳密觀察（password）
+
+目前有強制改密碼頁面時，將新版 `dist/vghks-live-test.exe` 帶入內網並雙擊，輸入院方原帳號與舊密碼；不要填希望改成的新密碼。病歷號可直接 Enter 略過，或提供一名有權讀取的病人。沒有病歷號仍可完成登入及頁面訊號觀察。
+
+1. 獨立 Session 不先登入，直接查一次 PRQ 文件類型目錄，密碼 POST 預算為零。保存匿名登入挑戰或合法 JSON 目錄，作為後續對照。
+2. 主 Session 以輸入的舊密碼登入。整輪實際密碼 POST 上限為一次；未知結果、被拒絕、強制變更或之後查詢要求重新登入時，也不會再次送出密碼。此計畫不產生另一組錯誤密碼。
+3. 保存登入原始 HTTP／HTML／轉址與 SDK 的 `PasswordStatus`。若回應提供唯一、同來源的 `/changePassword.do`、`/changePwd.do` 或 `/modifyPassword.do` 導覽，再 GET 該頁一次；不跟隨其轉址、不重試此 GET、不執行 JS／callback，也不提交改密碼表單。表單 action 不當成 GET 導覽。沒有這種目的地為 `NO_SAMPLE`，已出現在登入回應的強制頁面仍完整保存在 `responses/`。
+4. 登入失敗時，用當次 Cookie 直接再查一次相同 PRQ 目錄，不觸發 SSO 或登入恢復。SDK 相依查詢列為 `BLOCKED`。目錄回應即使合法可讀，也不證明帳密有效或所有病人資料可讀；若匿名對照也可讀，更不能歸因於舊密碼。
+5. 登入正常完成時，呼叫 SDK 的目錄 API，再以提供的病歷號查一次 WebMAAS 基本資料；沒有病歷號為 `NO_SAMPLE`。沒有就診／SOAP／附件、調閱審查或異動；維持預設 0.8–1.8 秒節流，不清 Cookie、不等待自然過期。
+
+`parsed/password/summary.json` 分開保存登入原因、`credential_validity`、SDK 原密碼狀態、額外可信頁 GET 與該頁自己的通知、匿名目錄／既有 Cookie 目錄及 SDK 基本資料結果。只有 SDK 正常完成登入為 `ACCEPTED`；明確密碼拒絕為 `REJECTED`；強制變更、HTTP 拒絕及未知頁面維持 `UNKNOWN`。這不是測試帳密永久有效的保證。
+
+強制變更是要收集的情境，但原登入錯誤仍保留，所以完整跑完也可能輸出 `COMPLETED_WITH_ERRORS`／exit code 1。正常登入卻沒有強制頁或沒有病人樣本，為 `COMPLETED_WITH_GAPS`／exit code 0。請帶回新產生的 ZIP，分析 `password_change_test` 與各步結果，不能只看檔名。離線分析不重送請求，重測設定保留 `password` 的一次密碼預算與原範圍。
+
+ZIP 未加密，完整登入請求、Cookie 及病人回應僅留本機，不放公開 Git／Issue。設定範例見 [password-change.example.json](../configs/password-change.example.json)，不含帳密。
+
+```sh
+python tools/build_live_test_exe.py --default-profile password
+python tools/verify_password_exe.py --source
+python tools/verify_password_exe.py
+dist/vghks-live-test.exe --plan
+```
+
+驗證器以十五種 HTTPS localhost 情境核對文字／表單／轉址強制變更、倒數、未知／HTTP／密碼拒絕、匿名目錄可讀、合法空目錄、強制變更後目錄可讀及查詢過期。核對實際密碼只送一次、改密碼零次、原始 HTML 的 ZIP 保存與實際 CLI 離線分析；這些合成結果不等於院內強制變更已驗證。
 
 ## WebMAAS Session 專項（session）
 
@@ -68,7 +94,7 @@ dist/vghks-live-test.exe --plan
 
 ## 高榮與聯合醫院掛號比較、病歷調閱審查（regression）
 
-以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `session` profile。
+以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `password` profile。
 
 只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
@@ -98,7 +124,7 @@ dist/vghks-live-test.exe --plan
 
 ## 單次門診與歷年眼科掃描病歷（scans）
 
-以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `session` profile。
+以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `password` profile。
 
 只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 

@@ -29,7 +29,7 @@ Requests Session（鎖、節流、retry、capture）
 | offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求；`analyze.py` 組裝報告，`session.py` 解讀 Session 對照，`recovery.py` 核對完整恢復次序，`retest.py` 產生重測設定 |
 | local_io.py | 共用本機 JSON 原子替換與權限處理；保留各入口的錯誤碼及安全欄位白名單 |
 
-密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
+密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。`live/password.py` 負責一次舊帳密觀察：登入受阻時只用既有 Cookie 對照目錄，成功時才使用一般 SDK 病人 API；不放寬 SDK 強制變更政策。可信密碼頁目的地由純 Parser 選擇，測試器另做一次 GET，`offline/password.py` 只整理白名單欄位。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
 
 一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。既有 core/full CLI 持續支援。
 

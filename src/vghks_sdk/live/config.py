@@ -202,27 +202,31 @@ class LiveTestConfig:
             "scans",
             "failures",
             "session",
+            "password",
             "core",
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session, password, core or full"
             )
         if self.login_negative_attempts is None:
-            object.__setattr__(self, "login_negative_attempts", 0 if profile == "session" else 1 if profile == "failures" else 2)
+            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password"} else 1 if profile == "failures" else 2)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if profile == "failures" and self.login_negative_attempts > 1:
             raise ConfigurationError("failures profile permits at most one wrong-password attempt")
         if type(self.session_pause) is not bool or (self.session_pause and profile != "session"):
             raise ConfigurationError("session_pause must be a boolean used with the session profile")
-        if profile == "session":
+        if profile in {"session", "password"}:
             if self.login_negative_attempts:
-                raise ConfigurationError("session profile does not submit wrong passwords")
+                raise ConfigurationError("session/password profiles do not submit wrong passwords")
             if self.include_surgery or self.include_unsigned or self.include_earnings:
-                raise ConfigurationError("session profile only checks WebMAAS patient reads")
+                raise ConfigurationError("session/password profiles exclude surgery, audit and earnings")
             object.__setattr__(self, "download_assets", False)
             object.__setattr__(self, "weekly_opd_soap", False)
+        if profile == "password":
+            object.__setattr__(self, "max_cases", 1)
+            object.__setattr__(self, "max_items", 1)
         if self.max_cases is None:
             object.__setattr__(
                 self,
@@ -287,7 +291,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")

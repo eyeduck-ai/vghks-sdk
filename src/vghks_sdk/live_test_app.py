@@ -82,7 +82,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -249,9 +249,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures or session profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session or password profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -280,7 +280,7 @@ def run_live_test_namespace(
         if config.session_pause and not interactive:
             raise ConfigurationError("--session-pause requires an interactive console")
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
-        patient_required = config.profile != "soap" and (
+        patient_required = config.profile not in {"soap", "password"} and (
             plan is None or any(
                 row["scope"] in {"patient", "history", "text_history"}
                 for row in plan["operations"]
@@ -700,6 +700,14 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "password":
+        print("\n強制改密碼專項: 舊密碼最多送出一次, 不送錯誤密碼或改密碼表單。")
+        print("保存原始頁面; 登入受阻時僅用現有 Cookie 探測 PRQ 目錄, 不重新登入。")
+        if config.test_mrn == SYNTHETIC_MRN:
+            mrn = input("授權病歷號 (Enter 只測登入/目錄, 不查病人): ").strip()
+            if mrn:
+                config = replace(config, test_mrn=mrn)
+        return config
     if config.profile == "session":
         print("\nWebMAAS Session 測試: 單一病人的基本資料與 CHECK_PAT, 保存完整回應及轉址。")
         print("不送錯誤密碼、不下載附件; 登入檢查會驗證當次表單與 token。")

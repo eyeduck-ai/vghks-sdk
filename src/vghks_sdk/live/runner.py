@@ -221,7 +221,14 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile == "session":
+            if config.profile == "password":
+                from .password import run_password_test
+
+                result = run_password_test(
+                    sdk, config, output_dir=manager.run_directory,
+                    raw_capture=raw_capture, diagnostics=diagnostics, run_id=manager.run_id,
+                )
+            elif config.profile == "session":
                 from .session import run_session_test
 
                 result = run_session_test(

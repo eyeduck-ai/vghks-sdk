@@ -95,6 +95,8 @@ EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請�
 
 結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
 
+強制改密碼專項用 `--default-profile password` 建置及 `tools/verify_password_exe.py` 驗證。先以獨立匿名 Session 做 PRQ 目錄對照，再以舊帳密最多送一次密碼 POST；可信同來源已知密碼頁只 GET 一次，不跟隨轉址或提交表單。登入受阻時只對照既有 Cookie 的 PRQ 目錄，SDK 病人查詢為 BLOCKED；正常登入才可查一名授權病人的基本資料。目錄可讀不證明帳密有效；錯誤、未知及強制變更不能藉成功目錄掩蓋。十五種 localhost 情境不等於院內強制變更或自然 TTL 證據。
+
 WebMAAS Session 專項用 `--default-profile session` 建置及 `tools/verify_session_exe.py` 驗證。只有單一授權病人的 CHECK_PAT／基本資料；錯誤密碼預算為零，不做附件或異動。預設只清可隔離的 WebMAAS JSESSIONID，沒有樣本為 NO_SAMPLE；`--session-pause` 改為同一 SDK 等 Enter，不清 Cookie，非互動模式拒絕。缺表單／token 或明確 WebMAAS timeout 僅允許一次獨立 SSO 複查，Runtime 已恢復則不另補登入；原 ERROR 即使恢復仍保留。Cookie 對照成功且未經 Portal 恢復後，再做一次隔離 Cookie 遺失及直接基本資料 API，不由 EXE 補重試；手動閒置省略第二次挑戰。十二種 localhost 情境含實際 source／frozen CLI 的離線恢復驗證，不能替代另列的 0.22.4 院內 Cookie 回傳或自然 TTL 證據。
 
 失敗分類用 `--default-profile failures` 建置、`tools/verify_failure_exe.py` 驗證。68 個無 socket 模擬與實際觀察分開。依本次明確授權，先以獨立 Session 直接查 PRQ 目錄（密碼 POST 預算 0），再以另一 Session 送一次錯誤密碼，明確拒絕後才正確登入；負向結果不明、HTTP 拒絕、意外成功或強制變更即停止後續登入。`--login-negative-attempts 0` 可略過，failures 不接受 2。單一授權病人最多抽兩次門診及兩份報告／JPG 參照，不下載附件。偵測倒數與強制變更，後者不重送登入、不送變更密碼表單。使用者選擇不等待自然過期；清 Cookie 僅驗證遺失恢復，不等於 TTL，未出現通知／分類維持 NO_SAMPLE。0.22.0 院內 90 步已確認預期未登入／錯誤密碼拒絕、正常查詢與 Cookie 恢復；0.22.1 院內 89 步另確認三日倒數、兩份數值警示完整性與相同登入／恢復情境，PDF 按鈕沒有本輪樣本，強制變更仍無院內證據。已確認負向登入後，不為補通知或資料樣本重送錯誤密碼。

@@ -27,7 +27,7 @@ def expected_rejection(step: dict) -> bool:
 def expected_anonymous_challenge(step: dict) -> bool:
     details = step.get("details") or {}
     return (
-        step.get("name") == "failures.live.unauthenticated"
+        step.get("name") in {"failures.live.unauthenticated", "password.unauthenticated_catalog"}
         and step.get("operation") == "prq.upload_types"
         and step.get("status") == "OK"
         and details.get("evidence") == "LIVE_UNAUTHENTICATED"

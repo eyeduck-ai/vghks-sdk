@@ -96,7 +96,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。建置 profile 決定雙擊範圍，原始碼更新不會自動更新既有 EXE。現行 `session` 專項驗證 WebMAAS 表單、基本資料及 Cookie 遺失恢復；預設不測錯誤密碼、不等待自然過期，可用 `--session-pause` 在同一 SDK 閒置後繼續。`failures` 仍提供完整失敗分類及有限負向登入情境。雙擊後輸入授權病歷號與 Portal 帳密，帶回同目錄新產生的 ZIP，詳見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。建置 profile 決定雙擊範圍，原始碼更新不會自動更新既有 EXE。現行 `password` 專項以舊帳密送一次登入、保存強制改密碼訊號及原始頁面，再對照來源目錄是否可讀；正常登入後可選查一名授權病人的基本資料。雙擊後輸入舊 Portal 帳密，病歷號可略過，不送變更密碼表單。`session` 及 `failures` 計畫仍可明確選用。帶回同目錄新產生的 ZIP，詳見 [LIVE_TEST](docs/LIVE_TEST.md#強制改密碼與舊帳密觀察password)。
 
 | 路徑 | 性質 |
 | --- | --- |

@@ -36,8 +36,8 @@ def build_retest_config(
         "review_query",
     }
     value = {key: item for key, item in config.items() if key in allowed}
-    if config.get("profile") == "session":
-        value.update(schema_version=7, profile="session", only_operations=[],
+    if config.get("profile") in {"session", "password"}:
+        value.update(schema_version=7, profile=config["profile"], only_operations=[],
                      session_pause=config.get("session_pause", False), login_negative_attempts=0,
                      download_assets=False)
         resolved = resolve_live_test_config(json_values=value, environ={})

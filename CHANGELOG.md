@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.22.9
+
+- 0.22.8 院內 DBR 專項回傳驗證：23 個步驟、兩份歷年清單共 275 列，兩筆 DBR、四份完整 PDF，錯誤零；其中兩份 PDF 與原整合 debug 的失敗樣本 SHA-256 相同，確認二進位誤送 HTML 密碼解析器的修正已生效。兩個 PACS 檢視器為有效空結果，報告頁為 ATTACHMENT_ONLY，沒有 OCR 或醫療數值擷取。
+- 醫囑組合流程重用測試 runner 已保存的輸入與結果，減少重複原子 JSON 寫入；僅回傳值的自訂 runner 仍自動保存。PDF／JPG 使用共用原子寫入，逐檔 outcome 增加 SHA-256；原有每筆附件可用數保持相容，另增 unique_pdf_files／unique_jpg_files／downloaded_bytes，區分共用附件與實際下載量。
+- 離線分析新增 order_assets：在 ZIP 內逐份核對成功附件的存檔、metadata、大小、SHA-256 與 PDF／JPEG 格式，支援既有未含 hash 的 outcome。缺檔、缺 outcome、內容不符等明確列為問題，不改寫原實測狀態；失敗下載與查無 JPG 不當成成功檔案。
+- 新增共用附件、單次存檔、自訂 runner、磁碟寫入失敗續跑及離線遺失／損壞／metadata／路徑回歸；localhost DBR 工具同步核對唯一檔案數與存檔完整性。0.22.9 的存檔優化須與 0.22.8 的院內下載證據分開看待。
+- 整理附件架構：目錄、MIME／副檔名集中於純 `contracts/order_assets.py`；workflow 分開查詢快取與存檔職責，離線核對只讀契約及純 Parser。公開 Service 型別與原結果路徑保持相容，文件同步說明分層、統計語義及已收到的院內回傳。
+
+## 0.22.8
+
+- 依整合專案 DBR debug 的兩份原始 PDF 重現並修正 `ParserRejectedMarkup`：Runtime 以 PDF／JPEG 檔頭辨識二進位，不解碼成 HTML 或送入密碼／表單解析器。保留原始位元組、檔案完整性及大小限制；MIME 缺失或錯標仍可下載，HTTP 拒絕、登入目的 URL 與實際 HTML 登入／強制改密碼頁仍受檢查。
+- 同步修正只讀離線重解析與安全診斷：支援的二進位只輸出格式與大小結構，附件來源回傳 HTML 時保留登入分類。兩份原始回應在禁止 socket 下通過現行 Service 下載與 replay，原 ZIP 不改寫；新版院內端到端結果仍待回傳。
+- 新增 `dbr` EXE 計畫及建置選項：單一授權病人、歷年全部／各科兩種醫囑清單、預設最多八筆 DBR，保存明細、正文、PDF／JPG 與逐筆來源，跨清單去重並獨立續跑附件分支。未執行及沒有 DBR／PDF 參照保留略過與 NO_SAMPLE；上游錯誤不當作缺樣本，不做刻意錯誤密碼。
+- 新增二進位、登入偽裝附件、截斷／過大檔案及專項範圍合成回歸；`tools/verify_dbr_exe.py` 以十種 localhost HTTPS 情境與實際 CLI 離線 ZIP 分析核對原始檔案、有限登入恢復、失敗續跑與重測範圍。
+
 ## 0.22.7
 
 - 新增 `password` 院內 EXE 專項：一次舊帳密登入、匿名 PRQ 目錄對照、強制變更原始頁面與既有 Cookie 的目錄觀察。正常登入後可選查一名授權病人的基本資料。

@@ -62,6 +62,10 @@ OPHTHALMOLOGY_QUERIES = (
     "prq.pacs_image",
 )
 
+DBR_QUERIES = tuple(
+    key for key in OPHTHALMOLOGY_QUERIES if key not in {"prq.visit_cases", "prq.case_orders"}
+)
+
 
 def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
     config.validate_for_execution()
@@ -107,7 +111,15 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
             for key in OPHTHALMOLOGY_QUERIES
             if config.download_assets or key not in {"prq.pdf_attachment", "prq.pacs_image"}
         )
-    if config.profile == "scans":
+    if config.profile == "dbr":
+        requested = tuple(
+            key for key in DBR_QUERIES
+            if config.download_assets or key not in {"prq.pdf_attachment", "prq.pacs_image"}
+        )
+        # Discover every reference from historical orders, without expanding
+        # the PDF query's alternative SOAP/upload-history producers.
+        specs = tuple(query_spec(key) for key in requested)
+    elif config.profile == "scans":
         # The PDF query has several alternative producers. This focused plan
         # needs only SOAP and upload history, so avoid unrelated report queries.
         specs = tuple(query_spec(key) for key in SCAN_RECORD_QUERIES)
@@ -124,9 +136,9 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         if config.weekly_opd_soap:
             targets = (*targets, "prq")
         targets = tuple(spec.key for spec in resolve_auth_targets(targets))
-    if config.profile == "ophthalmology":
+    if config.profile in {"ophthalmology", "dbr"}:
         targets = ("portal", "prq")
-    network = config.profile in {"comprehensive", "ophthalmology"}
+    network = config.profile in {"comprehensive", "ophthalmology", "dbr"}
     return {
         "schema_version": 1,
         "profile": config.profile,
@@ -164,8 +176,11 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         else [],
         "continue_independent_checks": network,
         "ophthalmology_orders": {
-            "enabled": config.profile == "ophthalmology",
-            "entry_path": "order_list",
+            "enabled": config.profile in {"ophthalmology", "dbr"},
+            "entry_path": "order_history" if config.profile == "dbr" else "order_list",
+            "history_categories": ["*", "OR"],
+            "history_lookback_days": 4000,
+            "case_discovery": config.profile == "ophthalmology",
             "terms": list(config.asset_terms),
             "order_limit_per_term": config.max_items,
             "unexecuted_orders": "record_and_skip_without_consuming_sample_budget",
@@ -215,6 +230,8 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
                 "dependencies": list(
                     ("prq.upload_history", "prq.soap")
                     if config.profile == "scans" and spec.key == "prq.pdf_attachment"
+                    else ("prq.order_history", "prq.order_detail", "prq.order_report")
+                    if config.profile == "dbr" and spec.key == "prq.pdf_attachment"
                     else spec.dependencies
                 ),
                 "requested": spec.key in requested,
@@ -265,7 +282,7 @@ def run_atomic_test(
             login_card=login_card, raw_capture=raw_capture,
             diagnostics=diagnostics, run_id=run_id,
         )
-    if config.profile == "ophthalmology":
+    if config.profile in {"ophthalmology", "dbr"}:
         from .ophthalmology import run_ophthalmology_test
 
         return run_ophthalmology_test(

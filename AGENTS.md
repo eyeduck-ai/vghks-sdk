@@ -23,7 +23,7 @@
 | acquisition | 可選用的統一結果與純資料狀態評估，不新增 HTTP 或重試 | acquisition.py；models/acquisition.py |
 | workflows | 多原子操作組合、去重、階段存檔、錯誤續跑 | workflows/ |
 | live | EXE 參數、讀取測試、coverage、結果 ZIP | live/、live_test_app.py |
-| contracts/offline | 共用純證據判斷、只讀 HAR／ZIP 驗證與重解析 | contracts/auth_evidence.py；offline/analyze.py 組裝報告；session.py／recovery.py／retest.py 各處理對照、恢復與重測設定 |
+| contracts/offline | 共用純證據判斷、只讀 HAR／ZIP 驗證與重解析 | contracts/auth_evidence.py、order_assets.py；offline/analyze.py 組裝報告；assets.py／session.py／recovery.py／retest.py 各處理附件、對照、恢復與重測設定 |
 
 新增原子操作以「一份有意義結果」為單位；SSO、病人 context 及必要分頁可以包含多次 HTTP。不要把 HTTP 細節交給 workflow，也不要讓 Parser 自動選下一名病人。
 
@@ -92,6 +92,10 @@ python -m build --outdir output/package
 Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 `tools/build_live_test_exe.py`。公開版不加 `--defaults`；自用版可用 `--defaults private/live-test-defaults.json`。該 JSON 只接受 test_mrn，不能含帳密。程式啟動時 CLI／JSON／環境參數高於內嵌預設。
 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
+
+歷年 DBR 專項用 `--default-profile dbr` 建置及 `tools/verify_dbr_exe.py` 驗證。單一授權病人、全部／各科歷年清單、預設最多八筆 DBR，不查逐次門診／SOAP；保留未執行、NO_SAMPLE、上游失敗與附件獨立續跑。二進位檔頭可避免 HTML 密碼解析，但不代表檔案完整；HTTP／登入目的 URL／實際 HTML 挑戰、附件格式與大小仍須檢查。十種 localhost source／frozen 情境及兩份原始 DBR PDF 禁止 socket 重解析須與另列的院內回傳分開記錄。
+
+0.22.8 院內 DBR 回傳已驗證兩筆醫囑、四份 PDF，兩份與原失敗樣本 SHA-256 一致；兩個 PACS 為有效空結果，正文仍為 ATTACHMENT_ONLY。0.22.9 改善本機存檔，unique_pdf_files／unique_jpg_files 是實際檔案數，pdf_files／jpg_files 保留逐筆可用數；離線 order_assets 核對存檔完整性，不改原實測狀態。這些存檔優化與院內下載證據分開記錄。
 
 結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
 

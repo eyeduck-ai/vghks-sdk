@@ -200,7 +200,7 @@ def execute_live_test(
         manager.log(
             "Debug output: unencrypted JSON/HTML/binary files and ZIP; captured credentials may be included."
         )
-        if config.profile in {"comprehensive", "ophthalmology", "soap"}:
+        if config.profile in {"comprehensive", "ophthalmology", "dbr", "soap"}:
             manager.log(
                 "Unverified HTTPS fallback for login/query tests: "
                 + (
@@ -251,7 +251,7 @@ def execute_live_test(
                     output_dir=manager.run_directory, raw_capture=raw_capture,
                     diagnostics=diagnostics, run_id=manager.run_id,
                 )
-            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans"}:
+            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans"}:
                 result = run_atomic_test(
                     sdk,
                     config,

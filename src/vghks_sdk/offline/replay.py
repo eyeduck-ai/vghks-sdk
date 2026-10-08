@@ -41,7 +41,7 @@ from ..models import (
     VisitCase,
 )
 from ..models.review import ReviewCasePart, ReviewCaseRef
-from ..parsing.assets import parse_binary_asset
+from ..parsing.assets import binary_asset_media_type, parse_binary_asset
 from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
@@ -456,16 +456,17 @@ def replay_response(
                 "record_count": None,
             }
         entry = HarEntry("", "", frozenset(), frozenset(), {}, 200, content, mime)
-        text = entry.text()
-        password_status = parse_password_status(text, login_stage=operation == "portal.login")
-        if password_status.status != "NO_NOTICE":
-            notice["password_status"] = {
-                "status": password_status.status,
-                "remaining_days": password_status.remaining_days,
-                "evidence": password_status.evidence,
-            }
-        if password_status.status == "CHANGE_REQUIRED":
-            raise PasswordChangeRequiredError("recorded response requires password change")
+        text = "" if binary_asset_media_type(content) else entry.text()
+        if text:
+            password_status = parse_password_status(text, login_stage=operation == "portal.login")
+            if password_status.status != "NO_NOTICE":
+                notice["password_status"] = {
+                    "status": password_status.status,
+                    "remaining_days": password_status.remaining_days,
+                    "evidence": password_status.evidence,
+                }
+            if password_status.status == "CHANGE_REQUIRED":
+                raise PasswordChangeRequiredError("recorded response requires password change")
         if operation.startswith("webmaas.") and is_webmaas_session_timeout(text, response_url, webmaas_base_url):
             raise ParseError("recorded WebMAAS response is its explicit timeout page",
                              code="WEBMAAS_SESSION_TIMEOUT")
@@ -518,11 +519,11 @@ def replay_response(
         if operation not in QUERY_BY_KEY:
             _CONTRACTS[operation].validator(entry)
             return {"status": "CONTRACT_OK", "error_code": "", "record_count": None, **notice}
-        if operation == "prq.pacs_image":
-            value = parse_binary_asset(content, media_type="image/jpeg")
-        elif operation in {"prq.pdf_attachment", "oppl_records.pdf"}:
-            value = parse_binary_asset(content, media_type="application/pdf")
-        else:
+        path = urlsplit(response_url).path.lower()
+        if path.endswith("/login.do") or "syserrorexception.jsp" in path:
+            raise ParseError("recorded query returned an authentication page",
+                             code="AUTH_SESSION_LOGIN_PAGE")
+        if text:
             if has_portal_login_redirect(text, response_url, portal_base_url):
                 raise ParseError(
                     "recorded query returned automatic portal navigation",
@@ -533,6 +534,12 @@ def replay_response(
                 raise ParseError(
                     "recorded response is a login form", code="AUTH_SESSION_LOGIN_FORM"
                 )
+        if operation == "prq.pacs_image":
+            value = parse_binary_asset(content, media_type="image/jpeg")
+        elif operation in {"prq.pdf_attachment", "oppl_records.pdf"}:
+            value = parse_binary_asset(content, media_type="application/pdf")
+        else:
+            soup = BeautifulSoup(text, "html.parser")
             value = _parse(
                 operation, text, params, context_mrn, soup,
                 context_national_id, trusted_visit_context,

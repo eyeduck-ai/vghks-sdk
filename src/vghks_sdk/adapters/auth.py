@@ -443,8 +443,9 @@ class AuthenticationAdapter:
         return verified
 
     def assert_not_expired(self, text: str, response_url: str) -> None:
-        self._observe_password_status(text, response_url)
-        if is_webmaas_session_timeout(text, response_url, self.settings.webmaas_base_url):
+        if text:
+            self._observe_password_status(text, response_url)
+        if text and is_webmaas_session_timeout(text, response_url, self.settings.webmaas_base_url):
             page_id = self._webmaas_page
             self.invalidate_webmaas_session()
             self._webmaas_recovery_page = page_id
@@ -463,6 +464,8 @@ class AuthenticationAdapter:
                 operation="auth.session",
                 endpoint_path=urlsplit(response_url).path,
             )
+        if not text:
+            return
         if has_portal_login_form(text):
             raise error_type(
                 "application session returned the portal login form",

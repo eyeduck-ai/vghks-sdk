@@ -1,11 +1,12 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.7，EXE 內建 `password` 計畫，以一次舊密碼登入收集目前強制改密碼的院內回應。這是新增的專項測試；強制變更尚待實際 ZIP 驗證。先前 0.22.4 `session` 院內回傳已確認隔離 Cookie 遺失後直接 API 自行恢復 SSO 及三份結構化資料一致，自然 TTL 仍未測。驗證範圍見 [VALIDATION](VALIDATION.md)。
+目前 SDK 原始碼與本機單檔 EXE 為 0.22.9，EXE 內建 `dbr` 計畫，驗證歷年醫囑的 DBR 報告與 PDF／JPG 下載。0.22.8 院內回傳已確認兩筆 DBR、四份 PDF 成功，其中兩份與原整合 debug 失敗檔案相同。0.22.9 改善存檔與離線完整性核對；本機驗證與院內執行證據分開記錄，見 [VALIDATION](VALIDATION.md)。`password`、`session` 等專項仍可明確選用。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
+| `dbr` | 歷年醫囑 DBR 明細／報告、PDF／JPG 抽樣及逐筆證據 | 一名授權病人的病歷號、Portal 帳密 |
 | `password` | 一次舊帳密登入、強制變更頁面及限定唯讀對照 | 舊 Portal 帳密，可選一名授權病人的病歷號 |
 | `session` | WebMAAS 表單驗證、基本資料、Cookie 遺失或手動閒置對照 | 一名授權病人的病歷號、Portal 帳密 |
 | `failures` | 資料狀態、登入拒絕／通知及 Cookie 恢復 | 授權病歷號、Portal 帳密 |
@@ -17,6 +18,25 @@
 | `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
 
 建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## 歷年醫囑 DBR 專項（dbr）
+
+```sh
+python tools/build_live_test_exe.py --default-profile dbr
+python tools/verify_dbr_exe.py
+```
+
+將 `dist/vghks-live-test.exe` 搬入院內，雙擊後輸入授權病歷號及 Portal 帳密。以 `orders.get_order_history` 取得全部（`*`）及各科（`OR`）兩份歷年清單，使用來源的全部期間參數 4000 天；預設從清單挑最多八筆已執行或狀態未知的 DBR。可用 `--max-items` 調整抽樣上限，`--order-date` 指定醫囑日期。
+
+每筆先取得明細及報告，獨立保存正文、PDF 及 JPG；兩份歷年清單中的同一參照只查／下載一次。未執行不消耗抽樣額度；單筆或附件失敗仍保留錯誤並處理其他分支。沒有 DBR 或沒有 PDF 參照為 NO_SAMPLE，上游失敗為 ERROR／BLOCKED。來源清單、每筆結果與原始附件位於 ZIP 的 `parsed/workflows/ophthalmology_orders/`，原始 HTTP 與診斷另存於同包。
+
+0.22.8 院內回傳已驗證兩筆 DBR、四份 PDF；其中兩份與原 debug 失敗檔案位元組相同。兩份報告頁都只有附件，兩個 JPG 檢視器都明示無資料。這證實該次歷年下載流程，不能推論所有病人的 DBR、JPG 或醫療文字均已取得。
+
+0.22.9 附件使用原子寫入，outcome 保留 SHA-256。`pdf_files`／`jpg_files` 仍是逐筆醫囑的可用數，`unique_pdf_files`／`unique_jpg_files` 與 `downloaded_bytes` 才是實際成功下載數與位元組量。離線分析的 `order_assets` 另核對存檔大小、hash 與格式；原實測成功但存檔遺失或損壞時，分析結果會列為 NEEDS_ATTENTION，原始 live_status 不變。
+
+本計畫從歷年醫囑直接發現參照，不查逐次門診／SOAP。沒有刻意錯誤密碼、Cookie 清除或等待自然 TTL；真實下載過期仍由 SDK 的既有唯讀 Runtime 最多恢復一次。PDF／JPG 只驗證下載與檔案格式，不包含 OCR。帶回 EXE 同目錄產生的 ZIP，重新解析結果與原始實測狀態分別保留。
+
+`tools/verify_dbr_exe.py --source` 先驗證原始碼，預設則驗證 frozen EXE。十種 localhost 情境涵蓋正常跨年份清單、MIME 缺失／錯標、損壞 PDF、偽裝成 PDF 的登入頁、一次恢復／持續過期、HTTP 403、沒有 DBR 與沒有 PDF 參照，均以實際 CLI 分析 ZIP 並保留專項重測設定。
 
 ## 強制改密碼與舊帳密觀察（password）
 

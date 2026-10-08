@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..contracts.order_assets import ORDER_WORKFLOW_PATH
 from ..core.errors import ErrorInfo
 from ..local_io import write_json_atomic
 from ..models import OrderHistoryFilter, to_jsonable
@@ -36,7 +37,7 @@ def run_ophthalmology_test(
 ) -> LiveTestResult:
     root = output_dir.resolve()
     root.mkdir(parents=True, exist_ok=True)
-    workflow_root = root / "parsed/workflows/ophthalmology_orders"
+    workflow_root = root / ORDER_WORKFLOW_PATH
     discovery = workflow_root / "stage1_discovery"
     write_json_atomic(root / "test_plan.json", plan)
     steps: list[LiveTestStep] = []
@@ -74,12 +75,13 @@ def run_ophthalmology_test(
         )
 
     sources = {}
+    prefix = config.profile
     if ready:
         # Test both recorded order selectors without fetching unrelated reports.
         # A failure in either history query still permits case discovery.
         for label, category in (("history_all", "*"), ("history_departmental", "OR")):
             rows, _ = query(
-                f"ophthalmology.{label}",
+                f"{prefix}.{label}",
                 "prq.order_history",
                 {
                     "mrn": config.test_mrn,
@@ -89,56 +91,58 @@ def run_ophthalmology_test(
             )
             if rows is not None:
                 sources[label] = rows
-        cases, _ = query(
-            "ophthalmology.visits",
-            "prq.visit_cases",
-            {"mrn": config.test_mrn},
-            discovery / "visits.json",
-        )
-        selected = config.visit_filter.select(cases or [])
-        if config.visit_date:
-            selected = [case for case in selected if case.visit_date == config.visit_date]
-        target_cases = {
-            (order.case_type, order.case_no)
-            for rows in sources.values()
-            for order in rows
-            if matching_order_terms(order, config.asset_terms)
-            and classify_order_execution(order.status) != "NOT_EXECUTED"
-        }
-        # Include the visits containing completed target tests, even when older
-        # than the latest six visits. Remaining slots cover recent eye visits.
-        selected.sort(
-            key=lambda case: case.visit_date.isoformat() if case.visit_date else "", reverse=True
-        )
-        selected.sort(key=lambda case: (case.case_type, case.case_no) not in target_cases)
-        write_json_atomic(
-            discovery / "visit_selection.json",
-            {
-                "matching_visits": len(selected),
-                "selected": to_jsonable(selected[: config.max_cases]),
-                "omitted": max(0, len(selected) - config.max_cases),
-                "policy": "target order visits first, then recent visits matching the configured filter",
-            },
-        )
-        for index, case in enumerate(selected[: config.max_cases], 1):
-            label = f"case_{index:04d}"
-            rows, _ = query(
-                f"ophthalmology.{label}",
-                "prq.case_orders",
-                {"case": case},
-                discovery / f"{label}.json",
+        if config.profile == "ophthalmology":
+            cases, _ = query(
+                "ophthalmology.visits",
+                "prq.visit_cases",
+                {"mrn": config.test_mrn},
+                discovery / "visits.json",
             )
-            if rows is not None:
-                sources[label] = rows
+            selected = config.visit_filter.select(cases or [])
+            if config.visit_date:
+                selected = [case for case in selected if case.visit_date == config.visit_date]
+            target_cases = {
+                (order.case_type, order.case_no)
+                for rows in sources.values()
+                for order in rows
+                if matching_order_terms(order, config.asset_terms)
+                and classify_order_execution(order.status) != "NOT_EXECUTED"
+            }
+            # Include old visits containing completed target tests first.
+            selected.sort(
+                key=lambda case: case.visit_date.isoformat() if case.visit_date else "", reverse=True
+            )
+            selected.sort(key=lambda case: (case.case_type, case.case_no) not in target_cases)
+            write_json_atomic(
+                discovery / "visit_selection.json",
+                {
+                    "matching_visits": len(selected),
+                    "selected": to_jsonable(selected[: config.max_cases]),
+                    "omitted": max(0, len(selected) - config.max_cases),
+                    "policy": "target order visits first, then recent visits matching the configured filter",
+                },
+            )
+            for index, case in enumerate(selected[: config.max_cases], 1):
+                label = f"case_{index:04d}"
+                rows, _ = query(
+                    f"ophthalmology.{label}",
+                    "prq.case_orders",
+                    {"case": case},
+                    discovery / f"{label}.json",
+                )
+                if rows is not None:
+                    sources[label] = rows
     else:
         steps.append(
             LiveTestStep(
-                "ophthalmology.discovery",
+                f"{prefix}.discovery",
                 "BLOCKED",
                 operation="prq.order_history",
                 issue=ErrorInfo("READINESS_FAILED", "DEPENDENCY"),
             )
         )
+    blocked_reason = ("PRQ_NOT_READY" if not ready else
+                      "ORDER_HISTORY_FAILED" if config.profile == "dbr" and not sources else "")
     workflow = collect_order_reports(
         sdk,
         order_sources=sources,
@@ -147,16 +151,16 @@ def run_ophthalmology_test(
         max_orders_per_term=config.max_items,
         download_assets=config.download_assets,
         query_runner=query,
-        blocked_reason="PRQ_NOT_READY" if not ready else "",
+        blocked_reason=blocked_reason,
     )
     steps.append(
         LiveTestStep(
-            "ophthalmology.results",
+            f"{prefix}.results",
             "BLOCKED"
-            if not ready
+            if blocked_reason
             else "ERROR"
             if workflow.status == "INCOMPLETE"
-            else "EMPTY"
+            else ("NO_SAMPLE" if config.profile == "dbr" else "EMPTY")
             if workflow.status == "NO_MATCHING_ORDERS"
             else "OK",
             output=workflow.manifest_path.relative_to(root).as_posix(),
@@ -166,6 +170,20 @@ def run_ophthalmology_test(
             else None,
         )
     )
+    if (config.profile == "dbr" and ready and config.download_assets
+            and not any(step.operation == "prq.pdf_attachment" for step in steps)):
+        # No reference is a sampling gap only when discovery/report branches
+        # succeeded. Upstream errors cannot be disguised as a missing sample.
+        history_failed = any(step.operation == "prq.order_history" and step.status == "ERROR"
+                             for step in steps)
+        blocked = not sources or history_failed or bool(workflow.counts.get("query_errors"))
+        steps.append(LiveTestStep(
+            "dbr.pdf_sample", "BLOCKED" if blocked else "NO_SAMPLE",
+            operation="prq.pdf_attachment",
+            details={"reason": "ORDER_HISTORY_FAILED" if history_failed else
+                     "REPORT_BRANCH_FAILED" if blocked else "NO_DBR_PDF_REFERENCE"},
+            issue=ErrorInfo("DEPENDENCY_FAILED", "DEPENDENCY") if blocked else None,
+        ))
     write_json_atomic(root / "step_results.json", to_jsonable(steps))
     status = _overall_status(steps, fatal_auth=fatal)
     _write_coverage(root, plan, steps, status)

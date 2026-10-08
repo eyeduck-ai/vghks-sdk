@@ -217,6 +217,9 @@ def main():
             (output / "exe-ophthalmology.log").write_text(
                 process.stdout + process.stderr, encoding="utf-8"
             )
+            if process.returncode != 1:
+                for archive in directory.glob("*.zip"):
+                    shutil.copy2(archive, output / "exe-ophthalmology-unexpected.zip")
             assert process.returncode == 1, process.returncode  # Two intentional asset failures.
             archives = list(directory.glob("*.zip"))
             assert len(archives) == 1 and not list(directory.glob("*.sha256"))

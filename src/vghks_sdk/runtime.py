@@ -28,6 +28,7 @@ from .core.operations import OperationSpec
 from .core.readiness import AuthCheckSpec, make_auth_report, resolve_auth_targets
 from .core.transport import SafeSessionTransport
 from .models import AuthCheckReport, AuthCheckTarget, PasswordStatus
+from .parsing.assets import binary_asset_media_type
 from .parsing.portal import is_portal_login_destination
 
 T = TypeVar("T")
@@ -404,7 +405,11 @@ class SDKRuntime:
         )
 
     def _raise_if_expired_response(self, response: object) -> None:
-        text = self.transport.text(response)  # type: ignore[arg-type]
+        content = bytes(getattr(response, "content", b"") or b"")
+        # Compressed PDF/JPEG bytes can contain HTML-like declarations. Keep
+        # them out of policy/form parsers, even with missing or wrong MIME.
+        # Empty text still lets AuthenticationAdapter check the final URL.
+        text = "" if binary_asset_media_type(content) else self.transport.text(response)  # type: ignore[arg-type]
         url = str(getattr(response, "url", ""))
         self.auth.assert_not_expired(text, url)
 

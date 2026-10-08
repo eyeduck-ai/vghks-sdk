@@ -56,7 +56,7 @@ def build_retest_config(
             if row["live_status"] in {"FAILED", "BLOCKED", "MISSING", "EMPTY"}
         ]
     )
-    if config.get("profile") in {"comprehensive", "ophthalmology", "visits", "login", "regression", "scans"}:
+    if config.get("profile") in {"comprehensive", "ophthalmology", "dbr", "visits", "login", "regression", "scans"}:
         # First-run scenarios include category/date variants which an atomic
         # default call would not reproduce. Preserve the complete scenario set.
         value.update(

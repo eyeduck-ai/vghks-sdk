@@ -82,7 +82,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -249,9 +249,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session or password profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, dbr, visits, soap, regression, scans, failures, session or password profile"
             )
         print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
         return 0
@@ -761,6 +761,11 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
         print("不測審查、手術、薪資或附件; 結果 ZIP 不加密, 存於 EXE 同目錄。")
         mrn = _prompt_required("測試病歷號 (Enter 沿用)", config.test_mrn)
         return replace(config, test_mrn=mrn)
+    if config.profile == "dbr":
+        print("\nDBR 歷年醫囑專項: 單一授權病人, 全部及各科醫囑歷年清單。")
+        print(f"最多抽樣 {config.max_items} 筆已執行或狀態未知的 DBR, 獨立取得報告正文、PDF 及 JPG。")
+        print("未執行醫囑保留略過狀態; 沒有 DBR 樣本會明確記錄。")
+        print("結果 ZIP 存於 EXE 同目錄; 附件保留原檔, 不做 OCR。")
     if config.profile == "ophthalmology":
         print("\nOphthalmology orders: DBR / Microsonography, case and historical order lists.")
         print(
@@ -796,7 +801,7 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
             print(
                 f"Doctor queries: OPD {config.opd_date}; surgery/unsigned {config.range_start}..{config.range_end}"
             )
-    if config.profile in {"auth", "atomic", "comprehensive", "ophthalmology"}:
+    if config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "dbr"}:
         plan = build_test_plan(config)
         print(
             f"Profile: {config.profile}; queries: {len(plan['operations'])}; max cases: {config.max_cases}; max items: {config.max_items}"

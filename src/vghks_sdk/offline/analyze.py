@@ -21,11 +21,13 @@ from ..contracts.auth_evidence import (
 from ..contracts.auth_evidence import (
     verified_cookie_recovery as _verified_cookie_recovery,
 )
+from ..contracts.order_assets import ORDER_WORKFLOW_PATH
 from ..core.errors import ConfigurationError
 from ..core.readiness import AUTH_CHECK_REGISTRY
 from ..local_io import write_json_atomic
 from ..models.auth import PasswordStatus
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
+from .assets import verify_order_assets
 from .bundle import BundleReader
 from .opd_review import review_weekly_physicians
 from .password import password_test_summary
@@ -239,6 +241,12 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
                 for item in destination
             ):
                 destination.append(problem)
+    order_assets = verify_order_assets(reader, steps)
+    problems.extend(
+        {"phase": "DATA", "code": issue["code"], "operation": issue["operation"],
+         "capture_id": "", "step": ""}
+        for issue in order_assets["issues"]
+    )
     priority = {
         "CONNECTIVITY": 0,
         "AUTHENTICATION": 1,
@@ -360,6 +368,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "weekly_opd_workflow": _weekly_opd_summary(reader),
         "weekly_physician_review": review_weekly_physicians(reader),
         "ophthalmology_orders": _ophthalmology_summary(reader),
+        "order_assets": order_assets,
         "earnings_reports": _earnings_results(steps),
         "report_content": _report_content_summary(steps, rows),
         "no_sample_operations": [row["operation"] for row in matrix if row["live_status"] == "NO_SAMPLE"],
@@ -467,7 +476,7 @@ def _data_quality_summary(steps: list[dict], rows: list[dict]) -> dict[str, Any]
 
 
 def _ophthalmology_summary(reader: BundleReader) -> dict[str, Any]:
-    path = "parsed/workflows/ophthalmology_orders/manifest.json"
+    path = ORDER_WORKFLOW_PATH + "manifest.json"
     if path not in reader.names:
         return {"status": "NOT_RUN"}
     manifest = reader.json(path)
@@ -958,6 +967,13 @@ def _markdown(report: dict[str, Any]) -> str:
         lines += [
             "",
             "未執行醫囑只記錄略過；JPG 查無資料是有效空結果。PDF/JPG 成功下載不等於已抽取文字或數值；各筆來源、正文與附件位於 parsed/workflows/ophthalmology_orders/。",
+            "",
+        ]
+        assets = report.get("order_assets", {})
+        lines += [
+            f"附件存檔核對：{assets.get('status', 'NOT_RUN')}；"
+            f"PDF {assets.get('pdf_files', 0)}、JPG {assets.get('jpg_files', 0)}，"
+            f"問題 {len(assets.get('issues', []))}。逐檔核對下載 metadata 的大小、SHA-256 及檔案格式；原始實測狀態維持不變。",
             "",
         ]
     opd = report["opd_evidence"]

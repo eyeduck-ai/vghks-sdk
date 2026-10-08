@@ -6,7 +6,8 @@
 
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |
 | --- | --- | --- |
-| SDK／單檔 EXE | 0.22.1 院內 `failures` 已完成 89 步；0.22.4 `session` 十步含直接 API 自動 SSO 恢復成功 | 0.22.5／0.22.6 架構及證據串接、0.22.7 密碼專項有本機驗證；強制變更仍待新院內 ZIP，PDF 按鈕只有舊原頁重解析及 localhost 證據 |
+| SDK／單檔 EXE | 0.22.1 院內 `failures` 89 步；0.22.4 `session` 直接 API 自動 SSO 恢復；0.22.8 `dbr` 23 步、兩筆醫囑與四份 PDF | 0.22.9 存檔優化、強制改密碼與自然 TTL |
+| DBR PDF 下載 | 0.22.8 院內兩種歷年清單成功，四份 PDF 逐檔與 raw 及 metadata 一致；兩份與原 debug 失敗樣本 SHA-256 相同 | 本輪沒有 JPG、HTML 正文或其他病人樣本；0.22.9 優化尚未院內重跑 |
 | WebMAAS 閒置後失敗 | 0.22.3 院內 Cookie 遺失已取得 timeout 原頁；0.22.4 直接 API 自行 SSO 恢復且三份基本資料一致 | 舊平台自然閒置未保存失敗 HTML；自然 TTL 仍未院內證實 |
 | 失敗分類與密碼狀態 | 0.22.1 三日倒數、未登入／錯誤密碼拒絕及 Cookie 恢復；0.22.3 兩日倒數與 WebMAAS timeout | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
 | 高榮與聯合醫院掛號 | 0.20.11 的兩組帳號均完成直接掛號、先查 `CHECK_PAT` 後掛號；同帳號兩次結果一致 | WebMAAS 缺表單備援未自然觸發；舊應用失敗頁缺原始回應，根因仍未證實 |
@@ -16,8 +17,10 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.22.7，新增一次舊帳密的強制改密碼專項；保留原 SDK 的登入、強制變更與 WebMAAS SSO 恢復政策。可信密碼頁靜態選擇、測試器單次 GET 與離線白名單摘要分層，不在 Parser／offline 發 HTTP。
-- 本機現行 EXE：0.22.7、`password` 計畫，build_id=`20261007T075545Z`，沒有 private defaults。整輪實際密碼 POST 最多一次，改密碼表單零次；先匿名目錄對照，登入受阻後只對照既有 Cookie 目錄，正常登入才可選一名病人。目錄可讀不證明帳密有效或完整病歷可讀。`session`／`failures` 計畫仍可明確選用。
+- SDK 原始碼：0.22.9，保留 0.22.8 的二進位隔離修正，改善單次 JSON 存檔、附件原子寫入、唯一檔案統計與離線存檔大小／SHA-256／格式核對。HTTP／登入 URL／HTML 挑戰、附件格式及大小檢查保留；強制改密碼與子系統恢復政策不放寬。
+- 本機現行 EXE：0.22.9、`dbr` 計畫，build_id=`20261008T115643Z`，Python 3.10.6 x64／PyInstaller 6.14.2／truststore 0.10.4，沒有 private defaults。單一授權病人的全部／各科歷年醫囑，最多八筆 DBR，保存 PDF／JPG；沒有刻意錯誤密碼或 Cookie 挑戰。其他計畫仍可明確選用。
+- 0.22.9 完整 suite 663 項：651 項通過、12 項私有條件跳過；相關 unittest 77 項通過，包含一般 SDK import 不載入 live／offline／錄製契約及離線分析不載入測試執行流程。新增共用附件僅下載一次、runner 已存檔不重寫、自訂 runner 的存檔備援、單份附件寫入失敗仍續跑，以及缺檔／缺 outcome／錯誤大小／hash／格式／metadata／路徑回歸。source 與 frozen EXE 各十種 localhost DBR 情境及實際 CLI 離線分析通過；共享眼科流程的既有 frozen 工具亦確認正文／多份 PDF／JPG／附件失敗續跑。現行 EXE 分析同一院內 ZIP 的完整報告（排除 analyzer build）及重測設定與原始碼完全一致，四份 PDF 核對通過，原 ZIP 不變。這些本機存檔證據不替代另列的 0.22.8 院內執行結果。
+- 0.22.8 完整 suite 653 項：641 項通過、12 項私有條件測試跳過。`dbr` source 與 frozen EXE 各十種 localhost HTTPS 情境通過，包含真正零參數啟動、舊 sidecar／profile 不擴大計畫、跨年份參照、PDF／JPG 原始位元組、MIME 缺失／錯標、損壞檔案、登入頁／HTTP 拒絕與有限恢復、缺樣本及實際 CLI 離線分析。共享眼科流程亦以 frozen EXE 的既有 localhost 工具確認文字／PDF／JPG 分支；二進位合成回歸保留強制改密碼、登入轉址、截斷及大小限制。這些 localhost 與禁止 socket 重解析屬本機證據；0.22.8 的院內 DBR 下載結果另列於下。
 - 0.22.7 完整 suite 643 項：631 項通過、12 項私有條件測試跳過；新增可信導覽／拒絕 callback、單次 GET 不改原重試政策、專項範圍、不可信摘要與原 SDK 通知不被額外頁面覆寫的測試。`password` source 與 frozen EXE 各十五種 HTTPS localhost 情境通過，核對文字／表單／轉址強制變更、倒數、未知／HTTP／密碼拒絕、匿名及既有 Cookie 目錄可讀、查詢過期仍不重送密碼，並以實際 CLI 分析 ZIP。0.22.7 先前建置另以 `session` 的十二種及 `failures` 的 23 種 localhost 情境（每輪 68 個無 socket 模擬）亦通過；Ruff、API 文件、公開內容與實際 wheel／sdist 檢查，以及獨立 wheel 禁止 socket 的 import／建構／CLI 計畫驗證通過。這些是合成證據；本次真實強制頁及舊密碼可否讀取資料仍待院內回傳，不測自然 TTL。
 - 0.22.6 完整 suite 637 項：625 項通過、12 項私有條件測試跳過。新增獨立程序驗證離線分析不載入測試執行模組，舊公開匯出保持相容，禁止 import／建構／計畫發 socket。相同 0.22.4 院內 ZIP 的完整分析報告（排除 analyzer build）及重測設定與 0.22.5 完全一致。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境、`failures` 各 23 種情境及每輪 68 個無 socket 模擬通過；Ruff、API、公開內容、實際 wheel／sdist 及獨立安裝檢查通過。這些架構與封裝回歸不新增院內或自然 TTL 證據。
 - 0.22.5 完整 suite 636 項：624 項通過、12 項私有條件測試跳過。新增合成證據核對不同 recorder 計數器、舊版唯一請求匹配、缺少完成／表單／結果、錯誤角色／來源及範圍外成功不能掩蓋 timeout。`session` 原始碼與 frozen EXE 各十二種 HTTPS localhost 情境通過，且實際 CLI 的離線分析驗證直接 API 的 VERIFIED、結構化資料比較及原錯誤保留。0.22.4 晚間原 ZIP 禁止 socket 重解析確認只將 000034 標為恢復，000022 的原 ERROR 保留；不宣稱自然 TTL。
@@ -29,6 +32,26 @@
 - 0.22.1 的原頁私有回歸全程禁止 socket：SDK 以記憶體 adapter 完成登入並保留 EXPIRING／4，五張數值表的十二列、表頭、逐欄路徑及三個來源問題碼完全不變；兩份報告的原欄位、正文狀態及一／兩個 PDF 參照維持一致，僅移除可靜態辨識按鈕造成的錯誤 extraction note。新版重解析零份 PARTIAL，一份數值回應保留警示；原 ZIP 位元組與執行結果未改寫。
 - 0.22.1 完整 suite 執行 600 項：588 項通過、12 項私有條件測試跳過；23 種原始碼與 frozen EXE（build_id=`20261004T031550Z`）HTTPS localhost 情境全部通過，每輪 68 個模擬通過。新增情境核對四日倒數在登入與 readiness 中一致、已對齊數值完整且保留 warnings、正常 PDF 按鈕維持 ATTACHMENT_ONLY 並無解析缺漏；實際 EXE 的結果仍不能取代內網重跑。
 - 2026-10-04 下午同一 0.22.1 建置的院內回傳已確認三日倒數與數值警示修正；全輪沒有執行或解析錯誤。PDF 按鈕未出現在本輪樣本，原始 ZIP 與新版重解析結果分開保留，見下節。
+
+## 2026-10-08：0.22.8 DBR 院內回傳與 0.22.9 存檔優化
+
+本輪 `dbr` ZIP 為 OK、exit code 0：23 個步驟中 21 個 OK、2 個 EMPTY，34 個原始 HTTP exchanges，沒有 ERROR／BLOCKED／MISSING／NO_SAMPLE，errors.jsonl 為空。Portal／PRQ readiness 通過；Portal TLSv1.3、PRQ TLSv1.2 相容模式，兩者憑證均有驗證。僅一次正常登入，沒有刻意錯誤密碼、Cookie 挑戰或自動重新登入。
+
+兩種歷年醫囑清單分別 219 列、56 列，共 275 個來源列，找到並處理兩筆 DBR；清單列數不是去重後醫囑數。兩份報告各有兩份 PDF，四份共 11,355,511 bytes，存檔、下載 metadata 與原始 HTTP 回應逐檔大小／SHA-256 相同，格式邊界檢查通過。兩份較小 PDF 正是原整合 debug 的失敗檔案，SHA-256 相同；因此原 SDK 二進位誤送 HTML 密碼解析器的缺陷已有新版院內修正證據。
+
+兩份報告頁均為 ATTACHMENT_ONLY、正文長度零；兩個 PACS 檢視器明示 NO_IMAGES，為有效空結果，沒有 JPG 可下載。PDF 是原始附件，沒有 OCR 或數值擷取。本輪只證明該病人與回傳範圍的 DBR 流程，不推論其他年份、病人或所有報告形式。
+
+0.22.9 在禁止 socket 下重新分析原 ZIP，四份附件存檔核對及現行 Service／replay 均通過，原 ZIP SHA-256 未變。新增的存檔與統計優化只有合成及 localhost 證據，尚未以 0.22.9 EXE 院內重跑。
+
+附件契約共用及查詢／存檔責任拆分前後，同一原 ZIP 的完整離線分析（排除 analyzer build）與重測設定完全一致。契約在 workflow 執行時才載入，維持一般 SDK import 的分層界線；此架構驗證未新增院內 HTTP 請求。
+
+## 2026-10-08：整合專案 DBR debug 與修正
+
+SDK 0.22.6 的整合 debug 保存兩次 `orders.download_pdf` 失敗及其完整原始回應。兩次 `/PRQWeb/Page/JSP/showPDF.jsp` 均收到 HTTP 200，PDF 格式驗證成功；Runtime 在回傳附件前一律解碼並呼叫 `parse_password_status`，在二進位內容觸發 `ParserRejectedMarkup`。0.22.7 原始碼仍可重現，離線 replay 也有同樣問題。
+
+0.22.8 以 PDF／JPEG 檔頭隔離二進位與 HTML 檢查，原始回應在禁止 socket 下透過現行 Service 及 replay 均成功，下載位元組與 SHA-256 一致，原 ZIP 不改寫。這是對原始院內回應的離線修正驗證，不等同新版 EXE 已完成院內查詢。缺少或錯標 MIME 仍需以檔頭及完整性驗證；實際回傳登入／強制改密碼 HTML、HTTP 拒絕及登入目的 URL 仍保留原分類與有限恢復。
+
+`dbr` 專項從兩份歷年清單發現參照並去重，預設最多八筆；沒有 DBR／PDF 樣本、未執行與上游錯誤分開，單筆錯誤仍保存其他報告及附件。原始 PDF／JPG 只保留為檔案，不包含 OCR。此修正後的 0.22.8 院內回傳已另列於上一節。
 
 ## 2026-10-05 晚間：0.22.4 院內直接 API 恢復
 

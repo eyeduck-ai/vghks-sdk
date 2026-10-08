@@ -25,15 +25,21 @@ Requests Session（鎖、節流、retry、capture）
 | runtime.py / core/ | Session、操作鎖、登入復原、傳輸政策、錯誤與診斷 |
 | workflows/ | 跨多次原子操作的任務、去重、部分失敗及階段輸出 |
 | live/ | 使用 SDK 的內網測試器；公開匯出按需載入，讀取設定不載入測試執行流程 |
-| contracts/ | 錄製契約與純證據判斷；`auth_evidence.py` 共用預期登入拒絕、未登入挑戰及 capture 範圍的驗證條件 |
-| offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求；`analyze.py` 組裝報告，`session.py` 解讀 Session 對照，`recovery.py` 核對完整恢復次序，`retest.py` 產生重測設定 |
-| local_io.py | 共用本機 JSON 原子替換與權限處理；保留各入口的錯誤碼及安全欄位白名單 |
+| contracts/ | 錄製契約與純證據判斷；`auth_evidence.py` 共用登入證據條件，`order_assets.py` 共用醫囑附件目錄及格式定義；不載入測試執行流程 |
+| offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求；`analyze.py` 組裝報告，`assets.py` 核對附件存檔，`session.py` 解讀 Session 對照，`recovery.py` 核對恢復次序，`retest.py` 產生重測設定 |
+| local_io.py | 共用 JSON／二進位原子替換與本機權限處理；保留各入口的錯誤碼及安全欄位白名單 |
 
 密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。`live/password.py` 負責一次舊帳密觀察：登入受阻時只用既有 Cookie 對照目錄，成功時才使用一般 SDK 病人 API；不放寬 SDK 強制變更政策。可信密碼頁目的地由純 Parser 選擇，測試器另做一次 GET，`offline/password.py` 只整理白名單欄位。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
 
 一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。既有 core/full CLI 持續支援。
 
 離線分析與院內測試器共用純 `contracts/auth_evidence.py`，避免為辨認一筆預期拒絕而載入執行錯誤密碼的流程。重測設定由 `offline/retest.py` 呼叫同一份 `live/config.py` 驗證；此相依只讀設定，不建立 SDK 或送出請求。`live` 原有匯出及登入測試的證據函式匯入保持相容。
+
+醫囑附件的目錄、MIME 與副檔名由 `contracts/order_assets.py` 定義，workflow 存檔、live 測試器與 offline 核對共用同一份契約；workflow 執行時才載入，保持一般 SDK import 不載入錄製工具。`workflows/order_reports.py` 的查詢入口管理參照去重、型別檢查、錯誤與快取；存檔方法管理模型結果及附件寫入。測試 runner 已保存的 JSON 會直接沿用，只回傳值的 runner 仍有存檔備援；二進位一律經 `local_io.write_bytes_atomic` 保存。快取保留附件 metadata，完成存檔後不持有所有附件位元組。
+
+`offline/assets.py` 只在原 ZIP 中核對成功附件的 outcome、metadata、大小、SHA-256 與格式，不 import workflow 或 live 執行模組。原始 HTTP replay 與附件存檔核對各自保留證據；存檔問題加入分析 findings，原 live_status 維持原值。`pdf_files`／`jpg_files` 表示逐筆醫囑的可用附件數，唯一檔案數與 downloaded_bytes 來自去重後的成功查詢。
+
+PDF／JPEG 檔頭只決定是否交給二進位驗證器。Runtime 與安全診斷共用純 `parsing/assets.py`，避免壓縮位元組進入 HTML 密碼或表單解析；HTTP 拒絕、登入目的 URL、實際 HTML 挑戰與附件格式／大小檢查仍分別執行。下載不代表已擷取 PDF／JPG 內的醫療文字或數值。
 
 **兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。
 

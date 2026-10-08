@@ -25,7 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--defaults", type=Path, help="private JSON containing only test_mrn")
     parser.add_argument(
-        "--default-profile", choices=("comprehensive", "visits", "login", "soap", "regression", "scans", "failures", "session", "password"), default="comprehensive"
+        "--default-profile", choices=("comprehensive", "ophthalmology", "dbr", "visits", "login", "soap", "regression", "scans", "failures", "session", "password"), default="comprehensive"
     )
     args = parser.parse_args()
     defaults = None
@@ -123,6 +123,7 @@ def main() -> int:
                 ["--plan", "--only", "prq.soap"],
                 ["--plan", "--profile", "comprehensive"],
                 ["--plan", "--profile", "ophthalmology"],
+                ["--plan", "--profile", "dbr"],
                 ["--plan", "--profile", "visits"],
                 ["--plan", "--profile", "login"],
                 ["--plan", "--profile", "soap"],

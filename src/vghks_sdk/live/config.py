@@ -196,6 +196,7 @@ class LiveTestConfig:
             "atomic",
             "comprehensive",
             "ophthalmology",
+            "dbr",
             "visits",
             "soap",
             "regression",
@@ -207,10 +208,10 @@ class LiveTestConfig:
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, visits, soap, regression, scans, failures, session, password, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, dbr, visits, soap, regression, scans, failures, session, password, core or full"
             )
         if self.login_negative_attempts is None:
-            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password"} else 1 if profile == "failures" else 2)
+            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password", "dbr"} else 1 if profile == "failures" else 2)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if profile == "failures" and self.login_negative_attempts > 1:
@@ -227,6 +228,11 @@ class LiveTestConfig:
         if profile == "password":
             object.__setattr__(self, "max_cases", 1)
             object.__setattr__(self, "max_items", 1)
+        if profile == "dbr":
+            if self.login_negative_attempts or self.include_surgery or self.include_unsigned or self.include_earnings:
+                raise ConfigurationError("dbr profile excludes negative login, surgery, audit and earnings")
+            object.__setattr__(self, "asset_terms", ("DBR",))
+            object.__setattr__(self, "weekly_opd_soap", False)
         if self.max_cases is None:
             object.__setattr__(
                 self,
@@ -245,7 +251,7 @@ class LiveTestConfig:
             )
         if self.max_items is None:
             object.__setattr__(
-                self, "max_items", 8 if profile in {"comprehensive", "ophthalmology"} else 2
+                self, "max_items", 8 if profile in {"comprehensive", "ophthalmology", "dbr"} else 2
             )
         if type(self.allow_unverified_tls) is not bool:
             raise ConfigurationError("allow_unverified_tls must be a boolean")
@@ -291,7 +297,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "visits", "soap", "regression", "scans", "failures", "session", "password"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")

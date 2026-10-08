@@ -11,12 +11,19 @@ from pathlib import Path
 from typing import Any
 
 from ..core.errors import ConfigurationError, ParseError, error_info
-from ..local_io import write_json_atomic
+from ..local_io import write_bytes_atomic, write_json_atomic
 from ..models import BinaryAsset, ClinicalOrder, OrderDetail, OrderReport, PacsStudy, to_jsonable
 from ..order_status import classify_order_execution
 from ..queries import run_query
 
 QueryRunner = Callable[[str, str, dict[str, Any], Path], tuple[Any, BaseException | None]]
+_QUERY_RESULT_TYPES = {
+    "prq.order_detail": OrderDetail,
+    "prq.order_report": OrderReport,
+    "prq.pacs_study": PacsStudy,
+    "prq.pdf_attachment": BinaryAsset,
+    "prq.pacs_image": BinaryAsset,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +174,10 @@ def collect_order_reports(
         checkpoint()
     counts["unique_queries"] = len(run.cache)
     counts["query_errors"] = sum(audit["status"] == "ERROR" for _, audit in run.cache.values())
+    assets = [audit for _, audit in run.cache.values() if audit.get("asset")]
+    counts["unique_pdf_files"] = sum(a["operation"] == "prq.pdf_attachment" for a in assets)
+    counts["unique_jpg_files"] = sum(a["operation"] == "prq.pacs_image" for a in assets)
+    counts["downloaded_bytes"] = sum(a["byte_count"] for a in assets)
     status = "INCOMPLETE" if counts["query_errors"] else "OK" if groups else "NO_MATCHING_ORDERS"
     checkpoint(status)
     return OrderReportsResult(
@@ -176,8 +187,12 @@ def collect_order_reports(
 
 class _OrderReportRun:
     def __init__(self, sdk, root, query_runner, download_assets):
+        # Keep execution-only contracts out of a normal SDK import.
+        from ..contracts.order_assets import ORDER_ASSET_FORMATS, ORDER_ASSET_STAGE
+
         self.sdk, self.root, self.query_runner = sdk, root, query_runner
         self.download_assets = download_assets
+        self.asset_formats, self.asset_stage = ORDER_ASSET_FORMATS, ORDER_ASSET_STAGE
         self.cache = {}
 
     def fetch(self, operation, ref):
@@ -187,8 +202,8 @@ class _OrderReportRun:
             return value, {**audit, "reused": True}
         number = len(self.cache) + 1
         name = f"{number:04d}-{operation.removeprefix('prq.')}"
-        binary = operation in {"prq.pdf_attachment", "prq.pacs_image"}
-        stage = "stage3_assets" if binary else "stage2_queries"
+        binary = operation in self.asset_formats
+        stage = self.asset_stage if binary else "stage2_queries"
         path = self.root / stage / f"{name}.json"
         audit = {
             "operation": operation,
@@ -197,9 +212,10 @@ class _OrderReportRun:
             "status": "PENDING",
             "reused": False,
         }
-        write_json_atomic(
-            path.with_suffix(".input.json"), {"operation": operation, "ref": to_jsonable(ref)}
-        )
+        input_path = path.with_suffix(".input.json")
+        query_input = {"operation": operation, "ref": to_jsonable(ref)}
+        if self.query_runner is None:
+            write_json_atomic(input_path, query_input)
         value = None
         try:
             if self.query_runner is not None:
@@ -210,47 +226,49 @@ class _OrderReportRun:
                     raise error
             else:
                 value = run_query(self.sdk, operation, ref=ref)
-            expected = {
-                "prq.order_detail": OrderDetail,
-                "prq.order_report": OrderReport,
-                "prq.pacs_study": PacsStudy,
-                "prq.pdf_attachment": BinaryAsset,
-                "prq.pacs_image": BinaryAsset,
-            }[operation]
+            expected = _QUERY_RESULT_TYPES[operation]
             if not isinstance(value, expected):
                 raise ParseError("unexpected order query result", code="ORDER_QUERY_RESULT_INVALID")
-            write_json_atomic(path, value)
-            audit["status"] = "OK"
-            if isinstance(value, BinaryAsset):
-                asset_path = path.with_suffix(
-                    ".pdf" if operation == "prq.pdf_attachment" else ".jpg"
-                )
-                asset_path.write_bytes(value.content)
-                audit.update(
-                    asset=asset_path.relative_to(self.root).as_posix(), byte_count=value.size
-                )
-            elif isinstance(value, OrderReport):
-                audit.update(
-                    data_status=value.report_data_status, text_characters=len(value.report_text)
-                )
-                if value.report_data_status == "EMPTY":
-                    audit["status"] = "EMPTY"
-            elif isinstance(value, PacsStudy):
-                audit.update(
-                    data_status=value.data_status,
-                    image_count=len(value.images),
-                    empty_reason=value.empty_reason,
-                )
-                if not value.images:
-                    audit["status"] = "EMPTY"
+            self._save_result(operation, path, value, audit)
         except Exception as exc:
             value = None
             audit.update(status="ERROR", issue=to_jsonable(error_info(exc)))
+        if self.query_runner is not None and not input_path.is_file():
+            write_json_atomic(input_path, query_input)
         write_json_atomic(path.with_suffix(".outcome.json"), audit)
         # Keep the file and metadata, not every downloaded binary in memory.
         # Collectors never need the bytes again after saving the asset.
         self.cache[key] = (None if binary else value), audit
         return value, audit
+
+    def _save_result(self, operation, path, value, audit):
+        """Persist one validated query; local failures stay in fetch's audit."""
+        # Live runners already save within the measured step. Value-only
+        # custom runners still get persistence, without duplicate replacement.
+        if self.query_runner is None or not path.is_file():
+            write_json_atomic(path, value)
+        audit["status"] = "OK"
+        if isinstance(value, BinaryAsset):
+            asset_path = path.with_suffix(self.asset_formats[operation][1])
+            write_bytes_atomic(asset_path, value.content)
+            audit.update(
+                asset=asset_path.relative_to(self.root).as_posix(), byte_count=value.size,
+                sha256=value.sha256,
+            )
+        elif isinstance(value, OrderReport):
+            audit.update(
+                data_status=value.report_data_status, text_characters=len(value.report_text)
+            )
+            if value.report_data_status == "EMPTY":
+                audit["status"] = "EMPTY"
+        elif isinstance(value, PacsStudy):
+            audit.update(
+                data_status=value.data_status,
+                image_count=len(value.images),
+                empty_reason=value.empty_reason,
+            )
+            if not value.images:
+                audit["status"] = "EMPTY"
 
     def collect(self, orders, row, checkpoint):
         reports, pdfs, studies = [], [], []

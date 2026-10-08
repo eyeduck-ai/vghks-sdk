@@ -36,6 +36,10 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 離線分析不修改原始測試結果；要同時看 recorded_status、live_status、重解析結果、report_data_status。合法空結果不能當成功取得正文，HTTP 200 也可能只是登入／viewer 頁。
 
+醫囑附件以 `order_assets` 核對 ZIP 內實際存檔與下載 metadata，包含大小、SHA-256 及格式。原始 HTTP replay 與存檔核對是不同證據；存檔問題不能改寫原成功步驟，也不能因原成功便忽略缺檔。組合 workflow 重用 runner 已寫好的結果，自訂 runner 僅回傳值時仍會保存；PDF／JPG 走 `local_io.write_bytes_atomic`，存檔失敗保留 OUTPUT_WRITE_FAILED 並續跑其他附件。
+
+附件目錄或支援格式的調整集中於 `contracts/order_assets.py`，由 live、workflow 與 offline 共用；不要讓離線分析匯入測試執行器以取得路徑。重構後對同一 ZIP 做禁止 socket 的完整分析與重測設定比較，再跑對應 unittest／localhost EXE，確認只改責任分工而未改證據判定。詳細分層見 [ARCHITECTURE](ARCHITECTURE.md)。
+
 ## 建置
 
 下列 `VERSION` 為檔名佔位，請替換為 `src/vghks_sdk/_version.py` 的版本；wheel／sdist 使用同一來源，文件不另維護套件版本。
@@ -66,6 +70,7 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 | profile | localhost 驗證工具 | 主要檢查 |
 | --- | --- | --- |
+| `dbr` | `tools/verify_dbr_exe.py` | 十種 HTTPS 情境、歷年 DBR 抽樣、二進位／登入分類、原始 PDF／JPG 保存、有限恢復與 CLI 離線分析 |
 | `password` | `tools/verify_password_exe.py` | 十五種 HTTPS 情境、舊密碼只送一次、強制變更原頁保存、匿名／Cookie 目錄對照及離線白名單 |
 | `session` | `tools/verify_session_exe.py` | 十二種 HTTPS 情境、表單／token、隔離 Cookie、明確 timeout 的 GET／唯讀 POST 自動 SSO 恢復及持續失效停止 |
 | `failures` | `tools/verify_failure_exe.py` | 68 個無 socket 模擬、23 種 HTTPS 情境、未登入與錯誤密碼計數、通知、資料狀態及離線分類 |

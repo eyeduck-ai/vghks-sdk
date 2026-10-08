@@ -375,6 +375,8 @@ class DiagnosticRecorder:
 
 
 def _response_structure(response: Any) -> Mapping[str, Any]:
+    from ..parsing.assets import binary_asset_media_type
+
     raw = bytes(getattr(response, "content", b"") or b"")
     headers = getattr(response, "headers", {}) or {}
     content_type = str(headers.get("Content-Type", ""))
@@ -382,14 +384,19 @@ def _response_structure(response: Any) -> Mapping[str, Any]:
     charset_match = _CHARSET_RE.search(content_type)
     declared_charset = charset_match.group(1).lower() if charset_match else ""
     sample = raw[:_MAX_SHAPE_BYTES]
-    text, decoded_as = _decode_sample(sample, declared_charset)
     base: dict[str, Any] = {
         "byte_length": len(raw),
         "shape_truncated": len(raw) > len(sample),
         "mime_type": mime_type,
         "declared_charset": _safe_code(declared_charset) if declared_charset else "",
-        "decoded_as": _safe_code(decoded_as),
+        "decoded_as": "",
     }
+    binary_type = binary_asset_media_type(raw)
+    if binary_type:
+        base.update(kind="binary", binary_media_type=binary_type)
+        return base
+    text, decoded_as = _decode_sample(sample, declared_charset)
+    base["decoded_as"] = _safe_code(decoded_as)
 
     if len(raw) <= _MAX_SHAPE_BYTES:
         try:

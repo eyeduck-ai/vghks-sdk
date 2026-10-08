@@ -4,6 +4,20 @@ from ..core.errors import ParseError
 from ..models import BinaryAsset
 
 
+def binary_asset_media_type(content: bytes) -> str:
+    """Identify supported binary prefixes, without proving file completeness.
+
+    MIME headers alone cannot distinguish an attachment from a returned login
+    page. Truncated files still belong in the binary validator, not an HTML
+    parser; callers must retain URL/HTTP authentication checks separately.
+    """
+    if content.startswith(b"%PDF"):
+        return "application/pdf"
+    if content.startswith(b"\xff\xd8"):
+        return "image/jpeg"
+    return ""
+
+
 def parse_binary_asset(content: bytes, *, media_type: str) -> BinaryAsset:
     if len(content) > 64 * 1024 * 1024:
         raise ParseError("asset exceeded the supported size", code="ASSET_TOO_LARGE")

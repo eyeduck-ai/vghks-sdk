@@ -43,6 +43,8 @@ python run_sdk.py replay-har --input data/recordings/new-batch --output output/h
 
 不要將真實 HAR 作為 Git fixture。公開案例應重建最小合成 HTML／JSON，使用合成識別值與內容，同時保留真正造成問題的結構，例如巢狀表格、重複表單欄位或兩個 SSO 模式。
 
+本人帳號操作不必建立病人或醫師相依；QuerySpec 可使用 `own_account`，測試器從登入帳號及日期設定建立唯讀輸入。簽到退的兩種查詢錄製回傳相同 HTML，實作保留送出模式與來源明示模式，不能靠選項名稱推定結果語義。已錄製的異動回覆可離線標為 `RECORDED_ACK`，實際異動仍排除 queries 與測試 EXE。具體契約見 [ATTENDANCE](ATTENDANCE.md)。
+
 ## 判定完成
 
 原子功能應有可識別的成功資料、合理空結果、未知格式錯誤、來源／病人綁定、文件及組合入口。僅 HAR 解析成功只能標記離線驗證；只有 EXE 回傳成功且資料完整，才標記該路徑有內網成功證據。

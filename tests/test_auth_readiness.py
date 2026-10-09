@@ -64,6 +64,9 @@ class FakeReadinessAuth:
         self.webmaas_checks += 1
         return self.ensure("webmaas")
 
+    def check_attendance_session(self) -> AppSession:
+        return self.ensure("attendance")
+
 
 def make_context(auth: FakeReadinessAuth) -> SDKRuntime:
     context = object.__new__(SDKRuntime)
@@ -81,7 +84,7 @@ class AuthRegistryTests(unittest.TestCase):
     def test_default_registry_order_and_capabilities(self) -> None:
         self.assertEqual(
             [spec.key for spec in resolve_auth_targets()],
-            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
+            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel", "attendance"],
         )
         self.assertIn("SOAP", resolve_auth_targets()[1].capability)
 
@@ -108,9 +111,9 @@ class AuthSweepTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(
             auth.ensure_calls,
-            ["prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
+            ["prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel", "attendance"],
         )
-        self.assertEqual([row.status for row in report.targets], ["OK"] * 9)
+        self.assertEqual([row.status for row in report.targets], ["OK"] * 10)
         self.assertEqual(auth.webmaas_checks, 1)
 
     def test_portal_failure_blocks_all_children_without_probing_them(self) -> None:

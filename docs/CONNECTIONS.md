@@ -78,7 +78,9 @@ except SDKError as exc:
 
 `sdk.auth.check()` 回傳報告而非一律拋出登入例外：以 `report.ok` 與 `report.targets[i].issue.code` 判斷。Portal 登入遭拒後，其相依子系統標為 BLOCKED，不再多送一次帳密。`report.reauthenticated` 表示曾進入恢復流程，不保證恢復成功。
 
-0.22.3 起，`sdk.auth.check(only=("webmaas",))` 會實際驗證目前 WebMAAS 查詢頁的表單與非空 token。當次新建立的 SSO 頁已有效時直接使用；WebMAAS 已快取時重新 GET 固定頁面，不用舊 landing HTML 判定可用。檢查後的新表單可供下一次對應查詢使用一次；不需由整合系統操作 Runtime、Parser 或 token。這項檢查沒有查病人，也不保證之後所有病人查詢都會成功；其他子系統目前仍依各自 SSO readiness 範圍判定。
+0.22.3 起，`sdk.auth.check(only=("webmaas",))` 會實際驗證目前 WebMAAS 查詢頁的表單與非空 token。當次新建立的 SSO 頁已有效時直接使用；WebMAAS 已快取時重新 GET 固定頁面，不用舊 landing HTML 判定可用。檢查後的新表單可供下一次對應查詢使用一次；不需由整合系統操作 Runtime、Parser 或 token。這項檢查沒有查病人，也不保證之後所有病人查詢都會成功。
+
+0.23.0 的 `sdk.auth.check(only=("attendance",))` 核對 PSPDPortal 簽到退狀態頁及登入帳號。新 SSO 使用已核對頁面，已有快取則重新 GET；人事公告或其他同來源頁面的 HTTP 200 不代表此目標可用。等待頁只解析已知 literal 並有限 GET，簽到退不在 readiness 範圍。其他子系統仍依各自 SSO readiness 範圍判定，詳見 [ATTENDANCE](ATTENDANCE.md)。
 
 `WEBMAAS_QUERY_FORM_MISSING`／`WEBMAAS_QUERY_TOKEN_MISSING` 保留 PARSE 分類及收到的 HTTP 狀態，表示目前頁面無法驗證，不能單憑它判定自然過期、密碼錯誤或病人不存在。SDK 同時清除 WebMAAS 的快取，下一次獨立呼叫可以重建 SSO；當次不重播查詢或強制 Portal 登入。整合系統若安排一次複查，應先確認 Portal 目標為 OK、失敗僅限這兩個 WebMAAS 錯誤且 `reauthenticated=False`；若 Runtime 已嘗試恢復或複查仍失敗，就保留原始原因並停止相依工作。`session` EXE 將原失敗與複查結果分開保存，恢復成功也不抹除原錯誤。
 

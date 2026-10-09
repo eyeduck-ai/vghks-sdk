@@ -96,6 +96,7 @@ class SDKSettings:
     mis_base_url: str = "https://mis01p.vghks.gov.tw"
     review_base_url: str = "https://pck01p.vghks.gov.tw/Pck"
     personnel_base_url: str = "https://wac01p.vghks.gov.tw:4430/DDPortal"
+    attendance_base_url: str = "https://wac01p.vghks.gov.tw:4430/PSPDPortal"
     ca_bundle: str | None = None
     request_policy: RequestPolicy = field(default_factory=RequestPolicy)
     profiles: Mapping[str, AppProfile] = field(default_factory=dict)
@@ -129,6 +130,13 @@ class SDKSettings:
 
     def _default_profiles(self) -> Mapping[str, AppProfile]:
         return {
+            "attendance": AppProfile(
+                key="attendance",
+                app_dn="ou=030201_09,ou=0302_01,ou=03_02,ou=03,ou=aproot,o=prodroot",
+                app_ou="030201_09",
+                app_description="簽到簽退",
+                expected_base_url=self.attendance_base_url.removesuffix("/PSPDPortal"),
+            ),
             "personnel": AppProfile(
                 key="personnel",
                 app_dn="ou=02060101_06,ou=020601_01,ou=0206_01,ou=02_06,ou=02,ou=aproot,o=prodroot",
@@ -216,6 +224,7 @@ class SDKSettings:
             mis_base_url=os.getenv("VGHKS_MIS_BASE_URL", defaults.mis_base_url),
             review_base_url=os.getenv("VGHKS_REVIEW_BASE_URL", defaults.review_base_url),
             personnel_base_url=os.getenv("VGHKS_PERSONNEL_BASE_URL", defaults.personnel_base_url),
+            attendance_base_url=os.getenv("VGHKS_ATTENDANCE_BASE_URL", defaults.attendance_base_url),
             ca_bundle=ca_bundle,
             request_policy=(policy or RequestPolicy()).validate(),
             auto_tls=_env_bool("VGHKS_AUTO_TLS", True),
@@ -229,6 +238,7 @@ class SDKSettings:
             "oppl": "OPPL",
             "oppl_records": "OPPL_RECORDS",
             "personnel": "PERSONNEL",
+            "attendance": "ATTENDANCE",
         }
         for key, prefix in env_keys.items():
             current = overrides[key]

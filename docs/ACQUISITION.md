@@ -40,6 +40,8 @@ else:
 
 空清單及合法 None 只說明這次條件下的結果；不能推論全院沒有資料。未執行醫囑、PDF／JPG 參照、已下載 bytes、報告正文分開表示。未知的 dict／HTML 語意保持 UNKNOWN，不靠 truthiness 判空。`assess_data(value)` 可對已取得的支援模型做相同辨識，不會發 HTTP。
 
+`AttendanceHistory` 依 `records` 筆數評估 AVAILABLE／EMPTY，原模型、查詢模式及來源資訊留在 `value`。Parser 必須核對表頭、逐列時間與頁尾總數，未知頁面是 ERROR；`complete=True` 只表示這份支援表格完整解析，不能推論整段期間的出勤結算或原始／處理模式已獲伺服器確認。使用方式見 [ATTENDANCE](ATTENDANCE.md)。
+
 ## 錯誤與重試
 
 `SDKError.info` 保留原 code/category/operation/app/endpoint_path/http_status/attempt/cause_type，另有：
@@ -70,6 +72,7 @@ HTTP 401／403 以 AUTH_HTTP_DENIED 保留狀態與 HTTP 原因，允許原有�
 | Proxy／TLS | NETWORK_PROXY_FAILED／TLS_VERIFY_FAILED／TLS_PROTOCOL_FAILED | 檢查連線設定；不靠重送帳密處理 |
 | HTTP 失敗 | HTTP_404／HTTP_429／HTTP_503 等 | 保留狀態；429／暫時性伺服器錯誤僅在安全時提示重試 |
 | 格式或解析失敗 | PARSE／RESPONSE_JSON_INVALID／UPLOAD_TYPES_INVALID 等 | 保留原始證據，檢查來源格式或解析器 |
+| 簽到退送出結果不明 | MUTATION_OUTCOME_UNKNOWN、retry_safe=False | 先以獨立唯讀查詢確認紀錄，再由使用者決定是否另行送出 |
 | 呼叫參數不符 | CONFIGURATION／QUERY_INPUTS_INVALID 等 | 修正輸入，避免相同錯誤反覆排程 |
 
 密碼 POST、異動及調閱審查送出後的整段操作維持 retry_safe=False。retry_recommended=True 也不代表已確認伺服器會恢復，更不代表可以忽略 SDK 既有退避、節流或應用的重試預算。應用應讀外層安全性，不能因 root_cause 是網路錯誤便重送整個操作。

@@ -3,6 +3,14 @@
 from ._validation import re_fullmatch_mrn, re_split_path
 from .acquisition import AcquisitionResult, DataAssessment
 from .assets import BinaryAsset, PacsImageRef, PacsStudy, PacsStudyRef, PdfAttachmentRef
+from .attendance import (
+    AttendanceHistory,
+    AttendanceMode,
+    AttendancePunchReceipt,
+    AttendanceQuery,
+    AttendanceRecord,
+    AttendanceState,
+)
 from .auth import AuthCheckReport, AuthCheckTarget, PasswordStatus
 from .documents import (
     EarningsReportContext,
@@ -59,6 +67,12 @@ from .surgery_cases import SurgeryCase, SurgeryCaseFilter, SurgeryCaseRef, Surge
 
 __all__ = [
     "AcquisitionResult",
+    "AttendanceHistory",
+    "AttendanceMode",
+    "AttendancePunchReceipt",
+    "AttendanceQuery",
+    "AttendanceRecord",
+    "AttendanceState",
     "AuthCheckReport",
     "AuthCheckTarget",
     "BinaryAsset",

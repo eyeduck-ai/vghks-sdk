@@ -90,6 +90,7 @@ class AtomicRecordedTests(unittest.TestCase):
     def test_direct_write_operations_are_not_query_specs(self):
         writes = {spec.key for spec in OPERATIONS if spec.mutates}
         self.assertEqual(writes, {
+            "attendance.punch",
             "prq.access_review",
             "oppl.create_schedule", "oppl.edit_schedule",
             "oppl.cancel_schedule", "oppl.create_consent",

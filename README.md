@@ -1,6 +1,6 @@
 # vghks-sdk
 
-以 Python Requests 組合 VGHKS 內網查詢的 SDK，提供病人、門診、SOAP、醫囑、報告、手術及審查功能。共用登入、SSO、Session、節流與錯誤處理，不需要 Playwright。Python 3.10+，MIT 授權。
+以 Python Requests 組合 VGHKS 內網查詢的 SDK，提供病人、門診、SOAP、醫囑、報告、手術、審查及簽到退功能。共用登入、SSO、Session、節流與錯誤處理，不需要 Playwright。Python 3.10+，MIT 授權。
 
 這是獨立開發的 SDK，並非醫院官方產品。使用者仍需具備內網存取與相應資料查詢權限。
 
@@ -50,7 +50,8 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | `reviews` | 審查登入、案件、審查結果、醫囑、附件／影像清單 |
 | `audit`／`earnings` | 未簽病歷、績點及專勤工作獎金 |
 | `personnel` | 依姓名／員工編號／職稱／單位查人事，供醫師卡號轉姓名及就診篩選組合 |
-| `auth`／`queries` | 連線檢查、57 項唯讀功能的目錄與動態呼叫 |
+| `attendance` | 本人簽到退狀態、日期區間打卡紀錄與明確送出一次簽到退 |
+| `auth`／`queries` | 連線檢查、59 項唯讀功能的目錄與動態呼叫 |
 | `vghks_sdk.workflows` | 報告收集、門診 SOAP 篩選、手術紀錄收集 |
 
 查詢支援單次就診與指定期間，也可由病歷號或病人身分證取得就診清單再篩選。數值依表頭與儲存格對齊；SOAP 及手術欄位保留來源，不推論臨床意義。未執行醫囑、正文、只有附件與查無圖片各自保留狀態；PDF／JPG 下載不包含 OCR。
@@ -72,7 +73,7 @@ SDK 自動處理 HTTPS 相容性：PRQ、SectOrd、WebMAAS 優先使用已驗證
 | 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
 | 公開資料邊界 | [SECURITY](SECURITY.md) |
 
-領域欄位細節：[人事](docs/PERSONNEL.md)、[就診](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[SOAP](docs/SOAP.md)、[數值](docs/NUMERIC_REPORTS.md)、[掃描病歷](docs/SCANNED_RECORDS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+領域欄位細節：[簽到退](docs/ATTENDANCE.md)、[人事](docs/PERSONNEL.md)、[就診](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[SOAP](docs/SOAP.md)、[數值](docs/NUMERIC_REPORTS.md)、[掃描病歷](docs/SCANNED_RECORDS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
 
 ## 開發與測試
 

@@ -9,6 +9,7 @@ from typing import TypeVar
 from .core.errors import ErrorInfo, NotFoundError, SDKError, error_info
 from .models.acquisition import AcquisitionResult, DataAssessment
 from .models.assets import BinaryAsset, PacsStudy
+from .models.attendance import AttendanceHistory
 from .models.auth import AuthCheckReport
 from .models.documents import HtmlDocument, TextReportHistory, UploadHistory
 from .models.orders import ClinicalOrder, OrderReport
@@ -39,6 +40,9 @@ def assess_data(value: object) -> DataAssessment:
         warnings = tuple(warning for item in children for warning in item.warnings)
         if any(item.complete is False for item in children):
             complete = False
+    elif isinstance(value, AttendanceHistory):
+        count, complete = len(value.records), True
+        availability = "AVAILABLE" if count else "EMPTY"
     elif isinstance(value, BinaryAsset):
         availability, count, complete = (
             "BINARY_AVAILABLE" if value.size else "EMPTY",

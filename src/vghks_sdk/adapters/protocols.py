@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Protocol
 
-from ..extension_protocols import PatientQueriesProtocol, SurgeryQueriesProtocol
+from ..extension_protocols import AttendanceProtocol, PatientQueriesProtocol, SurgeryQueriesProtocol
 from ..models import (
     AuthCheckReport,
     BinaryAsset,
@@ -42,6 +42,9 @@ from ..models import (
     UnsignedRecord,
     VisitCase,
 )
+
+# Keep adapter protocols discoverable at the existing compatibility boundary.
+AttendanceAdapterProtocol = AttendanceProtocol
 
 
 class AuthAdapterProtocol(Protocol):

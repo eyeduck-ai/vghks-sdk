@@ -7,6 +7,7 @@
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |
 | --- | --- | --- |
 | SDK／單檔 EXE | 0.22.1 院內 `failures` 89 步；0.22.4 `session` 直接 API 自動 SSO 恢復；0.22.8 `dbr` 23 步、兩筆醫囑與四份 PDF | 0.22.9 存檔優化、強制改密碼與自然 TTL |
+| 簽到退／打卡查詢 | 兩份瀏覽器 HAR：狀態、一次成功通知及兩種日期查詢；0.23.0 Parser 與錄製 SSO 次序已禁止 socket 重解析 | 新版 SDK 的實際院內登入、查詢及送出；位置對照規則、真實空結果及其他查詢模式回應形式 |
 | DBR PDF 下載 | 0.22.8 院內兩種歷年清單成功，四份 PDF 逐檔與 raw 及 metadata 一致；兩份與原 debug 失敗樣本 SHA-256 相同 | 本輪沒有 JPG、HTML 正文或其他病人樣本；0.22.9 優化尚未院內重跑 |
 | WebMAAS 閒置後失敗 | 0.22.3 院內 Cookie 遺失已取得 timeout 原頁；0.22.4 直接 API 自行 SSO 恢復且三份基本資料一致 | 舊平台自然閒置未保存失敗 HTML；自然 TTL 仍未院內證實 |
 | 失敗分類與密碼狀態 | 0.22.1 三日倒數、未登入／錯誤密碼拒絕及 Cookie 恢復；0.22.3 兩日倒數與 WebMAAS timeout | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
@@ -17,8 +18,9 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.22.9，保留 0.22.8 的二進位隔離修正，改善單次 JSON 存檔、附件原子寫入、唯一檔案統計與離線存檔大小／SHA-256／格式核對。HTTP／登入 URL／HTML 挑戰、附件格式及大小檢查保留；強制改密碼與子系統恢復政策不放寬。
+- SDK 原始碼：0.23.0，新增本人簽到退狀態、日期紀錄及明確異動，整合唯讀目錄、readiness、統一結果評估與離線 replay。保留 0.22.9 的存檔及 0.22.8 二進位隔離修正；強制改密碼、TLS 與子系統恢復政策不放寬。新版尚未送出院內打卡。
 - 本機現行 EXE：0.22.9、`dbr` 計畫，build_id=`20261008T115643Z`，Python 3.10.6 x64／PyInstaller 6.14.2／truststore 0.10.4，沒有 private defaults。單一授權病人的全部／各科歷年醫囑，最多八筆 DBR，保存 PDF／JPG；沒有刻意錯誤密碼或 Cookie 挑戰。其他計畫仍可明確選用。
+- 0.23.0 完整 suite 687 項：675 項通過、12 項私有條件跳過，包含 24 項新簽到退合成測試及既有 localhost TLS 回歸。Ruff、API 文件與公開內容檢查通過；wheel／sdist 已建置並核對實際封包，獨立安裝在禁止 socket 下確認 import／建構、59 項目錄及本人打卡唯讀 CLI 計畫。兩份使用者提供的 HAR 另做只讀 Parser／SSO 次序驗證；沒有新的院內 HTTP 或打卡異動。
 - 0.22.9 完整 suite 663 項：651 項通過、12 項私有條件跳過；相關 unittest 77 項通過，包含一般 SDK import 不載入 live／offline／錄製契約及離線分析不載入測試執行流程。新增共用附件僅下載一次、runner 已存檔不重寫、自訂 runner 的存檔備援、單份附件寫入失敗仍續跑，以及缺檔／缺 outcome／錯誤大小／hash／格式／metadata／路徑回歸。source 與 frozen EXE 各十種 localhost DBR 情境及實際 CLI 離線分析通過；共享眼科流程的既有 frozen 工具亦確認正文／多份 PDF／JPG／附件失敗續跑。現行 EXE 分析同一院內 ZIP 的完整報告（排除 analyzer build）及重測設定與原始碼完全一致，四份 PDF 核對通過，原 ZIP 不變。這些本機存檔證據不替代另列的 0.22.8 院內執行結果。
 - 0.22.8 完整 suite 653 項：641 項通過、12 項私有條件測試跳過。`dbr` source 與 frozen EXE 各十種 localhost HTTPS 情境通過，包含真正零參數啟動、舊 sidecar／profile 不擴大計畫、跨年份參照、PDF／JPG 原始位元組、MIME 缺失／錯標、損壞檔案、登入頁／HTTP 拒絕與有限恢復、缺樣本及實際 CLI 離線分析。共享眼科流程亦以 frozen EXE 的既有 localhost 工具確認文字／PDF／JPG 分支；二進位合成回歸保留強制改密碼、登入轉址、截斷及大小限制。這些 localhost 與禁止 socket 重解析屬本機證據；0.22.8 的院內 DBR 下載結果另列於下。
 - 0.22.7 完整 suite 643 項：631 項通過、12 項私有條件測試跳過；新增可信導覽／拒絕 callback、單次 GET 不改原重試政策、專項範圍、不可信摘要與原 SDK 通知不被額外頁面覆寫的測試。`password` source 與 frozen EXE 各十五種 HTTPS localhost 情境通過，核對文字／表單／轉址強制變更、倒數、未知／HTTP／密碼拒絕、匿名及既有 Cookie 目錄可讀、查詢過期仍不重送密碼，並以實際 CLI 分析 ZIP。0.22.7 先前建置另以 `session` 的十二種及 `failures` 的 23 種 localhost 情境（每輪 68 個無 socket 模擬）亦通過；Ruff、API 文件、公開內容與實際 wheel／sdist 檢查，以及獨立 wheel 禁止 socket 的 import／建構／CLI 計畫驗證通過。這些是合成證據；本次真實強制頁及舊密碼可否讀取資料仍待院內回傳，不測自然 TTL。
@@ -32,6 +34,16 @@
 - 0.22.1 的原頁私有回歸全程禁止 socket：SDK 以記憶體 adapter 完成登入並保留 EXPIRING／4，五張數值表的十二列、表頭、逐欄路徑及三個來源問題碼完全不變；兩份報告的原欄位、正文狀態及一／兩個 PDF 參照維持一致，僅移除可靜態辨識按鈕造成的錯誤 extraction note。新版重解析零份 PARTIAL，一份數值回應保留警示；原 ZIP 位元組與執行結果未改寫。
 - 0.22.1 完整 suite 執行 600 項：588 項通過、12 項私有條件測試跳過；23 種原始碼與 frozen EXE（build_id=`20261004T031550Z`）HTTPS localhost 情境全部通過，每輪 68 個模擬通過。新增情境核對四日倒數在登入與 readiness 中一致、已對齊數值完整且保留 warnings、正常 PDF 按鈕維持 ATTACHMENT_ONLY 並無解析缺漏；實際 EXE 的結果仍不能取代內網重跑。
 - 2026-10-04 下午同一 0.22.1 建置的院內回傳已確認三日倒數與數值警示修正；全輪沒有執行或解析錯誤。PDF 按鈕未出現在本輪樣本，原始 ZIP 與新版重解析結果分開保留，見下節。
+
+## 2026-10-09：簽到退與打卡查詢 HAR
+
+兩份瀏覽器 HAR 分別有 227 及 64 個 HTTP 項目。針對 PSPDPortal 的業務回應，只讀新版 Parser 可取得一份狀態、一份錄製成功回覆（含兩筆事件）及兩份日期查詢（各三筆事件）。離線 replay 對第一份列出 PARSED 1／RECORDED_ACK 1，第二份列出 PARSED 2；沒有重送任何請求。原 HAR SHA-256 均未變，原始頁及個人資訊不加入公開 fixtures。
+
+第一份另以 SDK 的 AuthenticationAdapter 搭配記憶體 mock transport 驗證六個錄製步驟：Portal log／tree／SSO 表單、WPSAutoLogon POST、等待頁 GET 及固定狀態 GET。當次八個 SSO 欄位與錄製 payload 相符，狀態帳號核對成功；全程禁止 socket。Portal 密碼登入不在此錄製範圍，這是既有回應及次序的離線驗證，不能視為 SDK 新的院內連線成功。
+
+打卡 POST 只有 `reqCode=setPCClockInLog`，沒有位置、序號、時間或方向參數。位置來自回應；是否依來源 IP、工作站或 Session 對照仍未知。新 HAR 的 `qryProcess`／`qryFinMachine` 回應 HTML 完全相同，表單都沒有 checked 模式；SDK 保存送出模式並讓 `reported_mode=None`，不宣稱已取得完整出勤結算或不同模式分類。
+
+公開合成案例涵蓋 Big5、重複 row ID、合法零筆／未知表格、日期及身分不符、成功通知對應事件、有限 SSO 等待頁、readiness 不異動及打卡回覆不明不重播。院內測試器只查本人狀態及兩種模式，所有計畫排除打卡；本次未建置新 EXE，既有 0.22.9 EXE 不會自動取得此功能。完整欄位及限制見 [ATTENDANCE](ATTENDANCE.md)。
 
 ## 2026-10-08：0.22.8 DBR 院內回傳與 0.22.9 存檔優化
 

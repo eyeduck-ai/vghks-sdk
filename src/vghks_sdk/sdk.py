@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .adapters import AuditAdapter, OpplAdapter, PrqAdapter, WebMaasAdapter
+from .adapters.attendance import AttendanceAdapter
 from .adapters.auth import AuthenticationAdapter
 from .adapters.earnings import EarningsAdapter
 from .adapters.personnel import PersonnelAdapter
@@ -19,6 +20,7 @@ from .core.transport import SafeSessionTransport
 from .queries import Queries
 from .runtime import SDKRuntime
 from .services import (
+    AttendanceService,
     AuditService,
     AuthService,
     MedicationsService,
@@ -84,6 +86,7 @@ class VghksSDK:
         self.earnings = EarningsService(EarningsAdapter(self._runtime))
         self.reviews = ReviewsService(ReviewAdapter(self._runtime))
         self.personnel = PersonnelService(PersonnelAdapter(self._runtime))
+        self.attendance = AttendanceService(AttendanceAdapter(self._runtime))
         self.queries = Queries(self)
 
     def configure_connection(

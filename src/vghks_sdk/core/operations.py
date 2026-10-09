@@ -873,6 +873,23 @@ OPERATIONS += (
                                  "value(title)", "value(costId)", "action"),
           values=(("reqCode", "showAllDoctors"),), contract_required=False),
 )
+OPERATIONS += (
+    _spec("attendance.sso_logon", "attendance", "POST", "/PSPDPortal/WPSAutoLogon",
+          form=("HID", "USR_ID", "ssID", "keyOne", "keyTwo", "keyThree", "targetURL", "wpsHost"),
+          contract_required=False),
+    _spec("attendance.sso_wait", "attendance", "GET", "/PSPDPortal/access_wait.jsp",
+          query=("targetURL",), retry_safe=True, contract_required=False),
+    _spec("attendance.status", "attendance", "GET", "/PSPDPortal/oFSchedule.do",
+          query=("reqCode",), values=(("reqCode", "getPCClockInLog"),),
+          retry_safe=True, contract_required=False),
+    _spec("attendance.records", "attendance", "POST", "/PSPDPortal/oFSchedule.do",
+          form=("reqCode", "value(begDate)", "value(endDate)", "b1", "value(qryType)"),
+          values=(("reqCode", "getProcessedFingerLog"),),
+          retry_safe=True, contract_required=False),
+    _spec("attendance.punch", "attendance", "POST", "/PSPDPortal/oFSchedule.do",
+          form=("reqCode",), values=(("reqCode", "setPCClockInLog"),),
+          mutates=True, contract_required=False),
+)
 OPERATION_BY_KEY = {item.key: item for item in OPERATIONS}
 
 

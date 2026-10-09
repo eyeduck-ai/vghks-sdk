@@ -36,6 +36,9 @@ class QuerySpec:
 
 
 QUERY_SPECS = (
+    QuerySpec("attendance.status", "attendance", "get_status", "own_account", ()),
+    QuerySpec("attendance.records", "attendance", "get_records", "own_account", ("start", "end"),
+              alternative_inputs=(("start", "end", "mode"),)),
     QuerySpec("webmaas.demographics", "patients", "get_demographics", "patient", ("mrn",)),
     QuerySpec("webmaas.basic_info", "patients", "get_basic_info", "patient", ("mrn",)),
     QuerySpec(

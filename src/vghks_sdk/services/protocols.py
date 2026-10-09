@@ -7,6 +7,7 @@ from datetime import date
 from typing import Protocol
 
 from ..extension_protocols import (
+    AttendanceServiceProtocol,
     EarningsServiceProtocol,
     PatientQueriesProtocol,
     PersonnelProtocol,
@@ -160,6 +161,7 @@ class PersonnelServiceProtocol(PersonnelProtocol, Protocol):
 
 
 class SDKProtocol(Protocol):
+    attendance: AttendanceServiceProtocol
     auth: AuthServiceProtocol
     patients: PatientsServiceProtocol
     opd: OpdServiceProtocol

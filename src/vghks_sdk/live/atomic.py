@@ -558,6 +558,13 @@ def run_atomic_test(
 def _query_inputs(
     spec: QuerySpec, config: LiveTestConfig, values: dict[str, list[Any]]
 ) -> list[dict[str, Any]]:
+    if spec.key == "attendance.status":
+        return [{}]
+    if spec.key == "attendance.records":
+        end = config.range_end or date.today()
+        start = config.range_start or end - timedelta(days=30)
+        # Do not widen or silently truncate an explicitly selected interval.
+        return [{"start": start, "end": end, "mode": mode} for mode in ("processed", "raw")]
     if spec.key == "personnel.search":
         return ([{"filter": PersonnelFilter(employee_id=personnel_employee_id(config.doctor_card))}]
                 if config.doctor_card else [])

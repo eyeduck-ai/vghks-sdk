@@ -24,6 +24,7 @@ from ..core.errors import (
 from ..core.operations import OperationSpec, operation_spec
 from ..core.transport import SafeSessionTransport
 from ..models.auth import PasswordStatus
+from ..parsing.attendance import parse_attendance_state, parse_attendance_wait_target
 from ..parsing.portal import (
     has_portal_login_form,
     has_portal_login_redirect,
@@ -49,6 +50,7 @@ _WEBMAAS_PAGES = {
     "QUY15W001": ("QUY/QUY15W001.do", "maas_QRY15"),
 }
 _PROFILE_SSO_LOGON = {
+    "attendance": operation_spec("attendance.sso_logon"),
     "personnel": operation_spec("personnel.sso_logon"),
     "prq": operation_spec("prq.sso_logon"),
     "sectord": operation_spec("sectord.sso_logon"),
@@ -370,6 +372,34 @@ class AuthenticationAdapter:
             )
         return session.hid
 
+    def take_attendance_landing(self) -> str:
+        """Consume the already verified status page once within the Runtime lock."""
+        session = self._apps.get("attendance")
+        if session is None or not session.landing_html:
+            return ""
+        self._apps["attendance"] = replace(session, landing_html="")
+        return session.landing_html
+
+    def check_attendance_session(self) -> AppSession:
+        if "attendance" not in self._apps:
+            return self.ensure("attendance")
+        spec = operation_spec("attendance.status")
+        response = self._request(
+            spec, self._operation_url(self.settings.attendance_base_url, spec),
+            params=dict(spec.operation_values), allow_redirects=False,
+        )
+        text = self.transport.text(response)
+        self.assert_valid_landing(text, response.url)
+        if response.status_code != 200:
+            location = response.headers.get("Location", "")
+            if is_portal_login_destination(location, response.url, self.settings.portal_base_url):
+                raise AuthExpiredError("attendance redirected to Portal", app="attendance")
+            raise ParseError("attendance status returned an unrecognized redirect", code="ATTENDANCE_REDIRECT_UNRECOGNIZED")
+        parse_attendance_state(text, expected_employee_id=self.credentials.username)
+        session = replace(self._apps["attendance"], landing_url=response.url, landing_html=text)
+        self._apps["attendance"] = session
+        return session
+
     def ensure_webmaas_page(self, page_id: str) -> AppSession:
         """Select the recorded WebMAAS SSO role inside the Runtime lock."""
         if page_id not in _WEBMAAS_PAGES:
@@ -527,13 +557,20 @@ class AuthenticationAdapter:
         response_text = self.transport.text(response)
         self.assert_valid_landing(response_text, response.url)
         form = self._parse_sso_form(response_text, profile)
+        if profile.key == "attendance":
+            expected = self.settings.attendance_base_url.rstrip("/") + "/oFSchedule.do?reqCode=getPCClockInLog"
+            target = urljoin(self.settings.attendance_base_url.rstrip("/") + "/", form.payload["targetURL"])
+            if target != expected or form.payload.get("USR_ID", "").casefold() != self.credentials.username.strip().casefold():
+                raise AuthenticationError("attendance SSO target or account did not match", code="ATTENDANCE_SSO_INVALID", app="attendance")
         logon_spec = _PROFILE_SSO_LOGON[profile.key]
         posted = self._request(
             logon_spec,
             form.action_url,
             **{"params" if logon_spec.method == "GET" else "data": form.payload},
-            allow_redirects=True,
+            allow_redirects=profile.key != "attendance",
         )
+        if profile.key == "attendance":
+            posted = self._finish_attendance_sso(posted)
         landing_text = self.transport.text(posted)
         self.assert_valid_landing(landing_text, posted.url)
         self._validate_host(posted.url, profile.expected_base_url, f"{profile.key} landing")
@@ -566,6 +603,35 @@ class AuthenticationAdapter:
             )
         self._apps[profile.key] = session
         return session
+
+    def _finish_attendance_sso(self, response):
+        """Bounded GET transitions only; never replay the SSO POST on 307/308."""
+        base = self.settings.attendance_base_url
+        if response.status_code == 302:
+            destination = urljoin(response.url, response.headers.get("Location", ""))
+            self._validate_host(destination, base, "attendance SSO redirect")
+            actual = urlsplit(destination)
+            expected_target = "/PSPDPortal/oFSchedule.do?reqCode=getPCClockInLog"
+            if (actual.path != "/PSPDPortal/access_wait.jsp" or actual.fragment
+                    or parse_qsl(actual.query, keep_blank_values=True) != [("targetURL", expected_target)]):
+                raise AuthenticationError("attendance SSO redirect was unrecognized", code="ATTENDANCE_SSO_REDIRECT_INVALID", app="attendance")
+            response = self._request(operation_spec("attendance.sso_wait"), destination, allow_redirects=False)
+        if response.status_code != 200:
+            raise AuthenticationError("attendance SSO did not reach a read page", code="ATTENDANCE_SSO_REDIRECT_INVALID", app="attendance")
+        text = self.transport.text(response)
+        self.assert_valid_landing(text, response.url)
+        if urlsplit(response.url).path == "/PSPDPortal/access_wait.jsp":
+            destination = parse_attendance_wait_target(text, response_url=response.url, base_url=base)
+            response = self._request(operation_spec("attendance.status"), destination, allow_redirects=False)
+            text = self.transport.text(response)
+            self.assert_valid_landing(text, response.url)
+        actual = urlsplit(response.url)
+        self._validate_host(response.url, base, "attendance landing")
+        if (response.status_code != 200 or actual.path != "/PSPDPortal/oFSchedule.do"
+                or parse_qsl(actual.query, keep_blank_values=True) != [("reqCode", "getPCClockInLog")]):
+            raise AuthenticationError("attendance SSO landing was unrecognized", code="ATTENDANCE_LANDING_INVALID", app="attendance")
+        parse_attendance_state(text, expected_employee_id=self.credentials.username)
+        return response
 
     def _open_webmaas(self, page_id: str = "RSV11W001") -> AppSession:
         page_path, role = _WEBMAAS_PAGES[page_id]
@@ -777,6 +843,7 @@ class AuthenticationAdapter:
             "performance": self.settings.mis_base_url,
             "payroll": self.settings.mis_base_url,
             "personnel": self.settings.personnel_base_url,
+            "attendance": self.settings.attendance_base_url,
         }[app_key]
 
     @staticmethod

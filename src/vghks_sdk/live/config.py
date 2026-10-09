@@ -37,6 +37,7 @@ _ENDPOINT_FIELDS = (
     "mis_base_url",
     "review_base_url",
     "personnel_base_url",
+    "attendance_base_url",
 )
 _CREDENTIAL_KEYS = {
     "national_id",
@@ -400,7 +401,12 @@ class LiveTestConfig:
             raise ConfigurationError(
                 "live-test optional surgery/audit checks require doctor_card and opd_date"
             )
-        if self.range_start is not None and self.doctor_card is None:
+        own_account_only = (
+            self.profile == "atomic"
+            and bool(self.only_operations)
+            and all(query_spec(key).scope == "own_account" for key in self.only_operations)
+        )
+        if self.range_start is not None and self.doctor_card is None and not own_account_only:
             raise ConfigurationError(
                 "live-test optional date range requires doctor_card and opd_date"
             )

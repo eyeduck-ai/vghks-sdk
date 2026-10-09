@@ -62,6 +62,7 @@
 - 0.22.3 的 `auth.check` 對 WebMAAS 驗證當次表單／token；新 SSO 有有效頁時直接使用，快取存在則重新 GET。缺表單／token 保留 PARSE 與 HTTP 狀態，清除 WebMAAS 快取供下一次獨立操作重建 SSO；不能據此推論 TTL 或自動強制重送密碼。其他 readiness 目標不擴大為所有資料頁保證。
 - 0.22.4 的 `WEBMAAS_SESSION_TIMEOUT` 只依同來源固定 `/webmaas/comm/pageTimeOut.do` 及可見通知辨識，公開型別為 ApplicationSessionExpiredError。唯讀 Runtime 最多以原允許頁角色重建 WebMAAS SSO 一次，不強制 Portal 登入；auth.check 保留問題供獨立複查。未知缺表單仍為 PARSE，異動與已送出審查不恢復重播。0.22.3 院內 Cookie 遺失已確認 timeout 原頁及獨立 SSO 成功，0.22.4 晚間回傳另確認直接基本資料 API 自行一次 SSO 恢復及三份結構化資料一致；兩者都不證明自然 TTL。
 - 0.22.5 診斷的 capture_operation_id 明確連到 raw 操作；兩個 recorder 的計數器不能直接等同。離線只有同一操作內的 timeout、原角色 SSO、新表單、成功結果及完成事件完整匹配，才標記 WEBMAAS_SSO recovered；舊事件須完整請求次序唯一匹配。原 readiness ERROR、缺證據及後續解析錯誤不能被其他成功掩蓋。
+- 簽到退屬本人帳號操作：attendance.status／records 的 own_account scope 不需病人或醫師卡號；核對狀態頁帳號後，以共享 Session 與查詢頁姓名綁定結果，不宣稱查詢頁回傳員工編號。Big5 日期表單限制起訖差最多 180 天；requested mode 與 reported_mode 分開，0.23.0 的兩種 HAR 查詢回應相同且沒有 checked 模式。地點與序號由回應保留，不推論 IP 對照、方向、工時或核准。attendance.punch 只送 reqCode，明確成功通知須有對應事件；回覆不明維持 MUTATION_OUTCOME_UNKNOWN、retry_safe=False，queries／readiness／所有 EXE 計畫排除此異動。SSO 等待頁只接受已知 literal 並有限 GET，不重送 307／308 POST。新版只有合成、HAR 及 localhost 既有回歸證據，尚無 SDK 院內執行，見 docs/ATTENDANCE.md。
 
 ## 以 HAR 新增功能
 

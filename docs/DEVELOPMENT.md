@@ -117,6 +117,8 @@ python -m pip install --no-index --find-links wheelhouse vghks-sdk==VERSION
 
 GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；報告要分別記錄 source version 與 EXE build_id。原始碼 push 不會自動更新院內 EXE。
 
+由 worktree 提交時，先確認主工作目錄的既有修改，再更新 remote 狀態。main 可快轉時以 `--ff-only` 合併，推送前檢查本次 commit 及 index 的實際公開內容；有其他修改或分支分歧時，保留使用者工作並處理整合，不以 reset、clean 或 force push 略過。
+
 ## 本機資料整理
 
 | 路徑／類型 | 保留與清理方式 |
@@ -125,10 +127,12 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 | `private/` | 保留人工檢閱、denylist 及建置參數，不公開 |
 | `output/` 的院內分析與私有回歸結果 | 保留仍支撐驗證結論的紀錄；原始回傳已不在本機時，不因舊版本而刪除剩餘證據 |
 | `dist/vghks-live-test.exe`、`output/build-info.json` | 保留現行 EXE 與其建置資訊，更新後完成 localhost 驗證 |
-| `output/package/`、驗證報告 | 保留目前版本套件及近期檢查結果，舊套件、重複 log 與安裝副本可移除 |
-| `build/`、`__pycache__/`、`.ruff_cache/` | 可重建快取；建置相依環境需核對無其他用途後才清除 |
+| `output/package/`、驗證報告 | 保留目前 SDK 與現行 EXE 對應套件及近期檢查結果；其他舊套件、重複 log 與安裝副本可移除 |
+| `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/` | 可重建快取及封裝 metadata；建置相依環境需核對無其他用途後才清除 |
 
 每次整理先記錄清理清單、檔案數與大小，再核對用途。同一版本驗證的逐情境 log 可在總結報告已通過後移除；保留近期完整測試、EXE 驗證總結與建置資訊。暫存安裝副本及舊 wheel／sdist 可重建，原始 HAR／ZIP 和失去原檔後的分析證據不能用版本新舊判斷是否多餘。重構離線分析時，應以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定，避免整理改變結論或範圍。
+
+工作用 `output/build-tools/`、`output/test-tmp/` 與獨立 wheel 安裝環境完成驗證後可清除；最新完整 suite、建置、套件掃描及安裝驗證摘要仍保留。這些檔案只留本機，清理 manifest 也不加入公開來源。
 
 Windows 清理前解析完整目標路徑，確認仍在 workspace 內；使用 `Remove-Item -LiteralPath`，不跨 shell 組字串刪除。仍被公開匯入、CLI 或測試使用的相容層保留。共用 JSON 原子寫入及本機權限處理由 `local_io.py` 維護。
 

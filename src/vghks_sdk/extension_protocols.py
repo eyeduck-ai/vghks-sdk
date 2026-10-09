@@ -1,6 +1,7 @@
 """Typed boundaries shared by the extended adapters and public services."""
 
 from collections.abc import Mapping
+from datetime import date
 from typing import Any, Protocol
 
 from .core.config import EarningsCredentials
@@ -23,7 +24,26 @@ from .models import (
     TextReportHistory,
     UploadHistory,
 )
+from .models.attendance import (
+    AttendanceHistory,
+    AttendanceMode,
+    AttendancePunchReceipt,
+    AttendanceQuery,
+    AttendanceState,
+)
 from .models.personnel import PersonnelFilter, PersonnelOptions, PersonnelRecord
+
+
+class AttendanceProtocol(Protocol):
+    def get_status(self) -> AttendanceState: ...
+    def get_records(self, query: AttendanceQuery) -> AttendanceHistory: ...
+    def punch(self) -> AttendancePunchReceipt: ...
+
+
+class AttendanceServiceProtocol(Protocol):
+    def get_status(self) -> AttendanceState: ...
+    def get_records(self, start: date, end: date, *, mode: AttendanceMode = "processed") -> AttendanceHistory: ...
+    def punch(self) -> AttendancePunchReceipt: ...
 
 
 class PersonnelProtocol(Protocol):

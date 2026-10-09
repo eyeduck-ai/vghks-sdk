@@ -1,6 +1,6 @@
 # 架構
 
-應用程式或 workflow → Service → Adapter → Runtime／Requests；Adapter 呼叫純 Parser 產生 models。57 個唯讀功能由 queries.py 統一登錄，可供自動測試與其他應用發現。
+應用程式或 workflow → Service → Adapter → Runtime／Requests；Adapter 呼叫純 Parser 產生 models。59 個唯讀功能由 queries.py 統一登錄，可供自動測試與其他應用發現。
 
 ```text
 application / workflows
@@ -44,6 +44,8 @@ PDF／JPEG 檔頭只決定是否交給二進位驗證器。Runtime 與安全診�
 **兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。
 
 **Session 有狀態**：病人 context 與同主機 SSO 模式可能互相影響；Runtime 在完整操作期間持有 RLock 並管理 cache invalidation。不要在同一 Session 外加 thread pool；獨立任務各用 SDK，並維持整體節流。
+
+**本人打卡有獨立領域**：`attendance` 的 Model／Parser／Adapter／Service 共用 Runtime。狀態與日期紀錄是 `own_account` 唯讀結果，不需要病人或醫師輸入；測試器日期範圍可用於只選本人操作的 atomic 計畫。SSO 等待頁只解析已知 literal 並 GET 固定狀態頁，首張已核對的狀態限一次使用。查詢頁只含姓名，Adapter 以同一操作的狀態及 Session 綁定帳號；requested mode 與來源明示模式分開。`attendance.punch` 是不可重送的異動，獨立於唯讀目錄及 EXE；回覆不明保留未知結果與 SDK 原因鏈。詳見 [ATTENDANCE](ATTENDANCE.md)。
 
 **就診清單可含歷史病歷號**：PRQ Adapter 建立並辨識病人 context 後，Parser 才接受正式啟用就診列中的舊號。`VisitCase.mrn` 是該列明細連結的來源號碼，`lookup_mrn` 是取得整份清單的號碼；門診組合以 `patient_mrn` 對應掛號，單次 SOAP／醫囑仍使用來源號碼。獨立解析或來源不明連結維持嚴格檢查。
 

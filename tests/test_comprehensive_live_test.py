@@ -24,6 +24,9 @@ from vghks_sdk.live.profile import LIVE_TEST_MRN, LiveTestStep, _overall_status
 from vghks_sdk.live.runner import execute_live_test
 from vghks_sdk.live_test_app import build_parser, main, run_live_test_namespace
 from vghks_sdk.models import (
+    AttendanceHistory,
+    AttendanceQuery,
+    AttendanceState,
     AuthCheckTarget,
     BinaryAsset,
     CaseDetail,
@@ -67,6 +70,12 @@ class ComprehensiveTests(unittest.TestCase):
         self.sdk.records.get_visit_cases.return_value = self.cases
         self.sdk.records.get_case_detail.side_effect = lambda case: CaseDetail(case)
         self.sdk.records.get_soap.side_effect = lambda case: SoapRecord(case, ("synthetic",))
+        self.sdk.attendance.get_status.return_value = AttendanceState(
+            "TEST", "合成員工", "999-合成單位", "TESTPC", None, None
+        )
+        self.sdk.attendance.get_records.side_effect = lambda start, end, mode="processed": AttendanceHistory(
+            "合成員工", (), 0, AttendanceQuery(start, end, mode), start, end, account_context="TEST"
+        )
 
     def run_suite(self, **options):
         config = LiveTestConfig(profile="comprehensive", **options)
@@ -77,8 +86,8 @@ class ComprehensiveTests(unittest.TestCase):
     def test_plan_includes_all_modules_and_profile_limits_roundtrip(self):
         config = LiveTestConfig(profile="comprehensive")
         plan = build_test_plan(config)
-        self.assertEqual(len(plan["operations"]), 57)
-        self.assertEqual(len(plan["auth_targets"]), 9)
+        self.assertEqual(len(plan["operations"]), 59)
+        self.assertEqual(len(plan["auth_targets"]), 10)
         self.assertEqual((config.max_cases, config.max_items), (6, 8))
         restored = resolve_live_test_config(json_values=config.to_safe_dict(), environ={})
         self.assertEqual(restored, config)
@@ -148,7 +157,7 @@ class ComprehensiveTests(unittest.TestCase):
         self.sdk.surgery.get_schedule.assert_called_once()
         self.sdk.audit.get_unsigned_records.assert_called_once()
         self.assertEqual(result.status, "COMPLETED_WITH_ERRORS")
-        self.assertEqual(self.sdk.auth.check.call_count, 9)
+        self.assertEqual(self.sdk.auth.check.call_count, 10)
 
     def test_query_auth_failure_blocks_only_remaining_inputs_of_that_operation(self):
         self.sdk.records.get_soap.side_effect = AuthenticationError("synthetic expired SOAP")
@@ -227,7 +236,7 @@ class ComprehensiveTests(unittest.TestCase):
                 next(step.status for step in result.steps if step.operation == key), "MISSING"
             )
         coverage = json.loads((self.root / "run/coverage.json").read_text())
-        self.assertEqual(len(coverage["operations"]), 57)
+        self.assertEqual(len(coverage["operations"]), 59)
         self.assertIn("MISSING", (self.root / "run/RESULTS.txt").read_text())
 
     def test_doctor_date_samples_stay_inside_configured_range(self):
@@ -319,8 +328,9 @@ class ComprehensiveTests(unittest.TestCase):
         self.assertEqual((dns.call_count, tcp.call_count, https.call_count), (7, 7, 7))
         self.assertEqual(len(steps), 21)
         self.assertEqual(sum(step.status == "OK" for step in steps), 7)
-        self.assertEqual(len(choices), 9)
+        self.assertEqual(len(choices), 10)
         self.assertEqual(choices["oppl"]["shared_origin_with"], "sectord")
+        self.assertEqual(choices["attendance"]["shared_origin_with"], "personnel")
 
     def test_https_probe_keeps_tls_and_does_not_follow_redirects_or_retry(self):
         with (
@@ -380,8 +390,8 @@ class ComprehensiveTests(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             run_network_checks(SDKSettings(), steps, root=self.root)
-        self.assertEqual(https.call_count, 11)
-        self.assertEqual(sum(step.status == "ERROR" for step in steps), 4)
+        self.assertEqual(https.call_count, 13)
+        self.assertEqual(sum(step.status == "ERROR" for step in steps), 5)
         self.assertFalse(any(call.kwargs.get("direct") for call in https.call_args_list))
         for app in ("prq", "sectord", "webmaas"):
             self.assertEqual(
@@ -532,7 +542,7 @@ class ComprehensiveTests(unittest.TestCase):
         self.sdk.opd.get_doctor_patients.assert_called()
         with zipfile.ZipFile(result.archive.archive_path) as archive:
             coverage = json.loads(archive.read("coverage.json"))
-            self.assertEqual(len(coverage["unverified_tls_services"]), 9)
+            self.assertEqual(len(coverage["unverified_tls_services"]), 10)
             mode_line = next(
                 line
                 for line in archive.read("RESULTS.txt").decode().splitlines()
@@ -540,7 +550,7 @@ class ComprehensiveTests(unittest.TestCase):
             )
             self.assertEqual(
                 set(mode_line.split(": ", 1)[1].split(", ")),
-                {"portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"},
+                {"portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel", "attendance"},
             )
             profiles = json.loads(archive.read("parsed/network/selected_profiles.json"))
             self.assertTrue(
@@ -550,7 +560,7 @@ class ComprehensiveTests(unittest.TestCase):
                 )
             )
         report = analyze_bundle(result.archive.archive_path, output_dir=self.root / "analysis")
-        self.assertEqual(len(report["unverified_tls_services"]), 9)
+        self.assertEqual(len(report["unverified_tls_services"]), 10)
         soap = next(row for row in report["operations"] if row["operation"] == "prq.soap")
         self.assertEqual(soap["live_status"], "VERIFIED")
         self.assertEqual(soap["live_counts"]["OK"], 6)
@@ -578,7 +588,7 @@ class ComprehensiveTests(unittest.TestCase):
                 allow_unverified_tls=False,
             )
         configure.assert_not_called()
-        self.assertEqual(len(choices), 9)
+        self.assertEqual(len(choices), 10)
         for choice in choices.values():
             self.assertFalse(choice["applied"])
             self.assertTrue(choice["unverified_probe"]["anonymous_probe"])
@@ -642,14 +652,14 @@ class ComprehensiveTests(unittest.TestCase):
             redirect_stdout(io.StringIO()),
         ):
             result = execute_live_test(config, PortalCredentials("TEST", "SYNTHETIC_PASSWORD"))
-        self.assertEqual(network.call_count, 55)
+        self.assertEqual(network.call_count, 61)
         self.assertEqual(result.status, "CONNECTIVITY_FAILED")
         self.assertIsNotNone(result.archive)
         with zipfile.ZipFile(result.archive.archive_path) as archive:
             self.assertTrue(all(not info.flag_bits & 1 for info in archive.infolist()))
             summary = json.loads(archive.read("run_summary.json"))
             self.assertEqual(
-                sum(step["name"].startswith("network.") for step in summary["steps"]), 81
+                sum(step["name"].startswith("network.") for step in summary["steps"]), 90
             )
             self.assertIn("coverage.json", archive.namelist())
             self.assertIn("RESULTS.txt", archive.namelist())

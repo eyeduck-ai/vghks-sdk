@@ -223,7 +223,9 @@ vghks-live-test --profile login --login-negative-attempts 0
 
 ## 完整測試（comprehensive）
 
-comprehensive 計畫包含 57 個唯讀查詢（含人事選項／清單）、登入醫師的審查清單與最多 8 案詳情、手術碼 80416 的近兩年／兩年以上案例與最多 8 份紀錄、病人歷史手術及附件、績點與專勤工作獎金。單次就診抽樣最多 6 筆。啟用 MIS 時另詢問本人身分證字號與薪資系統密碼；所有異動功能排除。
+comprehensive 計畫包含 59 個唯讀查詢（含本人打卡狀態／紀錄、人事選項／清單）、登入醫師的審查清單與最多 8 案詳情、手術碼 80416 的近兩年／兩年以上案例與最多 8 份紀錄、病人歷史手術及附件、績點與專勤工作獎金。單次就診抽樣最多 6 筆。啟用 MIS 時另詢問本人身分證字號與薪資系統密碼；所有異動功能排除。
+
+本人打卡可單獨選 `--profile atomic --only attendance.status --only attendance.records`，日期可用 `--start`／`--end`，不需要病歷號或醫師卡號。只查狀態與兩種模式，所有計畫均排除 `attendance.punch`；來源模式及位置的限制見 [ATTENDANCE](ATTENDANCE.md)。目前既有 EXE 不包含新原始碼，需另行重建才會提供此功能。
 
 ## 執行與設定
 

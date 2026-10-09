@@ -61,6 +61,10 @@ class AuthenticationProtocol(Protocol):
 
     def check_webmaas_session(self) -> AuthSessionProtocol: ...
 
+    def check_attendance_session(self) -> AuthSessionProtocol: ...
+
+    def take_attendance_landing(self) -> str: ...
+
     def hid_for(self, app_key: str) -> str: ...
 
     def assert_not_expired(self, text: str, response_url: str) -> None: ...
@@ -325,10 +329,12 @@ class SDKRuntime:
                 continue
             started = monotonic()
             try:
-                app_session = (
-                    self.auth.check_webmaas_session() if spec.key == "webmaas"
-                    else self.auth.ensure(spec.key)
-                )
+                if spec.key == "webmaas":
+                    app_session = self.auth.check_webmaas_session()
+                elif spec.key == "attendance":
+                    app_session = self.auth.check_attendance_session()
+                else:
+                    app_session = self.auth.ensure(spec.key)
                 result = self._auth_target_result(
                     spec,
                     status="OK",

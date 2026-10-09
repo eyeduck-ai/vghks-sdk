@@ -1,6 +1,6 @@
 # 原子功能參考
 
-本文件由 `python tools/generate_api_reference.py` 產生；共 57 個登錄唯讀查詢。
+本文件由 `python tools/generate_api_reference.py` 產生；共 59 個登錄唯讀查詢。
 用途文字維護於該工具，簽名與回傳型別取自真正的 Service；`--check` 檢查文件是否落後。
 
 每個原子功能回傳一種可使用的結果，可能需要數個 HTTP 請求完成 SSO、病人 context 或分頁。
@@ -8,6 +8,13 @@
 目錄中的 dependencies 是測試器發現輸入時的相依關係，不表示 Service 每次都會重新執行那些查詢。
 
 原子操作不負責把所有病人／所有附件自動跑完；這由 workflows 或應用程式負責。
+
+## sdk.attendance
+
+| 操作 ID | Service 呼叫及回傳 | 用途 |
+| --- | --- | --- |
+| `attendance.status` | `get_status() -> AttendanceState` | 讀取登入者、上次簽到退、來源地點與電腦序號；不送出簽到。見 [ATTENDANCE](ATTENDANCE.md)。 |
+| `attendance.records` | `get_records(start: date, end: date, *, mode: AttendanceMode = processed) -> AttendanceHistory` | 依西元日期區間查詢登入者的打卡事件；mode 選 processed／raw，query 與 reported_mode 分開保留，不能由事件推定簽到／簽退或完整出勤。 |
 
 ## sdk.patients
 
@@ -138,6 +145,8 @@ MIS 使用 `EarningsCredentials(national_id, password)`，與 Portal 帳密分�
 重新登入後舊 EarningsReportContext 失效，需再次開啟報表。
 
 ## 明確提交的異動功能
+
+`sdk.attendance.punch()` 明確送出一次登入者的簽到退；先核對帳號與表單，位置與時間不是可提交參數。回覆不明保留 MUTATION_OUTCOME_UNKNOWN，不能自動重送；唯讀 queries、readiness 與 EXE 不會觸發此操作。見 [ATTENDANCE](ATTENDANCE.md)。
 
 `surgery.prepare_command(action, reviewed_fields)` 只在本機驗證並建立 SurgeryCommand。
 `create_schedule`、`edit_schedule`、`cancel_schedule`、`create_consent` 接受該 command 後才會送出異動。

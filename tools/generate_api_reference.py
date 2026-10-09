@@ -18,6 +18,8 @@ from vghks_sdk.services.personnel import PersonnelService  # noqa: E402
 from vghks_sdk.services.reviews import ReviewsService  # noqa: E402
 
 PURPOSES = {
+    "attendance.status": "讀取登入者、上次簽到退、來源地點與電腦序號；不送出簽到。見 [ATTENDANCE](ATTENDANCE.md)。",
+    "attendance.records": "依西元日期區間查詢登入者的打卡事件；mode 選 processed／raw，query 與 reported_mode 分開保留，不能由事件推定簽到／簽退或完整出勤。",
     "personnel.options": "人事查詢可用的職稱／單位代碼與名稱，依當次表單讀取。",
     "personnel.search": "依姓名、員工編號、職稱、單位及下層單位條件查詢人事清單；保留醫師章號及聯絡欄位。見 [PERSONNEL](PERSONNEL.md)。",
     "webmaas.demographics": "精簡身分與聯絡資訊；供清單補充欄位。",
@@ -78,6 +80,7 @@ PURPOSES = {
 }
 
 CLASSES = {
+    "attendance": services.AttendanceService,
     "patients": services.PatientsService,
     "opd": services.OpdService,
     "records": services.RecordsService,
@@ -150,6 +153,8 @@ def render() -> str:
         "重新登入後舊 EarningsReportContext 失效，需再次開啟報表。",
         "",
         "## 明確提交的異動功能",
+        "",
+        "`sdk.attendance.punch()` 明確送出一次登入者的簽到退；先核對帳號與表單，位置與時間不是可提交參數。回覆不明保留 MUTATION_OUTCOME_UNKNOWN，不能自動重送；唯讀 queries、readiness 與 EXE 不會觸發此操作。見 [ATTENDANCE](ATTENDANCE.md)。",
         "",
         "`surgery.prepare_command(action, reviewed_fields)` 只在本機驗證並建立 SurgeryCommand。",
         "`create_schedule`、`edit_schedule`、`cancel_schedule`、`create_consent` 接受該 command 後才會送出異動。",

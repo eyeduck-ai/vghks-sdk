@@ -40,8 +40,14 @@ from ..models import (
     UploadHistory,
     VisitCase,
 )
+from ..models.attendance import AttendanceHistory, AttendanceQuery
 from ..models.review import ReviewCasePart, ReviewCaseRef
 from ..parsing.assets import binary_asset_media_type, parse_binary_asset
+from ..parsing.attendance import (
+    parse_attendance_history,
+    parse_attendance_punch,
+    parse_attendance_state,
+)
 from ..parsing.documents import parse_form
 from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
@@ -217,7 +223,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         result["probe"] = (
             probe_name
             if re.fullmatch(
-                r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis|personnel)\.https(_direct)?(_tls12(_compat)?)?(_unverified)?",
+                r"network\.(portal|prq|sectord|webmaas|oppl|oppl_records|review|audit|mis|personnel|attendance)\.https(_direct)?(_tls12(_compat)?)?(_unverified)?",
                 probe_name,
             )
             else ""
@@ -491,6 +497,9 @@ def replay_response(
             )
             require_patient_context(text)
             return {"status": "RECORDED_ACK", "error_code": "", "record_count": None}
+        if operation == "attendance.punch":
+            receipt = parse_attendance_punch(text)
+            return {"status": "RECORDED_ACK", "error_code": "", "record_count": len(receipt.history.records)}
         if operation in OPERATION_BY_KEY and OPERATION_BY_KEY[operation].mutates:
             value = (
                 json.loads(text)
@@ -605,6 +614,16 @@ def _parse(
     trusted_visit_context: bool = False,
 ) -> Any:
     mrn = params.get("hhisnum") or params.get("patno") or context_mrn
+    if key == "attendance.status":
+        return parse_attendance_state(text)
+    if key == "attendance.records":
+        modes = {"qryProcess": "processed", "qryFinMachine": "raw"}
+        mode = modes.get(params.get("value(qryType)", ""))
+        if mode is None:
+            raise ParseError("recorded attendance mode was unknown", code="ATTENDANCE_MODE_INVALID")
+        query = AttendanceQuery(date.fromisoformat(params.get("value(begDate)", "")),
+                                date.fromisoformat(params.get("value(endDate)", "")), mode)
+        return parse_attendance_history(text, query=query)
     if key == "personnel.options":
         return parse_personnel_options(text)
     if key == "personnel.search":
@@ -753,6 +772,8 @@ def _parse(
 
 
 def _count(value: Any) -> int:
+    if isinstance(value, AttendanceHistory):
+        return len(value.records)
     if isinstance(value, ReviewCasePart):
         return value.total
     if value is None:

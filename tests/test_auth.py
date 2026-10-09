@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
+from test_attendance import status_page
+
 from vghks_sdk import PortalCredentials, SDKSettings
 from vghks_sdk.adapters.auth import AppSession, AuthenticationAdapter
 from vghks_sdk.core.errors import AuthenticationError
@@ -32,7 +34,11 @@ class ScriptedTransport:
             return FakeResponse(url, "portal")
         if path.endswith("/ssoFromDn.do"):
             app_dn = str(dict(kwargs.get("params", {})).get("apDn", ""))
-            if "011911_06" in app_dn:
+            if "030201_09" in app_dn:
+                origin = "https://wac01p.vghks.gov.tw:4430"
+                app_path = "/PSPDPortal"
+                hid = "ATTENDANCE-HID"
+            elif "011911_06" in app_dn:
                 origin = "https://zwmc01p.vghks.gov.tw:4430"
                 app_path = "/SectOrdWeb"
                 hid = "SECTORD-HID"
@@ -52,12 +58,16 @@ class ScriptedTransport:
                 origin = "https://zwmc01p.vghks.gov.tw:4434"
                 app_path = "/PRQWeb"
                 hid = "1A0"
+            target = f"{origin}{app_path}/landing.do"
+            if app_path == "/PSPDPortal":
+                target = f"{origin}{app_path}/oFSchedule.do?reqCode=getPCClockInLog"
             body = f"""
             <form action="{origin}{app_path}/WPSAutoLogon">
               <input name="HID" value="{hid}"><input name="ssID" value="synthetic">
               <input name="keyOne" value="1"><input name="keyTwo" value="2">
               <input name="keyThree" value="3"><input name="uid" value="U001">
-              <input name="targetURL" value="{origin}{app_path}/landing.do">
+              <input name="USR_ID" value="U001"><input name="wpsHost" value="{origin}">
+              <input name="targetURL" value="{target}">
             </form>
             """
             return FakeResponse(url, body)
@@ -69,7 +79,8 @@ class ScriptedTransport:
                 '<frameset><frame src="DRQuerySql.jsp"></frameset>'
                 if "/DDPortal/" in target_url else
                 '<form id="RSV11WForm"><input type="hidden" name="org.apache.struts.taglib.html.TOKEN" value="synthetic-token"></form>'
-                if "/webmaas/" in target_url else "application",
+                if "/webmaas/" in target_url else
+                status_page("U001") if "/PSPDPortal/" in target_url else "application",
             )
         if path.endswith("/SectOrdWeb/so.do"):
             return FakeResponse(url, "ssID=s&keyOne=1&keyTwo=2&keyThree=3")
@@ -290,7 +301,7 @@ class AuthTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(
             [row.target for row in report.targets],
-            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel"],
+            ["portal", "prq", "sectord", "webmaas", "oppl", "audit", "oppl_records", "review", "personnel", "attendance"],
         )
         self.assertFalse(report.targets[0].hid_present)
         self.assertTrue(all(row.hid_present for row in report.targets if row.target not in {"portal", "review"}))

@@ -1,3 +1,4 @@
+from .attendance import AttendanceService
 from .audit import AuditService
 from .auth import AuthService
 from .medications import MedicationsService
@@ -8,6 +9,7 @@ from .records import RecordsService
 from .surgery import SurgeryService
 
 __all__ = [
+    "AttendanceService",
     "AuditService",
     "AuthService",
     "MedicationsService",

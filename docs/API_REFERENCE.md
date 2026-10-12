@@ -59,9 +59,9 @@
 | `prq.case_orders` | `get_case_orders(case: VisitCase) -> list[ClinicalOrder]` | 該次就診的醫囑；參照物件可串接明細及報告。 |
 | `prq.order_history` | `get_order_history(mrn: str, filter: OrderHistoryFilter) -> list[ClinicalOrder]` | 跨次就診醫囑；可依日期、期間及類別選擇。 |
 | `prq.order_detail` | `get_order_detail(ref: OrderDetailRef) -> OrderDetail` | 醫囑細部欄位及可繼續查詢的報告參照。 |
-| `prq.order_report` | `get_order_report(ref: OrderReportRef) -> OrderReport` | 醫囑路徑的文字、PDF 及 JPG 參照；正文狀態另行判定。 |
-| `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 開啟 JPG 檢視資料，列出圖片；按鈕存在仍可能回傳空清單。 |
-| `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 下載一張 JPG，驗證格式及完整結尾。 |
+| `prq.order_report` | `get_order_report(ref: OrderReportRef) -> OrderReport` | 醫囑路徑的文字、PDF 及 JPG 參照；支援已知 literal 換行模板，未知文字解析保留 PARTIAL。 |
+| `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 開啟 JPG 檢視資料，列出高榮 uid 或聯合院區 imgUrl 圖片參照；按鈕存在仍可能回傳空清單。 |
+| `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 依 uid 或 imgUrl 參照經 PRQ 下載一張 JPG，驗證格式及完整結尾。 |
 | `prq.pdf_attachment` | `download_pdf(ref: PdfAttachmentRef) -> BinaryAsset` | 下載一個 PRQ PDF 附件；共用於檢查、掃描病歷、上傳文件及病人歷史手術。 |
 
 ## sdk.medications

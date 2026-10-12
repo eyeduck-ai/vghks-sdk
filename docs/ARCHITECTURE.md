@@ -39,6 +39,10 @@ Requests Session（鎖、節流、retry、capture）
 
 `offline/assets.py` 只在原 ZIP 中核對成功附件的 outcome、metadata、大小、SHA-256 與格式，不 import workflow 或 live 執行模組。原始 HTTP replay 與附件存檔核對各自保留證據；存檔問題加入分析 findings，原 live_status 維持原值。`pdf_files`／`jpg_files` 表示逐筆醫囑的可用附件數，唯一檔案數與 downloaded_bytes 來自去重後的成功查詢。
 
+`live/pacs.py` 負責純抽樣與兩種圖片模式的存檔摘要；`live/pacs_compare.py` 是雙院測試應用層，先驗證兩組輸入，再依序呼叫既有 runner。每院獨立建立 SDK、Session、病人 context、錄製及標準 ZIP，沿用既有 offline replay／附件核對路徑。雙院摘要只組合目標模式的證據與原錯誤，不發 HTTP、不補重試；個別 ZIP 的重測設定保留單院範圍。
+
+`offline/pacs.py` 在同一 ZIP 中重算各模式的唯一圖片參照、下載 outcome 與實際存檔完整性，與 `offline/assets.py` 共用逐檔 metadata／hash 驗證。它只輸出固定院區標籤、狀態、計數與問題碼，不載入 live 執行流程、不公開參照值，且保留原 EXE 狀態。已知 `resVal` 報告換行模板在 `parsing/report_data.py` 完整比對後直接讀 literal，未知 script 保留問題碼與部分解析狀態。
+
 PDF／JPEG 檔頭只決定是否交給二進位驗證器。Runtime 與安全診斷共用純 `parsing/assets.py`，避免壓縮位元組進入 HTML 密碼或表單解析；HTTP 拒絕、登入目的 URL、實際 HTML 挑戰與附件格式／大小檢查仍分別執行。下載不代表已擷取 PDF／JPG 內的醫療文字或數值。
 
 **兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。

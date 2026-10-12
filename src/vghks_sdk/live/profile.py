@@ -1057,7 +1057,8 @@ def _overall_status(steps: list[LiveTestStep], *, fatal_auth: bool) -> str:
         for step in steps
     ):
         return "COMPLETED_WITH_ERRORS"
-    if any(step.status == "NO_SAMPLE" for step in steps):
+    if any(step.status == "NO_SAMPLE" or (step.details or {}).get("acquisition_status") == "PARTIAL"
+           for step in steps):
         return "COMPLETED_WITH_GAPS"
     return "OK"
 

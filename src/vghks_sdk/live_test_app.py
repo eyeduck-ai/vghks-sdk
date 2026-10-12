@@ -71,7 +71,11 @@ def add_live_test_arguments(
     parser.add_argument("--test-mrn", help="authorized patient identifier for live queries")
     parser.add_argument(
         "--comparison-mrn",
-        help="regression profile: authorized patient MRN for the second account",
+        help="second account MRN: pacs = VGHKS; regression = union hospital",
+    )
+    parser.add_argument(
+        "--pacs-single-account", action="store_true", default=None,
+        help="pacs: explicitly test only the primary account (default tests union then VGHKS)",
     )
     parser.add_argument(
         "--access-review-reason",
@@ -82,7 +86,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
+        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -249,11 +253,20 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
+        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, dbr, visits, soap, regression, scans, failures, session or password profile"
+                "--plan requires login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session or password profile"
             )
-        print(json.dumps(build_test_plan(config), ensure_ascii=True, indent=2))
+        plan = build_test_plan(config)
+        if config.profile == "pacs":
+            plan["pacs_comparison"] = {
+                "enabled": not config.pacs_single_account,
+                "sequence": [{"hospital": "union", "expected_mode": "imgUrl"},
+                             {"hospital": "vghks", "expected_mode": "uid"}],
+                "sessions": "independent_per_hospital", "collect_all_inputs_before_network": True,
+                "order_limit_per_account": config.max_items,
+            }
+        print(json.dumps(plan, ensure_ascii=True, indent=2))
         return 0
 
     default_root = executable_directory / "live-test-results"
@@ -277,6 +290,10 @@ def run_live_test_namespace(
         interactive = not bool(getattr(args, "non_interactive", False)) and (
             force_interactive or sys.stdin.isatty()
         )
+        pacs_comparison = config.profile == "pacs" and not config.pacs_single_account
+        if interactive and pacs_comparison:
+            print("\nPACS 雙院測試: 先輸入聯合醫院與高榮的病歷號、帳密, 收齊後才開始連線。")
+            print("依序測試聯合醫院 imgUrl、高榮 uid; 各院使用獨立 Session 與結果 ZIP。")
         if config.session_pause and not interactive:
             raise ConfigurationError("--session-pause requires an interactive console")
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
@@ -299,7 +316,9 @@ def run_live_test_namespace(
         ):
             if interactive:
                 config = replace(
-                    config, test_mrn=_prompt_required("Authorized test MRN / 病歷號", "")
+                    config, test_mrn=_prompt_required(
+                        "聯合醫院授權測試病歷號" if pacs_comparison else "Authorized test MRN / 病歷號", ""
+                    )
                 )
             else:
                 raise ConfigurationError(
@@ -315,15 +334,29 @@ def run_live_test_namespace(
             output_root=config.output_root or default_root,
             overwrite=bool(getattr(args, "overwrite", False)),
             archive_directory=executable_directory,
+            archive_label="union" if pacs_comparison else "",
         )
         if interactive:
             if config.profile == "regression":
                 print("\n高榮帳號: 執行原有回歸測試及掛號查詢比較。")
+            elif pacs_comparison:
+                print("\n聯合醫院 Portal 帳密 (密碼輸入不顯示):")
             credentials = _interactive_credentials()
             config = config.with_default_doctor(credentials.username)
             config = _interactive_wizard(config, quick=force_interactive)
         else:
             credentials = _noninteractive_credentials()
+
+        if pacs_comparison:
+            from .live.pacs_compare import execute_pacs_comparison
+
+            vghks_mrn, vghks_credentials = _pacs_second_account(args, interactive=interactive)
+            execution = execute_pacs_comparison(
+                config, credentials, vghks_credentials, vghks_mrn=vghks_mrn,
+                bundle_manager=manager, executable_directory=executable_directory,
+                overwrite=bool(getattr(args, "overwrite", False)),
+            )
+            return execution.exit_code
 
         comparison_credentials = None
         comparison_mrn = None
@@ -587,6 +620,7 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
         "profile",
         "login_negative_attempts",
         "session_pause",
+        "pacs_single_account",
         "output_root",
         "doctor_card",
         "opd_date",
@@ -761,6 +795,13 @@ def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveT
         print("不測審查、手術、薪資或附件; 結果 ZIP 不加密, 存於 EXE 同目錄。")
         mrn = _prompt_required("測試病歷號 (Enter 沿用)", config.test_mrn)
         return replace(config, test_mrn=mrn)
+    if config.profile == "pacs":
+        print("\nPACS 圖片專項: 單一授權病人, 全部及各科歷年醫囑清單。")
+        print(f"最多抽樣 {config.max_items} 筆醫囑, 優先有 PACS 參照/JPG 標籤者, 再依檢查名稱及日期選取。")
+        print("保留正文及附件; 下載所選檢查的全部圖片, 分別統計 imgUrl 與 uid, 缺樣本不視為通過。")
+        print("雙院模式會收齊第二組資料後, 依序測試聯合醫院與高榮, 各院最多抽樣上述筆數。")
+        print("結果 ZIP 存於 EXE 同目錄; 內含原始 HTTP 與圖片, 不做 OCR。")
+        return config
     if config.profile == "dbr":
         print("\nDBR 歷年醫囑專項: 單一授權病人, 全部及各科醫囑歷年清單。")
         print(f"最多抽樣 {config.max_items} 筆已執行或狀態未知的 DBR, 獨立取得報告正文、PDF 及 JPG。")
@@ -938,6 +979,30 @@ def _interactive_credentials() -> PortalCredentials:
         username = _prompt_required("Portal username", "")
     password = os.getenv("VGHKS_PASSWORD") or getpass.getpass("Portal password: ")
     return PortalCredentials(username, password).validate()
+
+
+def _pacs_second_account(args: argparse.Namespace, *, interactive: bool) -> tuple[str, PortalCredentials]:
+    mrn = getattr(args, "comparison_mrn", None) or os.getenv("VGHKS_COMPARISON_MRN", "")
+    username = os.getenv("VGHKS_COMPARISON_USERNAME", "").strip()
+    password = os.getenv("VGHKS_COMPARISON_PASSWORD", "")
+    if interactive:
+        print("\n高榮授權測試資料 (與聯合醫院使用獨立 Session):")
+        if not mrn:
+            mrn = _prompt_required("高榮授權測試病歷號", "")
+        if not username:
+            username = _prompt_required("高榮 Portal 帳號", "")
+        if not password:
+            password = getpass.getpass("高榮 Portal 密碼: ")
+    if not mrn:
+        raise ConfigurationError(
+            "pacs requires --comparison-mrn or VGHKS_COMPARISON_MRN for VGHKS",
+            code="TEST_MRN_REQUIRED",
+        )
+    if not username or not password:
+        raise ConfigurationError(
+            "pacs requires VGHKS_COMPARISON_USERNAME and VGHKS_COMPARISON_PASSWORD for VGHKS"
+        )
+    return mrn.strip(), PortalCredentials(username, password).validate()
 
 
 def _noninteractive_credentials() -> PortalCredentials:

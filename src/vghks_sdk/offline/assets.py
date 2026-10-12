@@ -58,7 +58,7 @@ def verify_order_assets(reader: BundleReader, steps: list[dict] | None = None) -
             result["issues"].append({"operation": "", "code": "ORDER_ASSET_OUTCOME_INVALID"})
             continue
         result["checked_files"] += 1
-        code = _verify_asset(reader, name, audit, operation)
+        code = verify_saved_order_asset(reader, name, audit, operation)
         if code:
             result["issues"].append({"operation": operation, "code": code})
         else:
@@ -68,7 +68,7 @@ def verify_order_assets(reader: BundleReader, steps: list[dict] | None = None) -
     return result
 
 
-def _verify_asset(reader: BundleReader, name: str, audit: dict, operation: str) -> str:
+def verify_saved_order_asset(reader: BundleReader, name: str, audit: dict, operation: str) -> str:
     media_type, suffix = ORDER_ASSET_FORMATS[operation]
     expected_asset = name.removesuffix(".outcome.json") + suffix
     relative = expected_asset.removeprefix(ORDER_WORKFLOW)

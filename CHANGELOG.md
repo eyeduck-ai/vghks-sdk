@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.23.3
+
+- 0.23.2 雙院院內回傳已確認聯合醫院 66 張 imgUrl、高榮 25 張 uid 與四份 PDF；原始回應、存檔、metadata／outcome 的大小與 SHA-256 一致，91 張 JPEG 另經完整解碼。聯合醫院六份「查無資料!!」、高榮四份「查無資料!」皆正常回傳 EMPTY。兩份原 COMPLETED_WITH_GAPS 各因缺少另一格式樣本，不代表目標圖片下載失敗。
+- 補上兩份聯合醫院文字報告使用的 `resVal` literal／固定換行模板；完整比對已知 script 形狀後純解析字串，不執行 JavaScript、迴圈或 callback。兩份原頁在禁止 socket 下可完整重解析為 TEXT_AVAILABLE，未知模板仍保留 PARTIAL；原院內執行狀態維持不變。
+- 離線分析新增 PACS 各模式與院區目標核對，由唯一參照、outcome、metadata 及實際檔案重算完整性，辨識漏下載、重複／非預期參照、缺檔、hash 不符與摘要不一致。NO_SAMPLE 保留 imgUrl／uid 步驟與明確原因，不將成功圖片或另一院成功用來掩蓋其他錯誤。
+- 測試器與離線分析保留文字解析不完整的安全問題碼與 COMPLETED_WITH_GAPS；雙院摘要也列出部分報告數。新增合成 Parser、離線完整性與雙院回歸，以及 source／frozen localhost 的已知／未知文字模板情境。0.23.3 的程式執行仍需與 0.23.2 院內下載、原頁離線重解析分開判讀。
+- 更新 PACS 開發不變量、十九種 localhost 驗證與本機資料保留規則；保留原始院內回傳、正式分析及現行建置／驗證摘要，清除可重建快取、舊套件、安裝副本與重複紀錄。公開內容仍限來源、文件、合成測試與工具。
+
+## 0.23.2
+
+- 修正 PACS 可見「查無資料!!」被誤判為 `PACS_STRUCTURE_UNRECOGNIZED`：接受明確空結果文字後的重複已知標點，回傳 `EMPTY`／`NO_IMAGES`。空白、只有 script 字串、登入頁及未知內容仍報錯；圖片參照與原 UID 下載參數維持原行為。
+- `pacs` EXE 預設一次收齊聯合醫院與高榮的授權病歷號、帳密，再依序執行。各院使用獨立 SDK Session、錄製及 ZIP；前院失敗仍處理後院，使用者中斷則停止。雙院摘要以聯合醫院 imgUrl、高榮 uid 為目標，缺樣本不算通過，原錯誤不被另一院成功掩蓋。
+- ZIP 檔名標示 `union`／`vghks`，保留各院參照與下載證據；另產生不含帳密的雙院摘要。明確單院 CLI 與個別 ZIP 的離線重測設定保留單院範圍。公開回歸包含空結果、雙院輸入順序、病歷號／Session 隔離、失敗續跑與缺樣本；原六份院內空頁在禁止 socket 下均重解析為 EMPTY，原 ZIP 與原實測失敗狀態不改寫。新版雙院院內執行及高榮 uid 實際下載仍待回傳。
+
+## 0.23.1
+
+- 修正聯合院區 PACS 檢視頁使用 `imgUrl` 時的 `PACS_REF_INVALID`。`PacsImageRef.img_url` 保留已驗證的 WADO 參照，純 Parser 依病歷號及檢查單號核對、去重；原高榮 `uid`／`SERIES_UID`／`STUDY_UID` 與既有位置參數保持相容。
+- 圖片一律經共用 Session 的固定 PRQ `showPACSPic.jsp` 下載，依參照選擇 `imgUrl` 或原 UID 參數；不直接請求內嵌 URL。限定已錄製來源、路徑與 JPEG 查詢形狀，拒絕混用、外部來源及不完整參照，沿用登入挑戰、大小限制與 JPEG 完整性檢查。
+- 底層請求契約描述兩種替代參數，離線 replay 使用同一 Parser。新增模型、59 張合成圖片、去重、病人／檢查單號不符、mock Service 下載及原 UID 回歸測試。原 debug 的兩份院內檢視頁可在禁止 socket 下各解析 59 個參照；沒有原始 JPG，下載驗證仍為合成證據，尚未以新版 SDK 在院內複驗。
+- 新增 `pacs` 單檔 EXE 計畫：單一授權病人、兩種歷年醫囑清單、預設最多八筆醫囑，優先圖片參照及標籤並保留所有抽樣理由；經既有組合流程取得正文及附件，下載所選檢查的全部圖片。`imgUrl`／`uid` 分別記錄參照、成功檔案、錯誤、大小與 hash；缺模式為 NO_SAMPLE，上游失敗為 BLOCKED，單張失敗仍繼續其他圖片，離線重測設定保留專項範圍。
+
 ## 0.23.0
 
 - 新增 `sdk.attendance.get_status()`、`get_records(start, end, mode=...)` 與明確的 `punch()`。本人帳號核對、PSPDPortal SSO 等待頁、Big5 日期表單及事件解析各自放入現有分層，共用 Session、操作鎖、節流與同來源 TLS 狀態。

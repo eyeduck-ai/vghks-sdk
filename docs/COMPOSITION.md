@@ -39,6 +39,12 @@ result = collect_order_reports(
 
 NOT_EXECUTED 通常沒有報告，組合流程保留原醫囑後跳過。PDF、文字及 JPG 分支彼此獨立。JPG 檢視器的明確「查無資料」會回空圖片清單；未知頁面、登入頁及損壞檔案則保留錯誤。
 
+`PacsStudy.images` 同時支援高榮的 `uid` 與聯合院區的 `imgUrl` 格式；後者保存在 `PacsImageRef.img_url`。將回傳參照直接交給 `orders.download_pacs_image` 即可，原有 `uid` 呼叫方式保持相容。兩種格式都經目前登入 Session 的固定 PRQ 圖片端點下載；`img_url` 只接受已錄製的 WADO 來源、路徑及 JPEG 查詢形狀，不由 SDK 直接連到該 URL。病歷號與檢查單號仍須匹配原檢視頁，參照及序列化結果可能含院內識別資訊，只能留本機。
+
+`OrderReport.report_text` 也支援已確認的 `resVal` literal 與固定換行模板；只解析完整匹配的來源，不執行 JavaScript。未知或動態模板保留 `text_extraction_notes`，`acquire`／`queries.run_result` 回傳 PARTIAL；可用的附件仍獨立下載。測試器保留部分解析計數與問題碼，不因圖片下載成功而宣稱文字已完整取得。
+
+PACS 頁明示「查無資料!!」等已知空結果文字時，`get_pacs_study` 回傳 `data_status="EMPTY"`、`empty_reason="NO_IMAGES"` 與空 `images`；JPG 按鈕存在不保證有圖片。空白、登入頁或未知版面仍保留錯誤，不能以 HTTP 200 推論成功。
+
 `records.get_text_report_history` 是各科報告入口。眼科完整項目宜由醫囑清單發現；可以將兩個入口按參照去重，但不能假設涵蓋相同檢查。
 
 ## 眼科掃描病歷

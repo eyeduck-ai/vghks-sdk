@@ -108,6 +108,7 @@ class HarSignature:
     query_keys: frozenset[str] = frozenset()
     form_keys: frozenset[str] = frozenset()
     operation_values: tuple[tuple[str, str], ...] = ()
+    alternative_query_keys: tuple[frozenset[str], ...] = ()
 
     @classmethod
     def from_operation(cls, spec: OperationSpec) -> HarSignature:
@@ -117,6 +118,7 @@ class HarSignature:
             query_keys=spec.query_keys,
             form_keys=spec.form_keys,
             operation_values=spec.operation_values,
+            alternative_query_keys=spec.alternative_query_keys,
         )
 
     def matches(self, entry: HarEntry) -> bool:
@@ -124,6 +126,10 @@ class HarSignature:
             entry.method == self.method
             and entry.path == self.path
             and self.query_keys.issubset(entry.query_keys)
+            and (
+                not self.alternative_query_keys
+                or any(keys.issubset(entry.query_keys) for keys in self.alternative_query_keys)
+            )
             and self.form_keys.issubset(entry.form_keys)
             and all(
                 entry.operation_values.get(key) == value for key, value in self.operation_values
@@ -648,7 +654,7 @@ def _validate_pacs_study(entry: HarEntry) -> None:
         entry.text(),
         reference=PacsStudyRef((entry.context_mrn or "CONTRACT"), request_no),
     )
-    _require(len(study.images) == 7, "PACS image count changed")
+    _require(bool(study.images), "PACS image list was empty")
 
 
 def _validate_pacs_image(entry: HarEntry) -> None:

@@ -30,6 +30,7 @@ from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .assets import verify_order_assets
 from .bundle import BundleReader
 from .opd_review import review_weekly_physicians
+from .pacs import pacs_test_summary
 from .password import password_test_summary
 from .recovery import verify_webmaas_recoveries
 from .replay import replay_bundle, request_parts, summarize_replay
@@ -247,6 +248,11 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
          "capture_id": "", "step": ""}
         for issue in order_assets["issues"]
     )
+    pacs_test = pacs_test_summary(reader, steps)
+    for issue in pacs_test["issues"]:
+        if not any(item["code"] == issue["code"] and item["operation"] == issue["operation"]
+                   for item in problems):
+            problems.append({"phase": "DATA", **issue, "capture_id": "", "step": ""})
     priority = {
         "CONNECTIVITY": 0,
         "AUTHENTICATION": 1,
@@ -314,7 +320,9 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
     unresolved_probes = [item for item in preflight_problems if not item["recovered"]]
     main = problems[0] if problems else unresolved_probes[0] if unresolved_probes else None
     no_sample_steps = _no_sample_steps(steps)
-    has_gaps = bool(no_sample_steps) or run_status == "COMPLETED_WITH_GAPS"
+    data_quality = _data_quality_summary(steps, rows)
+    has_gaps = (bool(no_sample_steps) or run_status == "COMPLETED_WITH_GAPS"
+                or bool(data_quality["recorded_partial_steps"] or data_quality["offline_partial_responses"]))
     if problems or unresolved_probes or run_status not in {"OK", "COMPLETED_WITH_GAPS"}:
         analysis_status = "NEEDS_ATTENTION"
     else:
@@ -359,7 +367,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "next_action": _next_action(main, has_gaps=has_gaps),
         "portal_login_evidence": _portal_login_evidence(reader),
         "password_policy": _password_policy_summary(steps, rows),
-        "data_quality": _data_quality_summary(steps, rows),
+        "data_quality": data_quality,
         "problems": problems,
         "operations": matrix,
         "replay": summarize_replay(rows),
@@ -369,6 +377,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "weekly_physician_review": review_weekly_physicians(reader),
         "ophthalmology_orders": _ophthalmology_summary(reader),
         "order_assets": order_assets,
+        "pacs_test": pacs_test,
         "earnings_reports": _earnings_results(steps),
         "report_content": _report_content_summary(steps, rows),
         "no_sample_operations": [row["operation"] for row in matrix if row["live_status"] == "NO_SAMPLE"],
@@ -407,6 +416,7 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "failures.live.soap", "failures.live.numeric", "failures.live.orders",
             "failures.live.detail", "failures.live.report", "failures.live.pacs",
         }
+        pacs_check = name in {"pacs.imgUrl_sample", "pacs.uid_sample"}
         reason = _safe_code((step.get("issue") or {}).get("code"))
         detail_reason = (step.get("details") or {}).get("reason")
         if (not reason and login_check and isinstance(detail_reason, str)
@@ -418,10 +428,12 @@ def _no_sample_steps(steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
             reason = detail_reason
         if name == "failures.live.password_policy" and not reason:
             reason = "PASSWORD_NOTICE_NOT_OBSERVED"
+        if pacs_check and not reason:
+            reason = "NO_PACS_IMGURL_REFERENCE" if name == "pacs.imgUrl_sample" else "NO_PACS_UID_REFERENCE"
         gaps.append(
             {
                 "step_index": index,
-                "step": name if known_check or login_check or failure_check else operation,
+                "step": name if known_check or login_check or failure_check or pacs_check else operation,
                 "operation": operation,
                 "reason_code": reason,
             }
@@ -845,9 +857,11 @@ def _phase(code: str) -> str:
 def _next_action(main: dict[str, str] | None, *, has_gaps: bool = False) -> str:
     if main is None:
         if has_gaps:
-            return "未發現未恢復的執行錯誤；NO_SAMPLE 表示缺少欄位或候選資料，仍未完成該項驗證。需要驗證這些項目時，先準備相應樣本；不必只為同一份缺樣本資料重跑 EXE。"
+            return "未發現未恢復的執行錯誤；NO_SAMPLE 表示缺少欄位或候選資料，部分解析另列於 data_quality，均保留尚未完成的範圍。需要驗證缺樣本項目時，先準備相應樣本；不必只為同一份缺樣本資料重跑 EXE。"
         return "檢查操作驗證矩陣；NOT_TESTED 與 EMPTY 尚未證實能取得目標資料。"
     code = main["code"]
+    if code.startswith(("ORDER_ASSET_", "PACS_DOWNLOAD_", "PACS_SUMMARY_", "PACS_REFERENCE", "PACS_ACCOUNT_")):
+        return "先保留原 ZIP，核對 stage2 的圖片參照、stage3 的 outcome／metadata 與實際檔案；摘要計數不能替代完整性證據。原實測狀態保留，缺檔或不一致不自動重送登入／下載。"
     if code == "TLS_VERIFY_FAILED":
         return "已收到憑證驗證失敗證據；檢查 Windows 信任庫、憑證主機名稱與有效期，需要時使用院內提供的 CA PEM。新版 comprehensive 預設比較略過驗證的 HTTPS，連線成功就同輪繼續登入／查詢。不能推論帳密錯誤。"
     if code in {"TLS_EOF", "TLS_PROTOCOL_FAILED", "NETWORK_TLS_FAILED"}:
@@ -914,6 +928,22 @@ def _markdown(report: dict[str, Any]) -> str:
             for row in report["no_sample_steps"]
         )
         lines.append("")
+    pacs = report.get("pacs_test", {})
+    if pacs.get("status") not in {None, "NOT_RUN"}:
+        account = pacs["account"]
+        lines += [
+            f"PACS 圖片核對：{pacs['status']}；"
+            f"本院目標 {account.get('hospital', '未指定')}.{account.get('expected_mode', '未指定')} = {pacs['expected_mode_status']}。",
+            "", "| 格式 | 原判定 | 存檔核對 | 參照數 | 通過核對的檔案 | 缺少下載 | 下載錯誤 |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
+        ]
+        lines.extend(
+            f"| {mode} | {row['recorded_status']} | {row['status']} | {row['references']} | "
+            f"{row['verified_files']} | {row['missing_downloads']} | {row['download_errors']} |"
+            for mode, row in pacs["modes"].items()
+        )
+        lines += ["", "另一格式缺樣本不代表本院目標下載失敗；目標缺樣本、上游失敗及存檔不完整分別保留。"
+                  "核對參照、outcome 與實際檔案，不只依摘要計數；沒有 OCR 或完整圖片解碼。", ""]
     policy = report["password_policy"]
     if policy["offline_observations"]:
         lines += [

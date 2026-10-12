@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import shutil
 import sys
 import traceback
@@ -40,10 +41,14 @@ class LiveTestBundleManager:
         *,
         run_id: str | None = None,
         archive_directory: Path | None = None,
+        archive_label: str = "",
         overwrite: bool = False,
     ) -> None:
         self.run_directory = _safe_run_directory(run_directory)
         self.run_id = run_id or _new_run_id()
+        if archive_label and not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", archive_label):
+            raise ConfigurationError("invalid live-test archive label")
+        self.archive_label = archive_label
         self.archive_directory = (
             archive_directory.expanduser().resolve()
             if archive_directory is not None
@@ -67,6 +72,7 @@ class LiveTestBundleManager:
         *,
         run_id: str | None = None,
         archive_directory: Path | None = None,
+        archive_label: str = "",
     ) -> LiveTestBundleManager:
         resolved_id = run_id or _new_run_id()
         root = output_root.expanduser().resolve()
@@ -76,6 +82,7 @@ class LiveTestBundleManager:
             archive_directory=archive_directory
             if archive_directory is not None
             else root / "archives",
+            archive_label=archive_label,
         )
 
     @classmethod
@@ -92,6 +99,8 @@ class LiveTestBundleManager:
             raise ConfigurationError("live-test directory is not marked incomplete")
         marker = _read_json_file(self.run_directory / INCOMPLETE_MARKER)
         self.run_id = str(marker.get("run_id") or self.run_directory.name)
+        label = marker.get("archive_label", "")
+        self.archive_label = label if isinstance(label, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", label) else ""
         self.archive_directory = (
             archive_directory.expanduser().resolve()
             if archive_directory is not None
@@ -226,6 +235,7 @@ class LiveTestBundleManager:
                 {
                     "schema_version": 1,
                     "run_id": self.run_id,
+                    "archive_label": self.archive_label,
                     "packaging_failed_at": _utc_now(),
                 },
             )
@@ -276,6 +286,7 @@ class LiveTestBundleManager:
             {
                 "schema_version": 1,
                 "run_id": self.run_id,
+                "archive_label": self.archive_label,
                 "started_at": _utc_now(),
             },
         )
@@ -326,7 +337,8 @@ Do not replay requests or session state from this bundle.
             restrict_permissions(self.archive_directory, directory=True)
         # Use export time (not the potentially much earlier run start). A new
         # short ID also distinguishes two archives produced in the same second.
-        name = f"vghks-live-test-{_new_run_id()}-{status}.zip"
+        label = f"-{self.archive_label}" if self.archive_label else ""
+        name = f"vghks-live-test-{_new_run_id()}{label}-{status}.zip"
         archive_path = self.archive_directory / name
         if archive_path.exists():
             raise ConfigurationError(

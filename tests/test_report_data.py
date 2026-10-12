@@ -9,7 +9,7 @@ from vghks_sdk import acquire
 from vghks_sdk.core.errors import ErrorInfo, ParseError
 from vghks_sdk.live.atomic import _counts, _write_coverage, build_test_plan
 from vghks_sdk.live.config import LiveTestConfig
-from vghks_sdk.live.profile import LiveTestStep
+from vghks_sdk.live.profile import LiveTestStep, _overall_status
 from vghks_sdk.models import OrderReportRef
 from vghks_sdk.offline.analyze import _report_content_summary
 from vghks_sdk.offline.replay import replay_response
@@ -17,6 +17,14 @@ from vghks_sdk.parsing.clinical import parse_order_report
 
 REFERENCE = OrderReportRef("SYNTHETIC", "C1", "O", "1")
 PDF = '<script>var p="//nfs01p/EMRU/SYNTHETIC/report.pdf";</script>'
+NARRATIVE = r'''dept="SYN";deptc="Synthetic";
+resVal="First synthetic line\n第二行 & <literal>\nLast line";
+while(resVal.indexOf("\n")>0){resVal=resVal.replace("\n","<br/>");}
+document.write(resVal);'''
+
+
+def narrative_report(source=NARRATIVE):
+    return '<table><tr><th>報告內容</th><td><pre><script>' + source + '</script></pre></td></tr></table>'
 
 
 class ReportDataTests(unittest.TestCase):
@@ -106,6 +114,57 @@ class ReportDataTests(unittest.TestCase):
                 self.assertEqual(report.report_text, "")
                 self.assertTrue(report.text_extraction_notes)
                 self.assertEqual(acquire(lambda report=report: report).status, "PARTIAL")
+
+    def test_legacy_literal_narrative_preserves_text_without_department_or_markup(self):
+        for source in (NARRATIVE, NARRATIVE.replace('resVal=', 'var resVal=', 1),
+                       NARRATIVE.replace('dept="SYN";deptc="Synthetic";', '/* recorded comment */')):
+            with self.subTest(source=source):
+                report = parse_order_report(narrative_report(source), reference=REFERENCE)
+                self.assertEqual(report.report_text, 'First synthetic line\n第二行 & <literal>\nLast line')
+                self.assertEqual(report.report_data_status, 'TEXT_AVAILABLE')
+                self.assertEqual(report.text_extraction_notes, ())
+                self.assertEqual(acquire(lambda report=report: report).status, 'OK')
+
+    def test_legacy_narrative_unknown_variants_fail_closed_and_live_retains_partial(self):
+        for source in (
+            NARRATIVE.replace('"First synthetic line\\n第二行 & <literal>\\nLast line"', 'fetchSecret()'),
+            'function later(){' + NARRATIVE + '}',
+            'if(unknown){' + NARRATIVE + '}',
+            NARRATIVE.replace('>0', '>=0'),
+            NARRATIVE.replace('"<br/>"', 'unknown'),
+            NARRATIVE.replace('document.write(resVal);', 'resVal=fetchSecret();document.write(resVal);'),
+            NARRATIVE.replace('dept="SYN"', 'dept=fetchSecret()'),
+        ):
+            with self.subTest(source=source):
+                report = parse_order_report(narrative_report(source), reference=REFERENCE)
+                self.assertEqual(report.report_text, '')
+                self.assertEqual(report.report_data_status, 'METADATA_ONLY')
+                self.assertEqual(acquire(lambda report=report: report).status, 'PARTIAL')
+                self.assertEqual(_counts(report)['acquisition_status'], 'PARTIAL')
+                self.assertTrue(_counts(report)['parsing_issues'])
+                steps = [LiveTestStep('report', 'OK', operation='prq.order_report', details=_counts(report))]
+                self.assertEqual(_overall_status(steps, fatal_auth=False), 'COMPLETED_WITH_GAPS')
+                steps.append(LiveTestStep('image', 'ERROR', operation='prq.pacs_image'))
+                self.assertEqual(_overall_status(steps, fatal_auth=False), 'COMPLETED_WITH_ERRORS')
+
+    def test_narrative_variables_are_local_to_each_script_and_report(self):
+        source = narrative_report() + narrative_report('document.write(resVal);')
+        report = parse_order_report(source, reference=REFERENCE)
+        self.assertEqual(report.report_text.count('First synthetic line'), 1)
+        self.assertEqual(acquire(lambda: report).status, 'PARTIAL')
+        next_report = parse_order_report(narrative_report('document.write(resVal);'), reference=REFERENCE)
+        self.assertEqual(next_report.report_text, '')
+
+    def test_offline_replay_recovers_literal_narrative_without_exporting_text(self):
+        result = replay_response(
+            'prq.order_report', narrative_report().encode(),
+            {'hhisnum': 'SYNTHETIC', 'caseNo': 'C1', 'caseType': 'O', 'seqNo': '1'},
+            mime='text/html; charset=utf-8',
+        )
+        self.assertEqual(result['report_data_status'], 'TEXT_AVAILABLE')
+        self.assertTrue(result['data_complete'])
+        self.assertEqual(result['text_extraction_notes'], [])
+        self.assertNotIn('First synthetic line', json.dumps(result))
 
     def test_attachment_error_does_not_revoke_available_text_in_live_and_offline_summaries(self):
         report = parse_order_report(

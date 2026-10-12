@@ -152,6 +152,7 @@ def execute_live_test(
     overwrite: bool = False,
     executable_directory: Path | None = None,
     bundle_manager: LiveTestBundleManager | None = None,
+    announce_archive: bool = True,
 ) -> LiveTestExecution:
     """Create the incomplete marker before SDK bootstrap and always try to package."""
 
@@ -200,7 +201,7 @@ def execute_live_test(
         manager.log(
             "Debug output: unencrypted JSON/HTML/binary files and ZIP; captured credentials may be included."
         )
-        if config.profile in {"comprehensive", "ophthalmology", "dbr", "soap"}:
+        if config.profile in {"comprehensive", "ophthalmology", "dbr", "pacs", "soap"}:
             manager.log(
                 "Unverified HTTPS fallback for login/query tests: "
                 + (
@@ -251,7 +252,7 @@ def execute_live_test(
                     output_dir=manager.run_directory, raw_capture=raw_capture,
                     diagnostics=diagnostics, run_id=manager.run_id,
                 )
-            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans"}:
+            elif config.profile in {"auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans"}:
                 result = run_atomic_test(
                     sdk,
                     config,
@@ -371,7 +372,7 @@ def execute_live_test(
             archive = None
             _print_packaging_recovery(manager.run_directory)
 
-    if archive is not None:
+    if archive is not None and announce_archive:
         _print_archive(archive)
     return LiveTestExecution(
         status=status,
@@ -394,6 +395,11 @@ def _summary_payload(
     failure_error_id: str = "",
 ) -> dict[str, Any]:
     existing = _read_existing_summary(manager.run_directory / "run_summary.json")
+    account = _read_existing_summary(manager.run_directory / "pacs_account.json")
+    if config.profile == "pacs" and account.get("hospital") in {"union", "vghks"}:
+        existing["pacs_account"] = {
+            key: account[key] for key in ("hospital", "expected_mode", "sequence") if key in account
+        }
     completed_steps = to_jsonable(steps)
     if not completed_steps:
         checkpoint = manager.run_directory / "step_results.json"
@@ -441,12 +447,16 @@ def _create_manager(
     output_root: Path,
     overwrite: bool,
     archive_directory: Path | None = None,
+    archive_label: str = "",
 ) -> LiveTestBundleManager:
     if output_dir is not None:
         return LiveTestBundleManager(
-            output_dir, overwrite=overwrite, archive_directory=archive_directory
+            output_dir, overwrite=overwrite, archive_directory=archive_directory,
+            archive_label=archive_label,
         )
-    return LiveTestBundleManager.create_auto(output_root, archive_directory=archive_directory)
+    return LiveTestBundleManager.create_auto(
+        output_root, archive_directory=archive_directory, archive_label=archive_label,
+    )
 
 
 def create_live_test_bundle(
@@ -455,6 +465,7 @@ def create_live_test_bundle(
     output_root: Path,
     overwrite: bool,
     archive_directory: Path | None = None,
+    archive_label: str = "",
 ) -> LiveTestBundleManager:
     """Create the owner and incomplete markers before interactive bootstrap."""
 
@@ -463,6 +474,7 @@ def create_live_test_bundle(
         output_root=output_root,
         overwrite=overwrite,
         archive_directory=archive_directory,
+        archive_label=archive_label,
     )
 
 

@@ -23,7 +23,7 @@
 | acquisition | 可選用的統一結果與純資料狀態評估，不新增 HTTP 或重試 | acquisition.py；models/acquisition.py |
 | workflows | 多原子操作組合、去重、階段存檔、錯誤續跑 | workflows/ |
 | live | EXE 參數、讀取測試、coverage、結果 ZIP | live/、live_test_app.py |
-| contracts/offline | 共用純證據判斷、只讀 HAR／ZIP 驗證與重解析 | contracts/auth_evidence.py、order_assets.py；offline/analyze.py 組裝報告；assets.py／session.py／recovery.py／retest.py 各處理附件、對照、恢復與重測設定 |
+| contracts/offline | 共用純證據判斷、只讀 HAR／ZIP 驗證與重解析 | contracts/auth_evidence.py、order_assets.py；offline/analyze.py 組裝報告；assets.py／pacs.py／session.py／recovery.py／retest.py 各處理附件、圖片模式、對照、恢復與重測設定 |
 
 新增原子操作以「一份有意義結果」為單位；SSO、病人 context 及必要分頁可以包含多次 HTTP。不要把 HTTP 細節交給 workflow，也不要讓 Parser 自動選下一名病人。
 
@@ -48,6 +48,8 @@
 - DDPortal 表單為 Big5，結果可為 UTF-8；personnel.search 僅送 showAllDoctors，不提交回傳頁的簡訊表單、不執行 JS。職稱／單位由當次表單讀取；323 筆清單已 HAR 離線驗證，0.19.3 內網已驗證選項、卡號、姓名、員工編號與職稱組合查詢。明細未錄製，見 docs/PERSONNEL.md。
 - DDPortal 的查詢容器可用 frame 或 iframe；兩者都需比對允許來源與完整 DRQuerySql.jsp 路徑，0.19.3 已有內網成功證據。表單標籤可含「代碼 - 名稱」，測試器只剝除與該 option.value 相同的前綴且須唯一匹配；模型保留原標籤。單位及下層單位仍未內網實測，不把本機修正當成已送出查詢。
 - 空結果與未知 schema 不同。未執行醫囑、查無 JPG、只有 PDF 參照各自保留狀態。不得以 HTTP 200 判定登入或正文成功。
+- PacsImageRef 僅接受 uid 或 img_url 其中一種；imgUrl 限定已錄製 WADO 來源、路徑及 JPEG 參數，綁定病歷號與檢查單號。兩種模式均透過當前 Session／HID 的固定 PRQ showPACSPic.jsp 下載，不直接請求內嵌 URL，保留原 UID 參數與位置建構相容性。可見完整「查無資料」及已知結尾標點為 EMPTY／NO_IMAGES；script 字串、登入頁及額外未知內容不能當空結果。
+- 醫囑文字的 resVal literal／固定換行模板須完整比對已知 script 形狀後純解析；不執行 JavaScript、迴圈或 callback。未知模板保留 extraction note／PARTIAL，live coverage、雙院摘要與 offline 均保留缺漏；圖片下載成功不代表文字已完整解析。
 - SOAP 使用 parsing/soap.py 依明確標籤及同表 rowspan 分段，A+P 不硬拆 A/P；blocks／full_text 保持相容。diagnoses 只取 ICD 區，不從自由文字推論診斷或主次。SoapOrder／SoapMedication 是頁面摘要，無執行狀態或附件參照；不可冒充 ClinicalOrder／MedicationOrder。藥囑表可能在連續處方說明後的第二行，需保留前置說明、從完整欄位標題解析；明示的「服藥期限」回 SoapChronicPrescriptionPeriod，原文仍保留。未知列保留原文及 parsing_issues，None 表示未辨識段落，空字串表示有標籤但無內容。0.20.0 第二份 SOAP 專項內網回傳驗證四筆 SOAP 與一筆慢性處方期限；當時兩份就診清單因異號阻擋。0.20.3 院內回傳另驗證一名已確認同病人之舊病歷號門診 SOAP，其他人的舊號關係尚待確認。詳見 docs/SOAP.md 與 docs/VALIDATION.md。
 - NumericTable.headers 是相容的攤平表頭，不可直接 zip(rows)；新功能使用 header_rows 與逐欄 column_paths。眼科表格可有兩層表頭、rowspan 及不合實際欄數的 colspan；能對齊才產生 column_paths，無法對齊保留原始 rows 並填 parsing_issues。手填 `error`、空白格、帶括號或說明的值依 HTML 儲存格位置保留，不靠數字猜左右眼。0.20.4 只將三欄日期／OD／OS 完全對齊的過大 colspan 計為測試警示，來源問題碼仍保留；其他不確定欄位仍是 ERROR。0.20.4 院內 EXE 回傳 `OK`，舊、新 ZIP 的就診、SOAP 及數值解析內容完全一致，警示數 2、解析錯誤數 0。長期間檢驗表的 else-if 異常值分支必須只輸出一個資料格，不能因靜態解析重複值；不執行任意 JS，數值、單位及左右眼不做臨床推論。詳見 docs/NUMERIC_REPORTS.md。
 - 手術排程 status 優先讀 ornstats，備援 orstatus；來源值可為未解碼的代碼，不能宣稱已完成手術。網頁顯示房間使用 oproom，oroproom 為另存的來源代碼；optime 的 TF／TF 加數字是未定時間，不能把 orbgntm 的 23:59:00 或月曆定位 08:30 當成已確定時間。SurgeryRecord.source_fields 保留完整原始列（含巢狀病人個資及院內識別資訊），extra 保持舊版未選欄位語義；兩者不可公開，詳見 docs/SURGERY_SCHEDULE.md。
@@ -97,6 +99,10 @@ EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請�
 歷年 DBR 專項用 `--default-profile dbr` 建置及 `tools/verify_dbr_exe.py` 驗證。單一授權病人、全部／各科歷年清單、預設最多八筆 DBR，不查逐次門診／SOAP；保留未執行、NO_SAMPLE、上游失敗與附件獨立續跑。二進位檔頭可避免 HTML 密碼解析，但不代表檔案完整；HTTP／登入目的 URL／實際 HTML 挑戰、附件格式與大小仍須檢查。十種 localhost source／frozen 情境及兩份原始 DBR PDF 禁止 socket 重解析須與另列的院內回傳分開記錄。
 
 0.22.8 院內 DBR 回傳已驗證兩筆醫囑、四份 PDF，兩份與原失敗樣本 SHA-256 一致；兩個 PACS 為有效空結果，正文仍為 ATTACHMENT_ONLY。0.22.9 改善本機存檔，unique_pdf_files／unique_jpg_files 是實際檔案數，pdf_files／jpg_files 保留逐筆可用數；離線 order_assets 核對存檔完整性，不改原實測狀態。這些存檔優化與院內下載證據分開記錄。
+
+雙院 PACS 專項用 `--default-profile pacs` 建置及 `tools/verify_pacs_exe.py` 驗證。先收齊聯合醫院與高榮各自的病歷號、帳密，再以獨立 SDK／Session 依序查詢；每院一名授權病人、預設最多八筆歷年醫囑，下載所選檢查的全部圖片，不查逐次就診／SOAP、不做負向登入或異動。首院失敗仍測後院，中斷則停止。目標為 union.imgUrl／vghks.uid，另一格式 NO_SAMPLE 不掩蓋目標缺樣本、實際錯誤或 PARTIAL；個別 ZIP 的重測設定維持單院範圍。
+
+0.23.2 雙院院內回傳已驗證 66 張 imgUrl、25 張 uid、四份 PDF 及十個 PACS 空結果；91 張 JPEG 另經本機完整解碼。0.23.3 兩份文字原頁在禁止 socket 下完整重解析，source／frozen 各十九種 localhost 情境通過，新版院內執行仍待驗證。offline/pacs.py 由唯一參照、outcome、metadata 及實際存檔重算模式與目標狀態，核對病人／院區、缺檔、漏下載、重複／非預期參照及摘要一致性，不改寫原實測結果。詳見 docs/LIVE_TEST.md 與 docs/VALIDATION.md。
 
 結構化 SOAP 複驗用 `--default-profile soap` 建置、`tools/verify_soap_exe.py` 驗證；live/soap.py 從指定日期門診清單選不同病歷號，只查回傳醫師匹配登入卡號／加 F 的專屬清單，逐人保存完整就診清單、同日門診比對與 SOAP。預設日期 2026-09-21、最多八人、每人兩筆就診；缺樣本為 NO_SAMPLE，單筆失敗仍續跑，登入失敗停止相依查詢。此計畫不測錯誤密碼或異動，localhost 證據不視為院內資料驗證。
 

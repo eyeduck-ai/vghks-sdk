@@ -38,6 +38,8 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 醫囑附件以 `order_assets` 核對 ZIP 內實際存檔與下載 metadata，包含大小、SHA-256 及格式。原始 HTTP replay 與存檔核對是不同證據；存檔問題不能改寫原成功步驟，也不能因原成功便忽略缺檔。組合 workflow 重用 runner 已寫好的結果，自訂 runner 僅回傳值時仍會保存；PDF／JPG 走 `local_io.write_bytes_atomic`，存檔失敗保留 OUTPUT_WRITE_FAILED 並續跑其他附件。
 
+PACS 專項的 `pacs_test` 另由唯一參照、outcome 與已驗證存檔重算 imgUrl／uid，核對病人、院區目標、漏下載、重複／非預期參照與摘要一致性。院區標示是使用者輸入，不從醫療內容猜測；原實測、重解析正文與存檔完整性各自保留。修改後以同一 ZIP 比較 source／frozen 的完整分析（排除 analyzer build）與單院重測設定；合法空結果與另一格式 NO_SAMPLE 不等於目標下載失敗，也不能掩蓋實際錯誤或 PARTIAL。
+
 附件目錄或支援格式的調整集中於 `contracts/order_assets.py`，由 live、workflow 與 offline 共用；不要讓離線分析匯入測試執行器以取得路徑。重構後對同一 ZIP 做禁止 socket 的完整分析與重測設定比較，再跑對應 unittest／localhost EXE，確認只改責任分工而未改證據判定。詳細分層見 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 建置
@@ -70,6 +72,7 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 | profile | localhost 驗證工具 | 主要檢查 |
 | --- | --- | --- |
+| `pacs` | `tools/verify_pacs_exe.py` | 十九種 HTTPS 情境、imgUrl／原 UID 參數、查無圖片、完整下載與失敗續跑、雙院輸入及 Session 隔離、文字模板／PARTIAL、CLI 離線完整性與單院重測 |
 | `dbr` | `tools/verify_dbr_exe.py` | 十種 HTTPS 情境、歷年 DBR 抽樣、二進位／登入分類、原始 PDF／JPG 保存、有限恢復與 CLI 離線分析 |
 | `password` | `tools/verify_password_exe.py` | 十五種 HTTPS 情境、舊密碼只送一次、強制變更原頁保存、匿名／Cookie 目錄對照及離線白名單 |
 | `session` | `tools/verify_session_exe.py` | 十二種 HTTPS 情境、表單／token、隔離 Cookie、明確 timeout 的 GET／唯讀 POST 自動 SSO 恢復及持續失效停止 |
@@ -131,6 +134,8 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 | `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/` | 可重建快取及封裝 metadata；建置相依環境需核對無其他用途後才清除 |
 
 每次整理先記錄清理清單、檔案數與大小，再核對用途。同一版本驗證的逐情境 log 可在總結報告已通過後移除；保留近期完整測試、EXE 驗證總結與建置資訊。暫存安裝副本及舊 wheel／sdist 可重建，原始 HAR／ZIP 和失去原檔後的分析證據不能用版本新舊判斷是否多餘。重構離線分析時，應以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定，避免整理改變結論或範圍。
+
+雙院 PACS 保留每院原分析、目前版本的正式分析與單院重測設定、原 ZIP hash、下載／文字核對摘要、source／frozen 驗證總結及獨立安裝驗證摘要。已記錄完整一致性比較後，可移除重複的 frozen／安裝分析副本與開發中的中間分析；不得移除原始回傳或唯一剩餘證據。清理清單記錄各目標及刪除結果，結束後核對現行 EXE／wheel hash 與必要證據仍在。
 
 工作用 `output/build-tools/`、`output/test-tmp/` 與獨立 wheel 安裝環境完成驗證後可清除；最新完整 suite、建置、套件掃描及安裝驗證摘要仍保留。這些檔案只留本機，清理 manifest 也不加入公開來源。
 

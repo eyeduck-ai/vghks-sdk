@@ -1,11 +1,12 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile pacs`、`dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.22.9，EXE 內建 `dbr` 計畫，驗證歷年醫囑的 DBR 報告與 PDF／JPG 下載。0.22.8 院內回傳已確認兩筆 DBR、四份 PDF 成功，其中兩份與原整合 debug 失敗檔案相同。0.22.9 改善存檔與離線完整性核對；本機驗證與院內執行證據分開記錄，見 [VALIDATION](VALIDATION.md)。`password`、`session` 等專項仍可明確選用。
+目前 SDK 原始碼與本機單檔 EXE 為 0.23.3，EXE 內建 `pacs` 雙院計畫，先收齊兩組病歷號、帳密，再依序驗證聯合醫院 `imgUrl` 與高榮 `uid`。0.23.2 院內雙院回傳已確認 66 張 imgUrl、25 張 uid、四份 PDF 與十個 PACS 空結果；0.23.3 補上兩份聯合醫院文字報告的 literal 換行模板與離線完整性核對，原頁重解析通過，新版院內執行仍待驗證。詳見 [VALIDATION](VALIDATION.md)。`dbr`、`password`、`session` 等專項仍可明確選用。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
+| `pacs` | 依序驗證聯合醫院 imgUrl 與高榮 uid | 先輸入聯合醫院病歷號與帳密，再輸入高榮病歷號與帳密；兩院各一名授權病人 |
 | `dbr` | 歷年醫囑 DBR 明細／報告、PDF／JPG 抽樣及逐筆證據 | 一名授權病人的病歷號、Portal 帳密 |
 | `password` | 一次舊帳密登入、強制變更頁面及限定唯讀對照 | 舊 Portal 帳密，可選一名授權病人的病歷號 |
 | `session` | WebMAAS 表單驗證、基本資料、Cookie 遺失或手動閒置對照 | 一名授權病人的病歷號、Portal 帳密 |
@@ -18,6 +19,34 @@
 | `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
 
 建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## 聯合院區／高榮 PACS 圖片專項（pacs）
+
+```sh
+python tools/build_live_test_exe.py --default-profile pacs
+python tools/verify_pacs_exe.py --source
+python tools/verify_pacs_exe.py
+```
+
+公開建置不加 `--defaults`，不內嵌帳密或真實病歷號。雙擊單一 EXE 後，依畫面先輸入聯合醫院的授權病歷號、Portal 帳號與密碼，再輸入高榮的病歷號、帳號與密碼。收齊兩組有效輸入後才開始連線，先完成聯合醫院再測高榮；各院使用獨立 SDK Session、Cookie、錄製與結果目錄，使用者不必選擇圖片參照格式。任一院登入／查詢／下載失敗會保留該院錯誤並繼續另一院；Ctrl+C 中斷則停止後續帳號。
+
+專項只使用 Portal／PRQ，各院從一名病人的全部及各科歷年醫囑（`*`／`OR`、4000 天）發現參照，不查逐次就診或 SOAP。預設各院最多選八筆可查詢醫囑，依序優先已有 PACS 參照、JPG／PACS 標籤、偏好檢查名稱（預設 Microsonography／DBR）、其他有明細／報告參照的醫囑；同級依日期由新到舊。未執行與超額項目保存抽樣理由。只有報告頁才出現圖片參照的檢查也可被選取，並不限於 DBR 或眼科。
+
+每筆明細、報告正文、PDF 及 JPG 分支獨立處理。下載所選檢查的全部圖片，跨清單／醫囑共用參照只下載一次；單張失敗仍繼續其他圖片。`imgUrl` 與 `uid` 都經固定 PRQ 圖片端點與當前 HID，不直接請求內嵌 URL。原始附件不做 OCR。沒有刻意錯誤密碼、Cookie 挑戰、手術／打卡異動；院方病歷調閱審查自然出現時仍依共用 SDK 政策處理一次。
+
+每院 ZIP 的 `pacs_account.json` 及 `run_summary.json` 標示院區輸入與目標模式。`parsed/workflows/ophthalmology_orders/` 保留完整結果：`stage1_discovery/pacs_selection.json` 為選取／略過理由，`stage2_orders/` 及 `stage2_queries/` 為參照與正文，`stage3_assets/` 為原始檔與 outcome，`pacs_verification.json` 分別列出兩種模式的參照數、成功／失敗數、檔案大小及 SHA-256。`RESULTS.txt` 同時顯示目標與模式統計。某院只有一種格式時，另一種為 NO_SAMPLE、該院原測試狀態為 COMPLETED_WITH_GAPS；雙院摘要只在聯合醫院 imgUrl 與高榮 uid 都下載成功、且兩院沒有執行錯誤時標示 OK。有樣本但下載失敗為 ERROR、上游失敗為 BLOCKED、目標格式缺樣本為 COMPLETED_WITH_GAPS，均不算該目標下載通過。明示「查無資料!!」是 EMPTY／NO_IMAGES，不是解析錯誤。
+
+若八筆抽樣未涵蓋已知圖片，可明確指定日期或偏好名稱，仍保留總數上限：
+
+```powershell
+.\vghks-live-test.exe --profile pacs --order-date 2026-09-21 --asset-term "檢查名稱" --max-items 8
+```
+
+請帶回 EXE 同目錄新產生、檔名分別含 `union` 與 `vghks` 的兩份 ZIP；同目錄 `vghks-pacs-comparison-*.txt`／`.json` 可查看雙院摘要。ZIP 包含未遮罩原始回應、識別資訊、Cookie 及圖片，只留本機／院內授權管道。個別 ZIP 的離線分析及重測設定維持單院範圍。
+
+離線 `analysis.json` 的 `pacs_test` 會依唯一參照、outcome、metadata、實際 JPEG 與 SHA-256 重算兩種模式，並分列 `recorded_status`、存檔核對狀態、`expected_mode_status`、漏下載及下載失敗數。只接受摘要標示 OK 不算完整性證據；缺檔、重複／非預期參照及摘要不一致會列為問題。`no_sample_steps` 保留 `pacs.imgUrl_sample`／`pacs.uid_sample` 與原因碼。正文解析不完整時，coverage／RESULTS 保留 PARTIAL 與問題碼，雙院摘要的 `partial_report_steps` 與整體 COMPLETED_WITH_GAPS 也保留此範圍；圖片成功不掩蓋文字缺漏。
+
+自動化執行可用 `--test-mrn` 指定聯合醫院病歷號、`--comparison-mrn` 指定高榮病歷號；主帳密由 `VGHKS_USERNAME`／`VGHKS_PASSWORD` 提供，高榮使用 `VGHKS_COMPARISON_USERNAME`／`VGHKS_COMPARISON_PASSWORD`，第二病歷號也可由 `VGHKS_COMPARISON_MRN` 提供。帳密不放入 JSON。需明確只測單院時加 `--pacs-single-account`；離線產生的 PACS 重測 JSON 自動保留此單院設定。`--output` 指定首院目錄，第二院使用同層 `-vghks` 目錄。
 
 ## 歷年醫囑 DBR 專項（dbr）
 
@@ -114,7 +143,7 @@ dist/vghks-live-test.exe --plan
 
 ## 高榮與聯合醫院掛號比較、病歷調閱審查（regression）
 
-以下流程需重新建置 `regression` profile；本機現行 EXE 使用上節的 `password` profile。
+以下流程使用 `regression` 計畫；現行 EXE 預設為 `pacs`，可明確指定 `--profile regression`，若要雙擊啟動此專項則另行建置。
 
 只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
@@ -144,7 +173,7 @@ dist/vghks-live-test.exe --plan
 
 ## 單次門診與歷年眼科掃描病歷（scans）
 
-以下流程需先重新建置 `scans` profile；本機現行 EXE 使用 `password` profile。
+以下流程使用 `scans` 計畫；現行 EXE 預設為 `pacs`，可明確指定 `--profile scans`，若要雙擊啟動此專項則另行建置。
 
 只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 
@@ -225,7 +254,7 @@ vghks-live-test --profile login --login-negative-attempts 0
 
 comprehensive 計畫包含 59 個唯讀查詢（含本人打卡狀態／紀錄、人事選項／清單）、登入醫師的審查清單與最多 8 案詳情、手術碼 80416 的近兩年／兩年以上案例與最多 8 份紀錄、病人歷史手術及附件、績點與專勤工作獎金。單次就診抽樣最多 6 筆。啟用 MIS 時另詢問本人身分證字號與薪資系統密碼；所有異動功能排除。
 
-本人打卡可單獨選 `--profile atomic --only attendance.status --only attendance.records`，日期可用 `--start`／`--end`，不需要病歷號或醫師卡號。只查狀態與兩種模式，所有計畫均排除 `attendance.punch`；來源模式及位置的限制見 [ATTENDANCE](ATTENDANCE.md)。目前既有 EXE 不包含新原始碼，需另行重建才會提供此功能。
+本人打卡可單獨選 `--profile atomic --only attendance.status --only attendance.records`，日期可用 `--start`／`--end`，不需要病歷號或醫師卡號。只查狀態與兩種模式，所有計畫均排除 `attendance.punch`；來源模式及位置的限制見 [ATTENDANCE](ATTENDANCE.md)。目前 EXE 已包含新版原始碼，但預設 `pacs` 計畫不查簽到退；需明確指定上述唯讀操作。
 
 ## 執行與設定
 

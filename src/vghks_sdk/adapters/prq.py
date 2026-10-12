@@ -744,6 +744,22 @@ class PrqAdapter(PrqExtendedOperations):
         def operation() -> BinaryAsset:
             hid = self.runtime.auth.hid_for("prq")
             base = self.runtime.settings.prq_base_url.rstrip("/")
+            if reference.img_url:
+                params = {
+                    "hhisnum": reference.mrn,
+                    "hid": hid,
+                    "reqno": reference.request_no,
+                    "imgUrl": reference.img_url,
+                }
+            else:
+                params = {
+                    "SERIES_UID": reference.series_uid,
+                    "STUDY_UID": reference.study_uid,
+                    "hhisnum": reference.mrn,
+                    "hid": hid,
+                    "reqno": reference.request_no,
+                    "uid": reference.uid,
+                }
             content, _ = self.runtime.request_binary(
                 _PACS_IMAGE,
                 f"{base}/Page/JSP/showPACSPic.jsp",
@@ -760,14 +776,7 @@ class PrqAdapter(PrqExtendedOperations):
                         }
                     ),
                 },
-                params={
-                    "SERIES_UID": reference.series_uid,
-                    "STUDY_UID": reference.study_uid,
-                    "hhisnum": reference.mrn,
-                    "hid": hid,
-                    "reqno": reference.request_no,
-                    "uid": reference.uid,
-                },
+                params=params,
             )
             return parse_binary_asset(content, media_type="image/jpeg")
 

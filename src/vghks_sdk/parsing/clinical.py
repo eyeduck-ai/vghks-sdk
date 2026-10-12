@@ -434,7 +434,7 @@ def parse_order_report(html_text: str, *, reference: OrderReportRef) -> OrderRep
 def parse_pacs_study(html_text: str, *, reference: PacsStudyRef) -> PacsStudy:
     soup = BeautifulSoup(html_text, "html.parser")
     images: list[PacsImageRef] = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[PacsImageRef] = set()
     for image in soup.find_all("img", src=True):
         parsed = urlsplit(html.unescape(str(image.get("src"))))
         is_pacs_image = "pacsJpg" in {str(item) for item in image.get("class", ())}
@@ -460,21 +460,26 @@ def parse_pacs_study(html_text: str, *, reference: PacsStudyRef) -> PacsStudy:
         series_uid = query.get("SERIES_UID", "")
         study_uid = query.get("STUDY_UID", "")
         uid = query.get("uid", "")
-        if not uid:
+        img_url = query.get("imgUrl", "")
+        if not uid and not img_url:
             raise ParseError("PACS image reference was incomplete", code="PACS_REF_INVALID")
-        identity = (series_uid, study_uid, uid)
-        if identity in seen:
-            continue
-        seen.add(identity)
-        images.append(
-            PacsImageRef(
+        if img_url and not all(query.get(key, "").strip() for key in ("hhisnum", "reqno")):
+            raise ParseError("PACS image reference was incomplete", code="PACS_REF_INVALID")
+        try:
+            ref = PacsImageRef(
                 mrn=reference.mrn,
                 request_no=reference.request_no,
                 series_uid=series_uid,
                 study_uid=study_uid,
                 uid=uid,
+                img_url=img_url,
             )
-        )
+        except ConfigurationError as exc:
+            raise ParseError("unsafe PACS image reference", code=exc.info.code) from exc
+        if ref in seen:
+            continue
+        seen.add(ref)
+        images.append(ref)
     if images:
         return PacsStudy(reference, tuple(images), data_status="IMAGES_AVAILABLE")
     # A JPG button opens a viewer, not necessarily an image. Only an explicit
@@ -484,7 +489,7 @@ def parse_pacs_study(html_text: str, *, reference: PacsStudyRef) -> PacsStudy:
     for node in visible.find_all(["script", "style"]):
         node.decompose()
     text = re.sub(r"\s+", "", visible.get_text())
-    if re.fullmatch(r"查無資料[!\uff01。.]?", text):
+    if re.fullmatch(r"查無資料[!\uff01。.]*", text):
         return PacsStudy(reference, (), data_status="EMPTY", empty_reason="NO_IMAGES")
     raise ParseError(
         "PACS page contained neither image references nor an explicit empty result",

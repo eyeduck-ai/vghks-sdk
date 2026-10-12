@@ -142,13 +142,21 @@ def run_ophthalmology_test(
             )
         )
     blocked_reason = ("PRQ_NOT_READY" if not ready else
-                      "ORDER_HISTORY_FAILED" if config.profile == "dbr" and not sources else "")
+                      "ORDER_HISTORY_FAILED" if config.profile in {"dbr", "pacs"} and not sources else "")
+    terms = config.asset_terms
+    if config.profile == "pacs":
+        from .pacs import select_pacs_orders
+
+        sources, selection = select_pacs_orders(sources, terms=terms, limit=config.max_items)
+        write_json_atomic(discovery / "pacs_selection.json", selection)
+        # Sampling is already bounded across all names, not per exam term.
+        terms = tuple(dict.fromkeys(order.name for orders in sources.values() for order in orders))
     workflow = collect_order_reports(
         sdk,
         order_sources=sources,
         output_dir=workflow_root,
-        terms=config.asset_terms,
-        max_orders_per_term=config.max_items,
+        terms=terms or config.asset_terms,
+        max_orders_per_term=None if config.profile == "pacs" else config.max_items,
         download_assets=config.download_assets,
         query_runner=query,
         blocked_reason=blocked_reason,
@@ -160,7 +168,7 @@ def run_ophthalmology_test(
             if blocked_reason
             else "ERROR"
             if workflow.status == "INCOMPLETE"
-            else ("NO_SAMPLE" if config.profile == "dbr" else "EMPTY")
+            else ("NO_SAMPLE" if config.profile in {"dbr", "pacs"} else "EMPTY")
             if workflow.status == "NO_MATCHING_ORDERS"
             else "OK",
             output=workflow.manifest_path.relative_to(root).as_posix(),
@@ -170,6 +178,27 @@ def run_ophthalmology_test(
             else None,
         )
     )
+    pacs_summary = None
+    if config.profile == "pacs":
+        from .pacs import summarize_pacs_downloads
+
+        upstream_failed = bool(blocked_reason) or any(
+            step.status in {"ERROR", "BLOCKED"}
+            and step.operation in {"prq.order_history", "prq.order_detail", "prq.order_report", "prq.pacs_study"}
+            for step in steps
+        )
+        pacs_summary = workflow_root / "pacs_verification.json"
+        evidence = summarize_pacs_downloads(
+            workflow_root, blocked=upstream_failed, download_assets=config.download_assets
+        )
+        for mode, details in evidence["modes"].items():
+            steps.append(LiveTestStep(
+                f"pacs.{mode}_sample", details["status"], operation="prq.pacs_image",
+                output=pacs_summary.relative_to(root).as_posix(), details=details,
+                issue=ErrorInfo("PACS_DOWNLOAD_INCOMPLETE", "DATA") if details["status"] == "ERROR"
+                else ErrorInfo("DEPENDENCY_FAILED", "DEPENDENCY") if details["status"] == "BLOCKED"
+                else None,
+            ))
     if (config.profile == "dbr" and ready and config.download_assets
             and not any(step.operation == "prq.pdf_attachment" for step in steps)):
         # No reference is a sampling gap only when discovery/report branches
@@ -199,6 +228,7 @@ def run_ophthalmology_test(
             "test_plan": "test_plan.json",
             "coverage": "coverage.json",
             "ophthalmology_orders": workflow.manifest_path.relative_to(root).as_posix(),
+            **({"pacs_verification": pacs_summary.relative_to(root).as_posix()} if pacs_summary else {}),
         },
     )
     return LiveTestResult(status, tuple(steps), path, run_id)

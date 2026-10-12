@@ -36,6 +36,10 @@ def build_retest_config(
         "review_query",
     }
     value = {key: item for key, item in config.items() if key in allowed}
+    if config.get("profile") == "pacs":
+        # A return ZIP contains one account. Retesting it must not silently
+        # expand to two accounts, including bundles from the older tester.
+        value["pacs_single_account"] = True
     if config.get("profile") in {"session", "password"}:
         value.update(schema_version=7, profile=config["profile"], only_operations=[],
                      session_pause=config.get("session_pause", False), login_negative_attempts=0,
@@ -56,7 +60,7 @@ def build_retest_config(
             if row["live_status"] in {"FAILED", "BLOCKED", "MISSING", "EMPTY"}
         ]
     )
-    if config.get("profile") in {"comprehensive", "ophthalmology", "dbr", "visits", "login", "regression", "scans"}:
+    if config.get("profile") in {"comprehensive", "ophthalmology", "dbr", "pacs", "visits", "login", "regression", "scans"}:
         # First-run scenarios include category/date variants which an atomic
         # default call would not reproduce. Preserve the complete scenario set.
         value.update(

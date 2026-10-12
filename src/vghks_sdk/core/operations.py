@@ -22,6 +22,7 @@ class OperationSpec:
     operation_values: tuple[tuple[str, str], ...] = ()
     contract_required: bool = True
     mutates: bool = False
+    alternative_query_keys: tuple[frozenset[str], ...] = ()
 
 
 def _spec(
@@ -37,6 +38,7 @@ def _spec(
     values: tuple[tuple[str, str], ...] = (),
     contract_required: bool = True,
     mutates: bool = False,
+    alternative_query: tuple[tuple[str, ...], ...] = (),
 ) -> OperationSpec:
     return OperationSpec(
         key=key,
@@ -50,6 +52,7 @@ def _spec(
         operation_values=values,
         contract_required=contract_required,
         mutates=mutates,
+        alternative_query_keys=tuple(frozenset(keys) for keys in alternative_query),
     )
 
 
@@ -508,7 +511,8 @@ OPERATIONS: tuple[OperationSpec, ...] = (
         "GET",
         "/PRQWeb/Page/JSP/showPACSPic.jsp",
         response_kind="bytes",
-        query=("SERIES_UID", "STUDY_UID", "hhisnum", "hid", "reqno", "uid"),
+        query=("hhisnum", "hid", "reqno"),
+        alternative_query=(("SERIES_UID", "STUDY_UID", "uid"), ("imgUrl",)),
         contract_required=True,
     ),
     _spec(
@@ -911,6 +915,8 @@ def validate_operation_registry() -> None:
             raise RuntimeError(f"operation {spec.key} has an invalid response type")
         if any(key not in allowed_values for key, _ in spec.operation_values):
             raise RuntimeError(f"operation {spec.key} has a non-whitelisted constant")
+        if any(not keys or keys & spec.query_keys for keys in spec.alternative_query_keys):
+            raise RuntimeError(f"operation {spec.key} has invalid query alternatives")
         signature = (
             spec.app,
             spec.method,
@@ -918,6 +924,7 @@ def validate_operation_registry() -> None:
             spec.query_keys,
             spec.form_keys,
             spec.operation_values,
+            spec.alternative_query_keys,
         )
         if signature in signatures:
             raise RuntimeError(f"operation {spec.key} duplicates a semantic signature")

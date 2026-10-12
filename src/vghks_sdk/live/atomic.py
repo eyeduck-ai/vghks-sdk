@@ -111,7 +111,7 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
             for key in OPHTHALMOLOGY_QUERIES
             if config.download_assets or key not in {"prq.pdf_attachment", "prq.pacs_image"}
         )
-    if config.profile == "dbr":
+    if config.profile in {"dbr", "pacs"}:
         requested = tuple(
             key for key in DBR_QUERIES
             if config.download_assets or key not in {"prq.pdf_attachment", "prq.pacs_image"}
@@ -136,9 +136,9 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         if config.weekly_opd_soap:
             targets = (*targets, "prq")
         targets = tuple(spec.key for spec in resolve_auth_targets(targets))
-    if config.profile in {"ophthalmology", "dbr"}:
+    if config.profile in {"ophthalmology", "dbr", "pacs"}:
         targets = ("portal", "prq")
-    network = config.profile in {"comprehensive", "ophthalmology", "dbr"}
+    network = config.profile in {"comprehensive", "ophthalmology", "dbr", "pacs"}
     return {
         "schema_version": 1,
         "profile": config.profile,
@@ -176,8 +176,8 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
         else [],
         "continue_independent_checks": network,
         "ophthalmology_orders": {
-            "enabled": config.profile in {"ophthalmology", "dbr"},
-            "entry_path": "order_history" if config.profile == "dbr" else "order_list",
+            "enabled": config.profile in {"ophthalmology", "dbr", "pacs"},
+            "entry_path": "order_history" if config.profile in {"dbr", "pacs"} else "order_list",
             "history_categories": ["*", "OR"],
             "history_lookback_days": 4000,
             "case_discovery": config.profile == "ophthalmology",
@@ -186,6 +186,15 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
             "unexecuted_orders": "record_and_skip_without_consuming_sample_budget",
             "all_images_of_selected_studies": True,
             "independent_branches": ["report_text", "pdf", "jpg"],
+        },
+        "pacs_verification": {
+            "enabled": config.profile == "pacs",
+            "modes": ["imgUrl", "uid"],
+            "order_limit_total": config.max_items,
+            "selection": "PACS references, JPG/PACS labels, preferred terms, then other navigable orders; recent first within each group",
+            "preferred_terms": list(config.asset_terms),
+            "all_images_of_selected_studies": True,
+            "missing_mode": "NO_SAMPLE unless an upstream query failed",
         },
         "report_data_validation": "Report text is assessed independently of binary attachment downloads.",
         "excluded_write_operations": [
@@ -231,7 +240,7 @@ def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
                     ("prq.upload_history", "prq.soap")
                     if config.profile == "scans" and spec.key == "prq.pdf_attachment"
                     else ("prq.order_history", "prq.order_detail", "prq.order_report")
-                    if config.profile == "dbr" and spec.key == "prq.pdf_attachment"
+                    if config.profile in {"dbr", "pacs"} and spec.key == "prq.pdf_attachment"
                     else spec.dependencies
                 ),
                 "requested": spec.key in requested,
@@ -282,7 +291,7 @@ def run_atomic_test(
             login_card=login_card, raw_capture=raw_capture,
             diagnostics=diagnostics, run_id=run_id,
         )
-    if config.profile in {"ophthalmology", "dbr"}:
+    if config.profile in {"ophthalmology", "dbr", "pacs"}:
         from .ophthalmology import run_ophthalmology_test
 
         return run_ophthalmology_test(
@@ -851,6 +860,7 @@ def _counts(value: Any) -> dict[str, Any]:
             if key in value and isinstance(value[key], (list, dict)):
                 return {"record_count": len(value[key])}
     if isinstance(value, OrderReport):
+        data = assess_data(value)
         return {
             "record_count": int(
                 bool(value.fields or value.report_text or value.pdf_refs or value.pacs_refs)
@@ -858,6 +868,9 @@ def _counts(value: Any) -> dict[str, Any]:
             "report_data_status": value.report_data_status,
             "report_text_characters": len(value.report_text),
             "text_extraction_notes": list(value.text_extraction_notes),
+            "acquisition_status": "PARTIAL" if data.complete is False else
+            "EMPTY" if data.availability == "EMPTY" else "OK",
+            "parsing_issues": [issue.code for issue in data.issues],
         }
     if isinstance(value, (tuple, list)):
         if value and all(isinstance(row, VisitCase) for row in value):
@@ -922,6 +935,8 @@ def _write_coverage(
             "output": step.output,
             "data_status": (step.details or {}).get("report_data_status", "UNASSESSED"),
             "text_characters": (step.details or {}).get("report_text_characters", 0),
+            "acquisition_status": (step.details or {}).get("acquisition_status", "UNASSESSED"),
+            "parsing_issues": (step.details or {}).get("parsing_issues", []),
         }
         for step in steps
         if step.operation in {"prq.order_report", "prq.text_report"}
@@ -976,6 +991,20 @@ def _write_coverage(
         )
         for row in rows
     )
+    pacs_path = root / "parsed/workflows/ophthalmology_orders/pacs_verification.json"
+    if pacs_path.is_file():
+        pacs = json.loads(pacs_path.read_text(encoding="utf-8"))
+        lines += ["", "PACS image verification (each reference mode requires its own sample):"]
+        account_path = root / "pacs_account.json"
+        if account_path.is_file():
+            account = json.loads(account_path.read_text(encoding="utf-8"))
+            lines.append(f"  Hospital input: {account['hospital']}; target mode: {account['expected_mode']}")
+        lines.extend(
+            f"  {mode}: {data['status']}; references={data['references']}; "
+            f"downloaded={data['downloaded_files']}; errors={data['download_errors']}"
+            for mode, data in pacs["modes"].items()
+        )
+        lines.append("  Missing modes are NO_SAMPLE, never successful downloads. Images are not OCR results.")
     if earnings:
         lines += ["", "Optional own-account earnings queries:"]
         lines.extend(
@@ -991,7 +1020,8 @@ def _write_coverage(
             "  These labels do not establish that all attachment contents were extracted.",
         ]
         lines.extend(
-            f"  {row['step']}: {row['data_status']} ({row['text_characters']} characters); {row['output']}"
+            f"  {row['step']}: {row['data_status']} ({row['text_characters']} characters); "
+            f"acquisition={row['acquisition_status']}; issues={','.join(row['parsing_issues'])}; {row['output']}"
             for row in report_data
         )
     lines += [

@@ -51,6 +51,7 @@ _CREDENTIAL_KEYS = {
     "user",
 }
 _TOP_LEVEL_KEYS = {
+    "pacs_single_account",
     "login_negative_attempts",
     "session_pause",
     "test_mrn",
@@ -126,6 +127,7 @@ class LiveTestConfig:
     weekly_opd_end: date | None = None
     surgery_query: Mapping[str, Any] = field(default_factory=dict)
     review_query: Mapping[str, Any] = field(default_factory=dict)
+    pacs_single_account: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.test_mrn, str) or not self.test_mrn.strip():
@@ -198,6 +200,7 @@ class LiveTestConfig:
             "comprehensive",
             "ophthalmology",
             "dbr",
+            "pacs",
             "visits",
             "soap",
             "regression",
@@ -209,16 +212,18 @@ class LiveTestConfig:
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, dbr, visits, soap, regression, scans, failures, session, password, core or full"
+                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session, password, core or full"
             )
         if self.login_negative_attempts is None:
-            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password", "dbr"} else 1 if profile == "failures" else 2)
+            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password", "dbr", "pacs"} else 1 if profile == "failures" else 2)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if profile == "failures" and self.login_negative_attempts > 1:
             raise ConfigurationError("failures profile permits at most one wrong-password attempt")
         if type(self.session_pause) is not bool or (self.session_pause and profile != "session"):
             raise ConfigurationError("session_pause must be a boolean used with the session profile")
+        if type(self.pacs_single_account) is not bool or (self.pacs_single_account and profile != "pacs"):
+            raise ConfigurationError("pacs_single_account must be a boolean used with the pacs profile")
         if profile in {"session", "password"}:
             if self.login_negative_attempts:
                 raise ConfigurationError("session/password profiles do not submit wrong passwords")
@@ -229,10 +234,11 @@ class LiveTestConfig:
         if profile == "password":
             object.__setattr__(self, "max_cases", 1)
             object.__setattr__(self, "max_items", 1)
-        if profile == "dbr":
+        if profile in {"dbr", "pacs"}:
             if self.login_negative_attempts or self.include_surgery or self.include_unsigned or self.include_earnings:
-                raise ConfigurationError("dbr profile excludes negative login, surgery, audit and earnings")
-            object.__setattr__(self, "asset_terms", ("DBR",))
+                raise ConfigurationError(f"{profile} profile excludes negative login, surgery, audit and earnings")
+            if profile == "dbr":
+                object.__setattr__(self, "asset_terms", ("DBR",))
             object.__setattr__(self, "weekly_opd_soap", False)
         if self.max_cases is None:
             object.__setattr__(
@@ -252,7 +258,7 @@ class LiveTestConfig:
             )
         if self.max_items is None:
             object.__setattr__(
-                self, "max_items", 8 if profile in {"comprehensive", "ophthalmology", "dbr"} else 2
+                self, "max_items", 8 if profile in {"comprehensive", "ophthalmology", "dbr", "pacs"} else 2
             )
         if type(self.allow_unverified_tls) is not bool:
             raise ConfigurationError("allow_unverified_tls must be a boolean")
@@ -298,7 +304,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "visits", "soap", "regression", "scans", "failures", "session", "password"}
+            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -433,6 +439,7 @@ class LiveTestConfig:
             "profile": self.profile,
             "login_negative_attempts": self.login_negative_attempts,
             "session_pause": self.session_pause,
+            "pacs_single_account": self.pacs_single_account,
             "only_operations": list(self.only_operations),
             "max_cases": self.max_cases,
             "max_items": self.max_items,
@@ -670,6 +677,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         profile=str(values.get("profile", "full")),
         login_negative_attempts=values.get("login_negative_attempts"),
         session_pause=values.get("session_pause", False),
+        pacs_single_account=values.get("pacs_single_account", False),
         output_root=Path(str(values["output_root"])) if values.get("output_root") else None,
         visit_filter=visit_filter,
         soap_search=soap_search,

@@ -6,8 +6,9 @@
 
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |
 | --- | --- | --- |
-| SDK／單檔 EXE | 0.22.1 院內 `failures` 89 步；0.22.4 `session` 直接 API 自動 SSO 恢復；0.22.8 `dbr` 23 步、兩筆醫囑與四份 PDF | 0.22.9 存檔優化、強制改密碼與自然 TTL |
+| SDK／單檔 EXE | 0.23.2 雙院院內 imgUrl／uid／PDF 下載、十個 PACS 空結果成功；0.23.3 兩份 literal 文字報告已只讀重解析 | 0.23.3 新版院內執行、強制改密碼與自然 TTL |
 | 簽到退／打卡查詢 | 兩份瀏覽器 HAR：狀態、一次成功通知及兩種日期查詢；0.23.0 Parser 與錄製 SSO 次序已禁止 socket 重解析 | 新版 SDK 的實際院內登入、查詢及送出；位置對照規則、真實空結果及其他查詢模式回應形式 |
+| 雙院 PACS 圖片 | 0.23.2 聯合醫院 66 張 imgUrl（59＋7）、高榮 25 張 uid（6＋7＋6＋6）；raw／存檔／metadata hash 一致，91 張 JPEG 完整解碼；十個空結果均正常 | 兩院各一名病人、最多八筆醫囑以外的歷史／格式／帳號；圖片內醫療數據未做 OCR |
 | DBR PDF 下載 | 0.22.8 院內兩種歷年清單成功，四份 PDF 逐檔與 raw 及 metadata 一致；兩份與原 debug 失敗樣本 SHA-256 相同 | 本輪沒有 JPG、HTML 正文或其他病人樣本；0.22.9 優化尚未院內重跑 |
 | WebMAAS 閒置後失敗 | 0.22.3 院內 Cookie 遺失已取得 timeout 原頁；0.22.4 直接 API 自行 SSO 恢復且三份基本資料一致 | 舊平台自然閒置未保存失敗 HTML；自然 TTL 仍未院內證實 |
 | 失敗分類與密碼狀態 | 0.22.1 三日倒數、未登入／錯誤密碼拒絕及 Cookie 恢復；0.22.3 兩日倒數與 WebMAAS timeout | 自然 TTL、強制變更、帳號鎖定及未自然出現的網路失敗沒有院內樣本 |
@@ -18,8 +19,11 @@
 
 ## 目前版本與證據層級
 
-- SDK 原始碼：0.23.0，新增本人簽到退狀態、日期紀錄及明確異動，整合唯讀目錄、readiness、統一結果評估與離線 replay。保留 0.22.9 的存檔及 0.22.8 二進位隔離修正；強制改密碼、TLS 與子系統恢復政策不放寬。新版尚未送出院內打卡。
-- 本機現行 EXE：0.22.9、`dbr` 計畫，build_id=`20261008T115643Z`，Python 3.10.6 x64／PyInstaller 6.14.2／truststore 0.10.4，沒有 private defaults。單一授權病人的全部／各科歷年醫囑，最多八筆 DBR，保存 PDF／JPG；沒有刻意錯誤密碼或 Cookie 挑戰。其他計畫仍可明確選用。
+- SDK 原始碼：0.23.3，補上已知 `resVal` literal／換行文字模板與 PACS 各模式的參照、存檔及目標核對。0.23.2 的兩院原始回傳已確認 66 張 imgUrl、25 張 uid、四份 PDF 及十個空結果；0.23.3 另在禁止 socket 下完整重解析兩份文字報告，新版 HTTP 執行尚待院內複驗。強制改密碼、TLS 與子系統恢復政策不放寬，未送出院內打卡。
+- 本機現行 EXE：0.23.3、`pacs` 雙院計畫，build_id=`20261012T000309Z`，Python 3.10.6 x64／PyInstaller 6.14.2／truststore 0.10.4，沒有 private defaults。一次輸入聯合醫院與高榮各自的病歷號、帳密，再用獨立 Session 依序執行，各院最多八筆歷年醫囑；各自保存正文／PDF／JPG、imgUrl／uid 統計與 ZIP，另有雙院目標摘要及部分文字報告計數。沒有刻意錯誤密碼或 Cookie 挑戰。其他計畫仍可明確選用。
+- 0.23.3 完整 suite 737 項：725 項通過、12 項私有條件跳過。Ruff、API 文件 59 項目錄、Git index 的 277 份公開檔案與實際 wheel／sdist 內容檢查通過；提交及封包另以本機 denylist 核對。獨立目錄安裝後在禁止 socket 下通過 58 項 PACS／報告／離線回歸及兩份原 ZIP 分析。source／frozen 各 19 種 localhost HTTPS 情境與實際 CLI 離線分析通過，新增已知 resVal 模板的完整文字與未知動態模板的 PARTIAL／COMPLETED_WITH_GAPS；圖片模式、下載位元組與原 UID 參數維持正確。這些本機證據不等於 0.23.3 已完成院內執行。
+- 0.23.2 完整 suite 718 項：706 項通過、12 項私有條件跳過；相關 unittest 76 項通過。Ruff、API 文件 59 項目錄與公開內容檢查通過；wheel／sdist 實際封包檢查、獨立目錄安裝及禁止 socket 的 31 項 PACS 回歸通過。source／frozen 各 17 種 localhost HTTPS 情境與實際 CLI 離線 ZIP 分析通過，包含零參數雙院啟動與原 UID 參數檢查。原六份院內空頁的只讀重解析另列於下；這些本機證據不代表新版雙院已完成院內驗證。
+- 0.23.1 完整 suite 708 項：696 項通過、12 項私有條件跳過，包含 13 項 PACS 模型／Parser／Service 測試、8 項新專項抽樣／部分失敗／模式摘要測試及既有 localhost TLS 回歸。Ruff、API 文件與公開內容檢查通過；wheel／sdist 已建置並核對實際封包，獨立安裝在禁止 socket 下確認 import／建構、59 項目錄、CLI 及全部 21 項新 PACS 測試。原 debug 兩份檢視頁的 Parser／replay 另做只讀驗證；沒有新的院內 HTTP 請求。
 - 0.23.0 完整 suite 687 項：675 項通過、12 項私有條件跳過，包含 24 項新簽到退合成測試及既有 localhost TLS 回歸。Ruff、API 文件與公開內容檢查通過；wheel／sdist 已建置並核對實際封包，獨立安裝在禁止 socket 下確認 import／建構、59 項目錄及本人打卡唯讀 CLI 計畫。兩份使用者提供的 HAR 另做只讀 Parser／SSO 次序驗證；沒有新的院內 HTTP 或打卡異動。
 - 0.22.9 完整 suite 663 項：651 項通過、12 項私有條件跳過；相關 unittest 77 項通過，包含一般 SDK import 不載入 live／offline／錄製契約及離線分析不載入測試執行流程。新增共用附件僅下載一次、runner 已存檔不重寫、自訂 runner 的存檔備援、單份附件寫入失敗仍續跑，以及缺檔／缺 outcome／錯誤大小／hash／格式／metadata／路徑回歸。source 與 frozen EXE 各十種 localhost DBR 情境及實際 CLI 離線分析通過；共享眼科流程的既有 frozen 工具亦確認正文／多份 PDF／JPG／附件失敗續跑。現行 EXE 分析同一院內 ZIP 的完整報告（排除 analyzer build）及重測設定與原始碼完全一致，四份 PDF 核對通過，原 ZIP 不變。這些本機存檔證據不替代另列的 0.22.8 院內執行結果。
 - 0.22.8 完整 suite 653 項：641 項通過、12 項私有條件測試跳過。`dbr` source 與 frozen EXE 各十種 localhost HTTPS 情境通過，包含真正零參數啟動、舊 sidecar／profile 不擴大計畫、跨年份參照、PDF／JPG 原始位元組、MIME 缺失／錯標、損壞檔案、登入頁／HTTP 拒絕與有限恢復、缺樣本及實際 CLI 離線分析。共享眼科流程亦以 frozen EXE 的既有 localhost 工具確認文字／PDF／JPG 分支；二進位合成回歸保留強制改密碼、登入轉址、截斷及大小限制。這些 localhost 與禁止 socket 重解析屬本機證據；0.22.8 的院內 DBR 下載結果另列於下。
@@ -34,6 +38,54 @@
 - 0.22.1 的原頁私有回歸全程禁止 socket：SDK 以記憶體 adapter 完成登入並保留 EXPIRING／4，五張數值表的十二列、表頭、逐欄路徑及三個來源問題碼完全不變；兩份報告的原欄位、正文狀態及一／兩個 PDF 參照維持一致，僅移除可靜態辨識按鈕造成的錯誤 extraction note。新版重解析零份 PARTIAL，一份數值回應保留警示；原 ZIP 位元組與執行結果未改寫。
 - 0.22.1 完整 suite 執行 600 項：588 項通過、12 項私有條件測試跳過；23 種原始碼與 frozen EXE（build_id=`20261004T031550Z`）HTTPS localhost 情境全部通過，每輪 68 個模擬通過。新增情境核對四日倒數在登入與 readiness 中一致、已對齊數值完整且保留 warnings、正常 PDF 按鈕維持 ATTACHMENT_ONLY 並無解析缺漏；實際 EXE 的結果仍不能取代內網重跑。
 - 2026-10-04 下午同一 0.22.1 建置的院內回傳已確認三日倒數與數值警示修正；全輪沒有執行或解析錯誤。PDF 按鈕未出現在本輪樣本，原始 ZIP 與新版重解析結果分開保留，見下節。
+
+## 2026-10-12：雙院院內回傳與 0.23.3 完整性補強
+
+兩份回傳均使用 0.23.2、build_id=`20261011T225114Z`，院區標示依使用者輸入及 ZIP metadata，沒有從院方姓名或病歷內容推論。聯合醫院原狀態為 COMPLETED_WITH_GAPS、exit code 0，共 105 步（94 OK、10 EMPTY、1 NO_SAMPLE）；高榮同為 COMPLETED_WITH_GAPS、exit code 0，共 68 步（59 OK、8 EMPTY、1 NO_SAMPLE）。原始 capture 分別 120／83 個 HTTP exchanges、errors.jsonl 皆零筆，各有一次正常密碼 POST。兩院唯一的 NO_SAMPLE 分別是 uid 與 imgUrl，原狀態保留；聯合醫院 imgUrl 與高榮 uid 兩個目標均通過。
+
+聯合醫院兩個檢查共 66 張 imgUrl（59＋7）、4,831,374 bytes；高榮四個檢查共 25 張 uid（6＋7＋6＋6）、7,383,684 bytes，另有四份 PDF、10,953,467 bytes。全部圖片請求核對病歷號、檢查單號、當前 HID、Accept／Referer 與對應參照，皆走固定 PRQ 代理、HTTP 200、沒有轉址或直接 WADO 請求。91 張 JPEG 的原始 body、實際存檔、metadata 與 outcome 逐一核對位元組、大小及 SHA-256，一致且全部完整解碼；四份 PDF 原始 body／存檔／metadata 亦一致並通過既有格式邊界驗證。這些是實際院內下載證據，完整 JPEG 解碼是另做的本機驗證，不是 SDK 內建 OCR。
+
+聯合醫院六份「查無資料!!」、高榮四份「查無資料!」PACS 檢視器均已在原執行正確回傳 EMPTY／NO_IMAGES，沒有重現先前的解析錯誤，也保留原高榮單驚嘆號的空結果相容性。每院最多選八筆醫囑；聯合醫院發現 238 筆，其中 213 筆受抽樣上限、17 筆依選樣規則略過；高榮發現 50 筆，其中 36 筆受上限、六筆依規則略過。這不證實兩位病人的全部歷年醫囑或其他病人、帳號及來源格式。
+
+文字報告方面，聯合醫院原執行有兩份 TEXT_AVAILABLE、兩份 METADATA_ONLY（JS_DOCUMENT_WRITE_UNSUPPORTED）、四份 EMPTY；高榮有一份 TEXT_AVAILABLE、三份 ATTACHMENT_ONLY、四份 EMPTY。0.23.3 只擴充已錄製的完整 `resVal` literal／固定換行模板，未執行任何 JavaScript；聯合醫院兩份原頁重解析後的正文與原 literal 正規化結果逐行一致，共 184／480 字元，沒有剩餘 extraction note。這是原頁離線修正，聯合醫院重解析共四份 TEXT_AVAILABLE，不能改寫原 0.23.2 實測的兩份 METADATA_ONLY，也不能宣稱已抽取 PDF／JPG 內醫療資料。
+
+新版離線 `pacs_test` 從唯一參照、outcome 與實際檔案重算各模式，保留本院目標、原判定、實際核對數、漏下載與下載錯誤；不再將模式缺樣本只顯示為泛用 prq.pacs_image。缺檔、不同病人參照、院區標籤衝突、重複／非預期參照、metadata／hash／摘要不一致均產生明確問題；原結果、單院重測範圍及成功附件不被改寫。未知文字模板仍保留 PARTIAL，live／offline 與雙院摘要均保留其未完成範圍。兩份原 ZIP 全程只讀、禁止 socket，SHA-256 未變。
+
+## 2026-10-12：0.23.2 PACS 空結果與雙院測試
+
+針對下節 0.23.1 原 ZIP 的六份相同 PACS HTML，在禁止 socket 下以 0.23.2 Parser 與 offline replay 重解析，均得到 EMPTY／NO_IMAGES、零圖片；原 ZIP SHA-256 不變。修正僅接受可見的完整「查無資料」文字及已知結尾標點，包含雙驚嘆號；只有 script 字串、登入／額外錯誤文字、空白與未知版面仍失敗。這是舊回應的離線修正證據，原 COMPLETED_WITH_ERRORS 不改寫為成功。
+
+新版 `pacs` Console 先收齊兩組資料，再依聯合醫院／高榮順序執行，各院建立獨立 SDK Session、Cookie、病人 context、RawCaptureRecorder 與 ZIP。雙院摘要分別評估 union.imgUrl／vghks.uid；目標模式缺樣本與單院未取得另一種格式分開，實際錯誤不被另一院成功掩蓋。使用者中斷後不登入下一院。兩院帳密均不進 config、一般診斷或雙院摘要；raw capture 仍依原契約保留本院完整請求。
+
+公開合成回歸涵蓋雙驚嘆號與其他已知標點、拒絕未知／登入內容、原 UID 流程、全輸入先於執行、不同病歷號與 SDK 隔離、首院失敗續跑、缺 uid 樣本、中斷及單院離線重測。
+
+source／frozen 各 17 種 localhost HTTPS 情境通過：原十種 PACS 相容／下載／解析情境改用雙驚嘆號空頁，另加雙院成功、聯合醫院／高榮各自圖片失敗、缺 uid、兩院各自登入 HTTP 失敗及缺第二組輸入。正常雙院情境以不同病歷號、Cookie 與 HID 分別下載 59 張 imgUrl、兩張 uid，確認兩次登入次序、原 UID 參數、固定 PRQ 代理、Accept／Referer、每院原始位元組及另一院資料不混入。每份 ZIP 都經實際 CLI 分析並核對附件完整性與單院重測設定；一般診斷、config 及雙院摘要不含兩組密碼。
+
+frozen 真正零參數啟動確認舊 sidecar／profile 不擴大範圍，測試輸入透過環境變數提供。Windows getpass 的互動欄位先後由 mock 輸入回歸驗證，非互動工具不以管線模擬隱藏密碼輸入。以上均不取代新版雙院院內執行或高榮 uid 實際下載回傳。
+
+## 2026-10-12：0.23.1 PACS 院內回傳
+
+回傳使用 build_id=`20261011T163642Z` 的 `pacs` EXE，原狀態為 COMPLETED_WITH_ERRORS、exit code 1。105 個步驟中 93 個 OK、4 個 EMPTY、7 個 ERROR、1 個 BLOCKED；120 個原始 HTTP exchanges，errors.jsonl 六筆均為 PACS 檢視頁解析錯誤。Portal／PRQ readiness 與憑證驗證通過，一次正常密碼 POST，沒有刻意錯誤密碼或 Cookie 挑戰。本次分析禁止 socket，只讀 ZIP，原檔 SHA-256 未變。
+
+單一病人的全部／各科歷年醫囑清單分別 238／17 列，去重後 238 筆，依計畫選八筆。兩個檢查各有 59／7 個 imgUrl 參照，共 66 張、4,831,374 bytes，所有圖片下載均 HTTP 200、無轉址，圖片下載錯誤零。逐筆核對當前請求的病歷號、檢查單號與 imgUrl 參照，全部走固定 PRQ 圖片代理、保留 Accept／Referer，沒有直接請求內嵌 WADO URL。66 份原始 HTTP body、存檔、metadata／outcome 的大小及 SHA-256 完全一致；JPEG 邊界檢查與另外的完整解碼均通過。這是本次抽樣範圍內的院內成功證據，不只是 localhost 或舊頁重解析。
+
+另外六個 PACS 檢視器都回 HTTP 200、無轉址，原始回應完全相同，`pacsContent` 可見文字明確為「查無資料!!」，沒有圖片或登入表單。0.23.1 Parser 的 `查無資料[!！。.]?` 只接受最多一個結尾標點，因此將合法空結果誤報為 `PACS_STRUCTURE_UNRECOGNIZED`。六筆解析錯誤與總結步驟 ERROR 造成全輪 COMPLETED_WITH_ERRORS，並非已取得的 66 張圖片下載失敗。0.23.2 的修正及只讀重解析證據另列於上節，原實測狀態保留。
+
+本包 uid 參照與下載請求都是零；模式摘要的 BLOCKED 來自上述上游解析錯誤，不能解讀為 uid 圖片下載失敗，也不能宣稱高榮院內回歸通過。仍需以高榮帳號及有 uid 圖片的授權病人補測。八筆中兩份 HTML 正文有內容、四份報告操作為 EMPTY；沒有 PDF 參照或下載，不包含 OCR／影像醫療內容擷取。其餘未選取的醫囑及其他病人不在本次驗證範圍。
+
+## 2026-10-12：0.23.1 聯合院區 PACS imgUrl 相容修正
+
+整合系統 6.6.51／SDK 0.22.9 的 debug 保留兩次 `orders.get_pacs_study` 失敗：固定 PRQ 檢視端點均回 HTTP 200、沒有轉址，回應各含 59 個 `imgUrl` 圖片參照。原 Parser 只接受 `uid`，因此拋出 `PACS_REF_INVALID`，尚未發送 JPG 下載。此前的文字報告操作有成功摘要，但本包沒有其完整正文。
+
+0.23.1 在禁止 socket 下只讀重解析同兩份保存的院內 HTML，現行 Parser 與 offline replay 均各取得 59 個獨立參照。原頁已由整合系統遮罩且未截斷；原 ZIP 不修改，參照及院內識別值不複製到公開 fixtures。這是既有院內回應的離線修正驗證，不能視為新版 SDK 已完成院內下載。
+
+公開合成測試涵蓋 59 張圖片及重複參照、UID 與 imgUrl 並存清單、病歷號／檢查單號核對、已錄製 WADO 來源與查詢形狀、非法／混用參照、JSON 往返、兩種請求契約及 replay。記憶體 mock transport 經現行 Service／Runtime 確認：兩種格式均只請求固定 PRQ 檢視及圖片端點，使用當前 HID、相同 Referer，巢狀 imgUrl 完整編碼傳遞，原 UID 參數不變；缺失／錯標 MIME、截斷 JPEG 與登入 HTML 的既有檢查保留。
+
+原整合 debug 沒有圖片二進位回應；當時下載驗證為合成 mock 與下述 localhost EXE 證據。其後新版院內 66 張圖片成功與空結果辨識缺陷已另列於上節，不改寫原 debug 的證據範圍。
+
+同日依使用者要求建置 0.23.1 `pacs` 單檔 EXE。原始碼 CLI 與 frozen EXE 各通過十種 localhost HTTPS 情境：兩種模式並存、只有 uid、只有 imgUrl、合法查無圖片、兩種模式各自的截斷 JPEG、非法 imgUrl、偽裝成圖片的登入頁、缺失 MIME、醫囑清單 schema 失敗。正常情境各下載 59 張 imgUrl 及兩張 uid，核對 PRQ 固定代理、當前 HID、原 UID 參數、Accept／Referer、圖片原始位元組與大小／SHA-256。部分失敗後其他圖片及模式仍完成；未取得模式不列為通過，上游錯誤不以 NO_SAMPLE 掩蓋。
+
+frozen EXE 的正常情境實際零參數啟動，確認舊 sidecar／profile 環境設定不擴大預設範圍。兩種執行方式均用實際 CLI 分析各次 ZIP，核對附件完整性與 `pacs` 重測設定；結果同時保留正文、全部圖片參照、抽樣理由及每種模式摘要。這些合成 HTTPS 測試沒有使用院內帳密、病人資料或真實 JPG，也不替代兩院各自的實際回傳。
 
 ## 2026-10-09：簽到退與打卡查詢 HAR
 

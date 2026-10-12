@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 from itertools import pairwise
 
@@ -9,6 +10,7 @@ from bs4 import BeautifulSoup, Tag
 
 from ..core.errors import ParseError
 from ..core.jsliteral import (
+    decode_js_string,
     evaluate_expression,
     split_top_level,
     static_document_writes,
@@ -65,7 +67,9 @@ def extract_report_text(soup: BeautifulSoup) -> tuple[str, tuple[str, ...]]:
             if not script.get("src"):
                 try:
                     source = script.string or script.get_text()
-                    markup = static_document_writes(source, _viewer_variables(source))
+                    markup = _literal_report_narrative(source)
+                    if markup is None:
+                        markup = static_document_writes(source, _viewer_variables(source))
                     script.insert_before(BeautifulSoup(markup, "html.parser"))
                 except ParseError as exc:
                     notes.append(exc.info.code)
@@ -85,6 +89,30 @@ def extract_report_text(soup: BeautifulSoup) -> tuple[str, tuple[str, ...]]:
         if text and normalized not in _POINTERS:
             sections.append(text)
     return "\n\n".join(dict.fromkeys(sections)), tuple(dict.fromkeys(notes))
+
+
+def _literal_report_narrative(source: str) -> str | None:
+    """Read the recorded resVal/newline template, without interpreting its loop.
+
+    The whole script must match: optional literal department labels, one
+    literal result, the fixed newline presentation loop and one direct write.
+    No callbacks, branches, extra assignments or dynamic expressions qualify.
+    Escape the decoded result so report text cannot create controls or markup.
+    """
+    literal = r"""(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')"""
+    match = re.fullmatch(
+        rf"\s*(?:(?:var\s+)?dept\s*=\s*{literal}\s*;\s*)?"
+        rf"(?:(?:var\s+)?deptc\s*=\s*{literal}\s*;\s*)?"
+        rf"(?:var\s+)?resVal\s*=\s*(?P<value>{literal})\s*;\s*"
+        r'while\s*\(\s*resVal\.indexOf\("\\n"\)\s*>\s*0\s*\)\s*\{\s*'
+        r'resVal\s*=\s*resVal\.replace\("\\n",\s*"<br/>"\)\s*;\s*\}\s*'
+        r'document\.write\(\s*resVal\s*\)\s*;\s*',
+        strip_js_comments(source), re.DOTALL,
+    )
+    if match is None:
+        return None
+    value = decode_js_string(match["value"])
+    return html.escape(value) if value is not None else None
 
 
 def _viewer_variables(source: str) -> dict[str, str]:

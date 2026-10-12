@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from hashlib import sha256 as calculate_sha256
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from ..core.errors import ConfigurationError
 from ._validation import (
@@ -30,9 +30,10 @@ class PacsStudyRef:
 class PacsImageRef:
     mrn: str
     request_no: str
-    series_uid: str
-    study_uid: str
+    series_uid: str = ""
+    study_uid: str = ""
     uid: str = ""
+    img_url: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:
         _validate_navigation_ref(
@@ -42,7 +43,60 @@ class PacsImageRef:
             self.study_uid,
             self.uid,
         )
-        _require_navigation_values(self.request_no, self.uid)
+        _require_navigation_values(self.request_no)
+        if not isinstance(self.img_url, str):
+            raise ConfigurationError("invalid PACS image URL", code="PACS_IMG_URL_INVALID")
+        if self.img_url:
+            if self.uid or self.series_uid or self.study_uid:
+                raise ConfigurationError(
+                    "PACS image reference mixes uid and imgUrl", code="PACS_REF_AMBIGUOUS"
+                )
+            _validate_pacs_img_url(self.img_url)
+        else:
+            _require_navigation_values(self.uid)
+
+
+def _validate_pacs_img_url(value: str) -> None:
+    """Allow only the recorded WADO backend, passed through the PRQ proxy.
+
+    This is a source contract, not a URL for the SDK to request directly.
+    Identifiers and the complete URL remain local data, outside diagnostics.
+    """
+    if len(value) > 2048 or re.search(r"[\x00-\x20\x7f\\#]", value):
+        raise ConfigurationError("invalid PACS image URL", code="PACS_IMG_URL_INVALID")
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise ConfigurationError(
+            "invalid PACS image URL", code="PACS_IMG_URL_INVALID"
+        ) from exc
+    if (parsed.scheme, parsed.netloc) != ("http", "192.168.20.137:800"):
+        raise ConfigurationError(
+            "unknown PACS image source", code="PACS_IMG_URL_EXTERNAL"
+        )
+    if parsed.path != "/xwado/PushWADO":
+        raise ConfigurationError(
+            "unknown PACS image path", code="PACS_IMG_URL_PATH_UNKNOWN"
+        )
+    try:
+        pairs = parse_qsl(
+            parsed.query, keep_blank_values=True, strict_parsing=True, max_num_fields=4
+        )
+    except ValueError as exc:
+        raise ConfigurationError(
+            "invalid PACS image query", code="PACS_IMG_URL_INVALID"
+        ) from exc
+    query = dict(pairs)
+    if (
+        len(pairs) != 4
+        or set(query) != {"requestType", "contentType", "rows", "objectUID"}
+        or query["requestType"] != "WADO"
+        or query["contentType"] != "image/jpeg"
+        or not re.fullmatch(r"[1-9][0-9]{0,4}", query["rows"])
+        or len(query["objectUID"]) > 256
+        or not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", query["objectUID"])
+    ):
+        raise ConfigurationError("invalid PACS image query", code="PACS_IMG_URL_INVALID")
 
 
 @dataclass(frozen=True, slots=True)

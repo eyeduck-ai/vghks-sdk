@@ -192,7 +192,7 @@ def execute_live_test(
         )
         manager.log(f"Live test run ID: {manager.run_id}")
         manager.log(f"Profile: {config.profile}")
-        if config.profile not in {"login", "soap"}:
+        if config.profile not in {"login", "soap", "registrations"}:
             manager.log(f"Atomic test MRN: {config.test_mrn}")
         if config.profile == "comprehensive" and config.weekly_opd_soap:
             manager.log(
@@ -222,7 +222,14 @@ def execute_live_test(
             diagnostics=diagnostics,
             raw_capture=raw_capture,
         ) as sdk:
-            if config.profile == "password":
+            if config.profile == "registrations":
+                from .registrations import run_registration_test
+
+                result = run_registration_test(
+                    sdk, config, output_dir=manager.run_directory, settings=settings,
+                    raw_capture=raw_capture, diagnostics=diagnostics, run_id=manager.run_id,
+                )
+            elif config.profile == "password":
                 from .password import run_password_test
 
                 result = run_password_test(

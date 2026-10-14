@@ -1,11 +1,12 @@
 # 內網測試 EXE
 
-雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile pacs`、`dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
+雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile registrations`、`pacs`、`dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
-目前 SDK 原始碼與本機單檔 EXE 為 0.23.3，EXE 內建 `pacs` 雙院計畫，先收齊兩組病歷號、帳密，再依序驗證聯合醫院 `imgUrl` 與高榮 `uid`。0.23.2 院內雙院回傳已確認 66 張 imgUrl、25 張 uid、四份 PDF 與十個 PACS 空結果；0.23.3 補上兩份聯合醫院文字報告的 literal 換行模板與離線完整性核對，原頁重解析通過，新版院內執行仍待驗證。詳見 [VALIDATION](VALIDATION.md)。`dbr`、`password`、`session` 等專項仍可明確選用。
+0.23.4 新增 `registrations` 批次掛號計畫，本次 EXE 以此作為雙擊預設。輸入 Portal 帳密及病歷號清單後，依序保存全部掛號、未到診圖示與原始掛號人員代碼，不查實際就診或附件。此前 PACS 的 0.23.2 院內下載、0.23.3 文字報告離線重解析仍是各自的證據；新批次流程尚待院內回傳。詳見 [VALIDATION](VALIDATION.md)。`pacs`、`dbr`、`password`、`session` 等專項仍可明確選用。
 
 | profile | 用途 | 啟動輸入 |
 | --- | --- | --- |
+| `registrations` | 全部輸入病歷號的掛號、未到診標記及原始掛號人員代碼 | Portal 帳密、TXT／CSV 清單或貼上多筆病歷號 |
 | `pacs` | 依序驗證聯合醫院 imgUrl 與高榮 uid | 先輸入聯合醫院病歷號與帳密，再輸入高榮病歷號與帳密；兩院各一名授權病人 |
 | `dbr` | 歷年醫囑 DBR 明細／報告、PDF／JPG 抽樣及逐筆證據 | 一名授權病人的病歷號、Portal 帳密 |
 | `password` | 一次舊帳密登入、強制變更頁面及限定唯讀對照 | 舊 Portal 帳密，可選一名授權病人的病歷號 |
@@ -19,6 +20,33 @@
 | `atomic`／`comprehensive` | 指定唯讀操作／完整涵蓋計畫 | 依計畫要求輸入，MIS 使用獨立帳密 |
 
 建置及 localhost 驗證工具見 [DEVELOPMENT](DEVELOPMENT.md#建置)；各計畫的實際順序與限制如下。
+
+## 批次掛號整合測試（registrations）
+
+```sh
+python tools/build_live_test_exe.py --default-profile registrations
+python tools/verify_registration_exe.py --source
+python tools/verify_registration_exe.py
+```
+
+0.23.5 的此建置雙擊後會詢問 Portal 帳號、密碼及病歷號清單。清單可用 UTF-8 TXT（每行一個病歷號）或 CSV（`mrn`／`病歷號` 欄）；檔案路徑可含空白或雙引號。檔案路徑直接 Enter 則改成貼上模式，可換行、空白、逗號或分號分隔，最後以空白行結束。全部輸入驗證後才開始連線；保留前導零並依輸入順序去重。沒有內嵌真實病歷號、帳密或 private defaults。
+
+同一帳號使用同一 SDK／Session，逐一執行 `patients.get_registration_history(mrn)`，每位的掛號分頁由 SDK 讀完。查詢全部輸入病歷號，不使用 `max_cases` 抽樣；預設仍每次請求隨機等待 0.8–1.8 秒，整批耗時會隨病歷號與分頁數增加。單筆 HTTP／解析失敗保留錯誤並繼續其他病人；登入、密碼變更或其他 AuthenticationError 停止後續查詢，尚未查詢者標為 BLOCKED。Ctrl+C 停止並將已完成結果、進度及 raw capture 打包。
+
+此計畫只查掛號及必要 CHECK_PAT／SSO，不查實際就診清單、SOAP、附件或異動，不清 Cookie、不送刻意錯誤密碼。`no_show=True` 只表示已錄製的「未到診」圖示，缺圖示為 `None`；`registered_by` 保留原始代碼。整批沒有未到診樣本時，欄位覆蓋為 NO_SAMPLE、整體為 COMPLETED_WITH_GAPS；空掛號清單為 EMPTY，實際錯誤仍獨立保留。
+
+命令列也可使用清單或逐一指定（帳密由互動或既有環境變數提供，不放 JSON）：
+
+```powershell
+.\vghks-live-test.exe --mrn-file "病歷號清單.txt"
+.\vghks-live-test.exe --profile registrations --patient-mrn TEST001 --patient-mrn TEST002
+```
+
+公開 [registration-batch.example.json](../configs/registration-batch.example.json) 使用合成病歷號；正式資料放本機。結果 ZIP 中 `parsed/registrations/patients.json` 對應輸入順序與病歷號，`patients/000001.json` 等保存完整掛號列，`patient_results.jsonl` 記錄各筆狀態、錯誤與 capture 範圍，`batch_summary.json` 列出成功／空值／錯誤／BLOCKED／待執行病人數及未到診、未知和原始掛號代碼計數。中斷時仍保留已完成資料與 pending 數；所有 raw HTTP 與標準診斷也在同份 ZIP。離線產生的重測 JSON 保留同一完整病歷號清單及 registrations 範圍，不降成單一預設病人。
+
+0.23.5 的離線 `analysis.json.registration_batch` 核對設定清單與輸入順序、病人索引、逐筆 journal、步驟、完整結果及原始分頁；共用 SDK 去重規則，逐欄比對原頁重解析結果，再重算未到診／未知及來源代碼數量。缺檔、漏頁、病人不符、非預期存檔或摘要不一致會列為 DATA 問題，原 EXE 狀態另存於 `recorded_status`。報告只列計數與固定問題碼；病歷號清單及原始來源代碼只留本機結果與重測設定。缺少原始回應檔會回報 RESPONSE_BODY_MISSING，不將摘要 OK 當成完整證據。
+
+請帶回 EXE 同目錄新產生的一份 `vghks-live-test-*.zip`；ZIP 包含未遮罩的病歷號、姓名、Cookie 與原始內容，只留本機／院內授權管道。0.23.4 院內回傳已確認 13 人、91 筆掛號及 9 個未到診圖示，詳見 [VALIDATION](VALIDATION.md)。分頁、空值與失敗續跑另有合成證據。
 
 ## 聯合院區／高榮 PACS 圖片專項（pacs）
 
@@ -143,7 +171,7 @@ dist/vghks-live-test.exe --plan
 
 ## 高榮與聯合醫院掛號比較、病歷調閱審查（regression）
 
-以下流程使用 `regression` 計畫；現行 EXE 預設為 `pacs`，可明確指定 `--profile regression`，若要雙擊啟動此專項則另行建置。
+以下流程使用 `regression` 計畫；本次 EXE 預設為 `registrations`，可明確指定 `--profile regression`，若要雙擊啟動此專項則另行建置。
 
 只需搬 `dist/vghks-live-test.exe`。雙擊後先輸入高榮帳號可查的授權病歷號、Portal 帳密；接著可輸入聯合醫院 Portal 帳密與其授權病歷號，直接 Enter 可略過第二組。兩組帳號各用自己的 SDK Session，分別查一次掛號，並在另一個全新 Session 先查 `CHECK_PAT` 再查掛號。聯合醫院可使用與高榮相同或不同的病歷號。帳密只在執行時輸入，不寫入設定；測試結果與完整原始回應一起留在同一份 ZIP，`registration_comparison.json` 列出兩組帳號各步狀態與請求形狀。
 
@@ -173,7 +201,7 @@ dist/vghks-live-test.exe --plan
 
 ## 單次門診與歷年眼科掃描病歷（scans）
 
-以下流程使用 `scans` 計畫；現行 EXE 預設為 `pacs`，可明確指定 `--profile scans`，若要雙擊啟動此專項則另行建置。
+以下流程使用 `scans` 計畫；本次 EXE 預設為 `registrations`，可明確指定 `--profile scans`，若要雙擊啟動此專項則另行建置。
 
 只需帶 `dist/vghks-live-test.exe`。雙擊後輸入授權病歷號、Portal 帳號與密碼；可選填單次門診日期，不填時抽最近最多六次眼科門診。EXE 查完整歷年掃描清單，逐筆保留表格、病歷類別、顯示日期、`RECORD`／`OPG` 來源 subtype 與 PDF 參照。眼科樣本依「門診-記錄-眼科紀錄」病歷類別選取，最多下載四份 PDF，優先交替抽歷年眼科與單次就診參照。這是**抽樣驗證**，不代表已查每次眼科就診或下載歷年全部 PDF；SDK 使用者可用 `get_upload_history(mrn).scanned_records` 遍歷全清單並逐筆下載。沒有符合樣本時記錄 `NO_SAMPLE`，不以 HTTP 成功代替 PDF 成功。
 

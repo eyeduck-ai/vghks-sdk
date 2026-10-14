@@ -25,7 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--defaults", type=Path, help="private JSON containing only test_mrn")
     parser.add_argument(
-        "--default-profile", choices=("comprehensive", "ophthalmology", "dbr", "pacs", "visits", "login", "soap", "regression", "scans", "failures", "session", "password"), default="comprehensive"
+        "--default-profile", choices=("registrations", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "login", "soap", "regression", "scans", "failures", "session", "password"), default="comprehensive"
     )
     args = parser.parse_args()
     defaults = None
@@ -131,6 +131,7 @@ def main() -> int:
                 ["--plan", "--profile", "failures"],
                 ["--plan", "--profile", "session"],
                 ["--plan", "--profile", "password"],
+                ["--plan", "--profile", "registrations"],
             ):
                 checked = subprocess.run(
                     [str(executable), *arguments],

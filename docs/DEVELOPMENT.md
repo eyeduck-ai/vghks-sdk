@@ -40,7 +40,7 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 
 PACS 專項的 `pacs_test` 另由唯一參照、outcome 與已驗證存檔重算 imgUrl／uid，核對病人、院區目標、漏下載、重複／非預期參照與摘要一致性。院區標示是使用者輸入，不從醫療內容猜測；原實測、重解析正文與存檔完整性各自保留。修改後以同一 ZIP 比較 source／frozen 的完整分析（排除 analyzer build）與單院重測設定；合法空結果與另一格式 NO_SAMPLE 不等於目標下載失敗，也不能掩蓋實際錯誤或 PARTIAL。
 
-附件目錄或支援格式的調整集中於 `contracts/order_assets.py`，由 live、workflow 與 offline 共用；不要讓離線分析匯入測試執行器以取得路徑。重構後對同一 ZIP 做禁止 socket 的完整分析與重測設定比較，再跑對應 unittest／localhost EXE，確認只改責任分工而未改證據判定。詳細分層見 [ARCHITECTURE](ARCHITECTURE.md)。
+附件目錄或支援格式的調整集中於 `contracts/order_assets.py`，由 live、workflow 與 offline 共用；不要讓離線分析匯入測試執行器以取得路徑。重構後對同一 ZIP 做禁止 socket 的完整分析與重測設定比較，再跑對應 unittest／localhost EXE，確認只改責任分工而未改證據判定。批次掛號由 `offline/registrations.py` 核對設定、journal、逐人檔案與完整原始分頁；同文字而圖示不同的列不能合併。未知到診維持 None、原始來源代碼不分類。詳細分層見 [ARCHITECTURE](ARCHITECTURE.md)。
 
 ## 建置
 
@@ -72,6 +72,7 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 | profile | localhost 驗證工具 | 主要檢查 |
 | --- | --- | --- |
+| `registrations` | `tools/verify_registration_exe.py` | source／frozen 各十種 HTTPS 情境、TXT／CSV／貼上、前導零與去重、中文路徑、未到診與未知、錯誤續跑／登入停止、完整批次重測範圍 |
 | `pacs` | `tools/verify_pacs_exe.py` | 十九種 HTTPS 情境、imgUrl／原 UID 參數、查無圖片、完整下載與失敗續跑、雙院輸入及 Session 隔離、文字模板／PARTIAL、CLI 離線完整性與單院重測 |
 | `dbr` | `tools/verify_dbr_exe.py` | 十種 HTTPS 情境、歷年 DBR 抽樣、二進位／登入分類、原始 PDF／JPG 保存、有限恢復與 CLI 離線分析 |
 | `password` | `tools/verify_password_exe.py` | 十五種 HTTPS 情境、舊密碼只送一次、強制變更原頁保存、匿名／Cookie 目錄對照及離線白名單 |

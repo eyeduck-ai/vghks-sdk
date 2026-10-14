@@ -22,7 +22,7 @@
 | --- | --- | --- |
 | `webmaas.demographics` | `get_demographics(mrn: str) -> PatientDemographics` | 精簡身分與聯絡資訊；供清單補充欄位。 |
 | `webmaas.basic_info` | `get_basic_info(mrn: str) -> PatientBasicInfo` | 完整基本資料、住院／出院提示；保留來源欄位。 |
-| `webmaas.registration_query` | `get_registration_history(mrn: str) -> list[RegistrationRecord]` | 掛號紀錄與狀態；SSO 轉址頁的當次 token 可直接用於首次查詢，有掛號不等於已就診。 |
+| `webmaas.registration_query` | `get_registration_history(mrn: str) -> list[RegistrationRecord]` | 掛號紀錄、原始掛號人員代碼及未到診圖示；no_show 為 True 或 None（未知），有掛號不等於已就診。SSO 當次 token 可供首次查詢。見 [PATIENTS](PATIENTS.md)。 |
 
 ## sdk.opd
 

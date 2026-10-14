@@ -69,6 +69,10 @@ DBR_QUERIES = tuple(
 
 def build_test_plan(config: LiveTestConfig) -> dict[str, Any]:
     config.validate_for_execution()
+    if config.profile == "registrations":
+        from .registrations import build_registration_plan
+
+        return build_registration_plan(config)
     if config.profile == "password":
         from .password import build_password_plan
 

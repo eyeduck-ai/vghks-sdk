@@ -30,6 +30,8 @@ class RegistrationRecord:
 
     A registration does not establish that the patient actually attended.
     Empty status/cancellation fields remain unknown rather than inferred.
+    no_show is True only for the recorded explicit icon, otherwise None.
+    registered_by retains the source account/system code without classification.
     """
 
     columns: Mapping[str, str]
@@ -47,6 +49,7 @@ class RegistrationRecord:
     cancelled_at: str = ""
     cancelled_by: str = ""
     notes: str = ""
+    no_show: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -72,7 +72,7 @@ from ..parsing.surgery_cases import (
     parse_surgery_departments,
     parse_surgery_note,
 )
-from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form
+from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form, registration_counts
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
 
@@ -189,7 +189,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             path.endswith("/QueryPatientRecord.do")
             and params.get("Use") == "Case"
             and 200 <= int(response.get("status_code", 0)) < 300
-            and row.get("response_file")
+            and isinstance(row.get("response_file"), str) and row["response_file"] in reader.names
         ) or (
             operation == "prq.access_review"
             and context_mrn
@@ -197,7 +197,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             and params.get("value(smr_hhisnum)") == context_mrn
             and params.get("value(smr_hid)") == context_hid
             and 200 <= int(response.get("status_code", 0)) < 300
-            and row.get("response_file")
+            and isinstance(row.get("response_file"), str) and row["response_file"] in reader.names
         ):
             visit_context_ready = _patient_context_confirmed(
                 reader.read(row["response_file"]),
@@ -258,7 +258,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             or operation in {"prq.patient_identity", "prq.access_review", "webmaas.basic_info_landing"}
         ):
             body_path = row.get("response_file")
-            if not body_path:
+            if not isinstance(body_path, str) or body_path not in reader.names:
                 result.update(status="UNAVAILABLE", error_code="RESPONSE_BODY_MISSING")
             else:
                 content = reader.read(body_path)
@@ -563,6 +563,9 @@ def replay_response(
             "data_complete": assessment.complete,
             "parsing_issues": [item.code for item in assessment.issues],
             "parsing_warnings": [item.code for item in assessment.warnings],
+            **({key: count for key, count in registration_counts(value).items()
+                if key in {"no_show_count", "attendance_unknown_count"}}
+               if operation == "webmaas.registration_query" else {}),
             **notice,
             **(
                 {
@@ -696,7 +699,7 @@ def _parse(
         return parsing.parse_patient_basic_info(text, mrn)
     if key == "webmaas.registration_query":
         _require(soup.find("table", id="row") is not None, "WEBMAAS_REGISTRATION_STRUCTURE_MISSING")
-        return parsing.parse_registration_records(text)
+        return parsing.parse_registration_records(text, mrn)
     if key == "prq.visit_cases":
         rows = parsing.parse_visit_cases(
             text,

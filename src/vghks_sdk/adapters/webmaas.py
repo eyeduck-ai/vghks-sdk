@@ -15,6 +15,7 @@ from ..parsing.webmaas import (
     parse_patient_demographics,
     parse_query_form,
     parse_registration_records,
+    registration_identity,
 )
 from ..runtime import SDKRuntime
 
@@ -114,11 +115,11 @@ class WebMaasAdapter:
                 headers={"Referer": landing_url},
             )
             records: list[RegistrationRecord] = []
-            seen_records: set[tuple[tuple[str, str], ...]] = set()
+            seen_records: set[tuple[tuple[tuple[str, str], ...], bool | None]] = set()
             visited_pages: set[str] = set()
             for _ in range(50):
                 for record in parse_registration_records(html_text, mrn):
-                    identity = tuple(sorted(record.columns.items()))
+                    identity = registration_identity(record)
                     if identity not in seen_records:
                         seen_records.add(identity)
                         records.append(record)

@@ -24,7 +24,7 @@ PURPOSES = {
     "personnel.search": "依姓名、員工編號、職稱、單位及下層單位條件查詢人事清單；保留醫師章號及聯絡欄位。見 [PERSONNEL](PERSONNEL.md)。",
     "webmaas.demographics": "精簡身分與聯絡資訊；供清單補充欄位。",
     "webmaas.basic_info": "完整基本資料、住院／出院提示；保留來源欄位。",
-    "webmaas.registration_query": "掛號紀錄與狀態；SSO 轉址頁的當次 token 可直接用於首次查詢，有掛號不等於已就診。",
+    "webmaas.registration_query": "掛號紀錄、原始掛號人員代碼及未到診圖示；no_show 為 True 或 None（未知），有掛號不等於已就診。SSO 當次 token 可供首次查詢。見 [PATIENTS](PATIENTS.md)。",
     "prq.visit_cases": "以病歷號或 national_id（二擇一）查就診清單；遇到錄製的調閱審查頁時，病歷號路徑預設自動提交照護原因，可用 access_review_reason 覆寫。保留同病人舊病歷號的原始連結與查詢號，含日期、類別、科別、醫師。見 [VISITS](VISITS.md)。",
     "prq.case_detail": "單次就診的頁籤、連結與原始頁面。",
     "prq.soap": "該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、慢性處方服藥期限及掃描 PDF 參照；調閱審查預設自動處理，可明確覆寫 access_review_reason。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。",

@@ -97,7 +97,7 @@ SDK 預設循序請求，每次隨機等待 0.8–1.8 秒，使用瀏覽器格�
 
 結果 ZIP 不加密，存於 EXE 同目錄並含輸出時間，無 `.sha256` 搬移機制。**HAR、returns、raw debug、報告、個人設定及自用 EXE 只留本機，不進 public repo、Issue 或 Actions artifact。**
 
-SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。現行 0.23.3 EXE 預設 `pacs` 雙院專項，先收齊聯合醫院與高榮各自的授權病歷號及 Portal 帳密，再以獨立 Session 依序測試 `imgUrl`／`uid`。各院最多選八筆歷年醫囑、下載所選檢查全部圖片；帶回標示 `union`、`vghks` 的兩份 ZIP。`dbr`、`password`、`session` 等計畫仍可明確選用，詳見 [LIVE_TEST](docs/LIVE_TEST.md)。
+SDK 是 Python library；EXE 是使用 SDK 的院內測試工具。0.23.5 EXE 預設 `registrations` 批次掛號專項，輸入 Portal 帳密及 TXT／CSV 病歷號清單，或直接貼上多筆病歷號。程式依序查完全部不同病歷號，保存掛號、未到診標記、原始掛號代碼與錯誤，帶回同目錄的一份結果 ZIP。`pacs`、`dbr`、`password`、`session` 等計畫仍可明確選用，詳見 [LIVE_TEST](docs/LIVE_TEST.md)。
 
 DBR 專項已有院內兩筆醫囑、四份 PDF 的成功回傳；離線分析另核對附件存檔大小、SHA-256 與格式。報告頁只有附件及 JPG 查無資料仍保留來源狀態，下載不包含 OCR。
 

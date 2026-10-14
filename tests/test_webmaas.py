@@ -86,7 +86,10 @@ def basic_info(mrn=MRN):
     )
 
 
-def registration(mrn=MRN, day="2026-11-13", next_href="", *, empty=False):
+def registration(
+    mrn=MRN, day="2026-11-13", next_href="", *, empty=False, notes_html="",
+    registered_by="TEST-STAFF", status="",
+):
     values = (
         day,
         "70\u00a0眼科上午",
@@ -95,9 +98,9 @@ def registration(mrn=MRN, day="2026-11-13", next_href="", *, empty=False):
         mrn,
         "合成病人",
         "10:30",
-        "",
+        status,
         "2026-09-20 10:00",
-        "TEST-STAFF",
+        registered_by,
         "",
         "",
         "",
@@ -105,7 +108,8 @@ def registration(mrn=MRN, day="2026-11-13", next_href="", *, empty=False):
     body = (
         '<td colspan="13">Nothing found to display.</td>'
         if empty
-        else "".join(f"<td>{escape(value)}</td>" for value in values)
+        else "".join(f"<td>{escape(value)}</td>" for value in values[:-1])
+        + f"<td>{notes_html}</td>"
     )
     return (
         '<table id="row"><tr>'
@@ -181,8 +185,66 @@ class WebMaasParserTests(unittest.TestCase):
         self.assertEqual((result.section_code, result.section_name), ("70", "眼科上午"))
         self.assertEqual((result.room, result.sequence_no), ("02", "001"))
         self.assertEqual(result.status, "")
+        self.assertIsNone(result.no_show)
+        self.assertIsNone(to_jsonable(result)["no_show"])
         self.assertEqual(len(result.columns), len(HEADERS))
         self.assertEqual(parse_registration_records(registration(empty=True), MRN), [])
+
+    def test_registration_reads_no_show_icon_without_replacing_source_text(self):
+        notes = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
+        result = parse_registration_records(registration(notes_html=notes), MRN)[0]
+        self.assertIs(result.no_show, True)
+        self.assertIs(to_jsonable(result)["no_show"], True)
+        self.assertEqual((result.status, result.notes, result.columns["註記"]), ("", "", ""))
+
+        result = parse_registration_records(
+            registration(notes_html=f"{notes}合成註記", status="來源狀態"), MRN,
+        )[0]
+        self.assertIs(result.no_show, True)
+        self.assertEqual(result.status, "來源狀態")
+        self.assertEqual((result.notes, result.columns["註記"]), ("合成註記", "合成註記"))
+
+    def test_registration_without_recorded_icon_keeps_no_show_unknown(self):
+        icon = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
+        for notes in (
+            "", "未到診", '<label title="未到診"></label>',
+            '<img src="../images/icon/Rsdefyrc.png"/>',
+            '<label title="已到診"><img src="../images/icon/Rsdefyrc.png"/></label>',
+            '<label title="未到診"><img src="../images/icon/unknown.png"/></label>',
+            '<input type="hidden" value="未到診">',
+            f'<script>const example = {json.dumps(icon)};</script>',
+            f"<!--{icon}-->", f"<template>{icon}</template>", f"<noscript>{icon}</noscript>",
+            f"<span hidden>{icon}</span>", f'<span aria-hidden="true">{icon}</span>',
+            f'<span style="display: none">{icon}</span>',
+            f'<span style="visibility: hidden">{icon}</span>',
+            icon.replace("<img ", '<img hidden '),
+        ):
+            with self.subTest(notes=notes):
+                result = parse_registration_records(registration(notes_html=notes), MRN)[0]
+                self.assertIsNone(result.no_show)
+        for status in ("已到診", "取消", "未到診"):
+            with self.subTest(status=status):
+                result = parse_registration_records(registration(status=status), MRN)[0]
+                self.assertIsNone(result.no_show)
+                self.assertEqual(result.status, status)
+
+    def test_registration_no_show_icon_is_scoped_to_notes_column_and_row(self):
+        icon = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
+        source = registration().replace("<td>TEST-STAFF</td>", f"<td>TEST-STAFF{icon}</td>")
+        self.assertIsNone(parse_registration_records(source, MRN)[0].no_show)
+        source = registration(notes_html=icon).replace(
+            "</table>", registration().split("</tr>", 1)[1].split("</table>")[0] + "</table>",
+        )
+        records = parse_registration_records(source, MRN)
+        self.assertEqual([record.no_show for record in records], [True, None])
+
+    def test_registration_keeps_source_codes_without_classifying_attendance(self):
+        for code in ("MWEB", "OPDTESTF", "SYNTHETIC-CODE", ""):
+            with self.subTest(code=code):
+                result = parse_registration_records(registration(registered_by=code), MRN)[0]
+                self.assertEqual(result.registered_by, code)
+                self.assertEqual(result.columns["掛號人員"], code)
+                self.assertIsNone(result.no_show)
 
     def test_registration_rejects_wrong_patient_missing_table_and_broken_columns(self):
         for source in (
@@ -326,6 +388,31 @@ class WebMaasAdapterTests(unittest.TestCase):
         self.assertEqual(session.request.call_count, 4)
         self.assertIn("d-123-p=2", session.request.call_args_list[-1].args[1])
 
+    def test_registration_pagination_preserves_different_no_show_markers(self):
+        next_page = f"?d-123-p=2&patno={MRN}"
+        icon = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
+        adapter, session, _ = adapter_with(
+            response(landing("RSV11WForm")), identity(),
+            response(registration(next_href=next_page)),
+            response(registration(notes_html=icon)),
+        )
+        records = adapter.get_registration_history(MRN)
+        self.assertEqual([record.no_show for record in records], [None, True])
+        self.assertEqual(records[0].columns, records[1].columns)
+        self.assertEqual(session.request.call_count, 4)
+
+    def test_registration_pagination_deduplicates_identical_no_show_markers(self):
+        next_page = f"?d-123-p=2&patno={MRN}"
+        icon = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
+        adapter, session, _ = adapter_with(
+            response(landing("RSV11WForm")), identity(),
+            response(registration(notes_html=icon, next_href=next_page)),
+            response(registration(notes_html=icon)),
+        )
+        records = adapter.get_registration_history(MRN)
+        self.assertEqual([record.no_show for record in records], [True])
+        self.assertEqual(session.request.call_count, 4)
+
     def test_pagination_loop_and_foreign_patient_or_origin_never_return_partial_results(self):
         for link, code in (
             (
@@ -457,6 +544,35 @@ class SDKBoundaryTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("VGHKS_RUN_HAR_CONTRACT") == "1", "opt-in HAR fixtures")
 class NewPatientHarTests(unittest.TestCase):
+    def test_recorded_no_show_icons_without_network(self):
+        from vghks_sdk.contracts.har import load_har
+
+        earlier = list((ROOT / "data/har").glob("*所有掛號清單.har"))
+        samples = [
+            (ROOT / "data/recordings/2026-09-20/查詢病人掛號資料+病人基本資料.har", 7, 1),
+            (ROOT / "data/recordings/聯合醫院取得掛號清單.har", 12, 1),
+        ]
+        if len(earlier) == 1:
+            samples.append((earlier[0], 18, 5))
+        if len(samples) != 3 or any(not path.is_file() for path, _, _ in samples):
+            self.skipTest("local registration HAR unavailable")
+        with patch("socket.socket.connect", side_effect=AssertionError("offline only")):
+            for number, (path, count, no_show_count) in enumerate(samples, start=1):
+                with self.subTest(sample=number):
+                    records = [
+                        record
+                        for entry in load_har(path).entries
+                        if entry.path == "/webmaas/RSV/RSV11W001.do" and entry.method == "POST"
+                        for record in parse_registration_records(entry.text(), entry.context_mrn)
+                    ]
+                    self.assertEqual(len(records), count)
+                    self.assertEqual(sum(record.no_show is True for record in records), no_show_count)
+                    self.assertEqual(sum(record.no_show is None for record in records),
+                                     count - no_show_count)
+                    self.assertTrue(all(record.registered_by for record in records))
+                    self.assertTrue(all(record.notes == "" and record.status == ""
+                                        for record in records))
+
     def test_recorded_registration_and_basic_info_without_network(self):
         directory = ROOT / "data/recordings/2026-09-20"
         files = list(directory.glob("查詢病人掛號資料+病人基本資料.har"))

@@ -1,0 +1,8 @@
+{
+  "schema_version": 8,
+  "profile": "registrations",
+  "patient_mrns": ["TEST001", "TEST002", "TEST003"],
+  "login_negative_attempts": 0,
+  "download_assets": false,
+  "weekly_opd_soap": false
+}

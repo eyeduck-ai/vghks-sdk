@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import html
 import re
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from ..core.errors import NotFoundError, ParseError
 from ..models import PatientBasicInfo, PatientDemographics, RegistrationRecord
@@ -90,6 +91,20 @@ def parse_patient_demographics(payload: Any, expected_mrn: str) -> PatientDemogr
     )
 
 
+def registration_identity(record: RegistrationRecord) -> tuple[tuple[tuple[str, str], ...], bool | None]:
+    return tuple(sorted(record.columns.items())), record.no_show
+
+
+def registration_counts(rows: Sequence[RegistrationRecord]) -> dict[str, Any]:
+    """Raw codes in this result belong only in local patient-result artifacts."""
+    return {
+        "record_count": len(rows),
+        "no_show_count": sum(row.no_show is True for row in rows),
+        "attendance_unknown_count": sum(row.no_show is None for row in rows),
+        "registered_by_codes": dict(Counter(row.registered_by for row in rows)),
+    }
+
+
 def parse_registration_records(html_text: str, expected_mrn: str = "") -> list[RegistrationRecord]:
     soup = BeautifulSoup(html_text, "html.parser")
     table = soup.find("table", id="row")
@@ -118,6 +133,7 @@ def parse_registration_records(html_text: str, expected_mrn: str = "") -> list[R
             )
         columns = map_columns(headers, values)
         normalized = {_label(key): value for key, value in columns.items()}
+        cells_by_label = {_label(key): cell for key, cell in zip(headers, cells)}
         mrn = normalized.get("病歷號", "")
         if expected_mrn and mrn != normalize_inline_text(expected_mrn):
             raise ParseError(
@@ -142,9 +158,29 @@ def parse_registration_records(html_text: str, expected_mrn: str = "") -> list[R
                 cancelled_at=normalized.get("取消時間", ""),
                 cancelled_by=normalized.get("取消人員", ""),
                 notes=normalized.get("註記", ""),
+                no_show=_registration_no_show(cells_by_label.get("註記")),
             )
         )
     return records
+
+
+def _registration_no_show(cell: Tag | None) -> bool | None:
+    """Read only the recorded notes icon; absence does not establish attendance."""
+    if cell is None:
+        return None
+    for icon in cell.select('label[title="未到診"] > img[src="../images/icon/Rsdefyrc.png"]'):
+        if not any(
+            node.name in {"script", "style", "template", "noscript"}
+            or node.has_attr("hidden")
+            or str(node.get("aria-hidden", "")).casefold() == "true"
+            or re.search(
+                r"(?:display\s*:\s*none|visibility\s*:\s*hidden)",
+                str(node.get("style", "")), re.IGNORECASE,
+            )
+            for node in (icon, *icon.parents)
+        ):
+            return True
+    return None
 
 
 def find_next_displaytag_href(html_text: str) -> str | None:

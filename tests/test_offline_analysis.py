@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
+from bs4 import BeautifulSoup
 
 from vghks_sdk.core.config import PortalCredentials, RequestPolicy
 from vghks_sdk.core.errors import ConfigurationError
@@ -27,7 +28,7 @@ from vghks_sdk.offline.analyze import (
     inspect_bundle,
 )
 from vghks_sdk.offline.bundle import BundleReader
-from vghks_sdk.offline.replay import identify_operation, replay_bundle, replay_response
+from vghks_sdk.offline.replay import _parse, identify_operation, replay_bundle, replay_response
 
 SECRET = "SECRET_PAYLOAD_SHOULD_NOT_APPEAR"
 
@@ -147,6 +148,26 @@ class OfflineAnalysisTests(unittest.TestCase):
         with BundleReader(archive.archive_path) as reader:
             self.assertNotIn("files_manifest.json", reader.names)
             self.assertEqual(reader.json("run_summary.json")["status"], "OK")
+
+    def test_registration_replay_preserves_no_show_and_raw_source_codes(self):
+        source = (
+            '<table id="row"><tr><th>病歷號</th><th>掛號人員</th><th>註記</th></tr>'
+            '<tr><td>TEST001</td><td>MWEB</td><td><label title="未到診">'
+            '<img src="../images/icon/Rsdefyrc.png"/></label></td></tr>'
+            '<tr><td>TEST001</td><td>OPDTESTF</td><td></td></tr></table>'
+        )
+        with patch("socket.socket.connect", side_effect=AssertionError("offline only")):
+            records = _parse(
+                "webmaas.registration_query", source, {"patno": "TEST001"}, "",
+                BeautifulSoup(source, "html.parser"),
+            )
+            report = replay_response(
+                "webmaas.registration_query", source.encode("cp950"), {"patno": "TEST001"},
+                mime="text/html; charset=Big5",
+            )
+        self.assertEqual([record.no_show for record in records], [True, None])
+        self.assertEqual([record.registered_by for record in records], ["MWEB", "OPDTESTF"])
+        self.assertEqual((report["status"], report["record_count"]), ("PARSED", 2))
 
     def test_password_gap_has_a_safe_name_and_replay_does_not_rewrite_live_evidence(self):
         steps = [

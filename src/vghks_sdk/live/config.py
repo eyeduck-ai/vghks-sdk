@@ -19,13 +19,14 @@ from typing import Any
 
 from ..core.config import RequestPolicy, SDKSettings
 from ..core.errors import ConfigurationError
+from ..identifiers import normalize_mrns
 from ..models import ReviewCaseFilter, SurgeryCaseFilter, VisitFilter, to_jsonable
 from ..queries import query_spec
 from ..search import SoapSearch
 from .defaults import default_test_mrn
 from .presets import FAILURE_QUERIES, REGRESSION_QUERIES, SCAN_RECORD_QUERIES
 
-LIVE_CONFIG_SCHEMA_VERSION = 7
+LIVE_CONFIG_SCHEMA_VERSION = 8
 DEFAULT_SOAP_TEST_DATE = date(2026, 9, 21)
 _ENDPOINT_FIELDS = (
     "portal_base_url",
@@ -51,6 +52,7 @@ _CREDENTIAL_KEYS = {
     "user",
 }
 _TOP_LEVEL_KEYS = {
+    "patient_mrns",
     "pacs_single_account",
     "login_negative_attempts",
     "session_pause",
@@ -128,6 +130,7 @@ class LiveTestConfig:
     surgery_query: Mapping[str, Any] = field(default_factory=dict)
     review_query: Mapping[str, Any] = field(default_factory=dict)
     pacs_single_account: bool = False
+    patient_mrns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.test_mrn, str) or not self.test_mrn.strip():
@@ -193,7 +196,13 @@ class LiveTestConfig:
         )
         profile = str(self.profile).strip().lower()
         object.__setattr__(self, "profile", profile)
+        if isinstance(self.patient_mrns, str) or not isinstance(self.patient_mrns, (list, tuple)):
+            raise ConfigurationError("patient_mrns must be an array")
+        object.__setattr__(self, "patient_mrns", tuple(normalize_mrns(self.patient_mrns, allow_empty=True)))
+        if self.patient_mrns and profile != "registrations":
+            raise ConfigurationError("patient_mrns requires the registrations profile")
         if profile not in {
+            "registrations",
             "login",
             "auth",
             "atomic",
@@ -212,10 +221,15 @@ class LiveTestConfig:
             "full",
         }:
             raise ConfigurationError(
-                "live-test profile must be login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session, password, core or full"
+                "live-test profile must be registrations, login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session, password, core or full"
             )
         if self.login_negative_attempts is None:
-            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"session", "password", "dbr", "pacs"} else 1 if profile == "failures" else 2)
+            object.__setattr__(self, "login_negative_attempts", 0 if profile in {"registrations", "session", "password", "dbr", "pacs"} else 1 if profile == "failures" else 2)
+        if profile == "registrations":
+            if self.login_negative_attempts or self.include_surgery or self.include_unsigned or self.include_earnings:
+                raise ConfigurationError("registrations excludes negative login and unrelated checks")
+            object.__setattr__(self, "download_assets", False)
+            object.__setattr__(self, "weekly_opd_soap", False)
         if type(self.login_negative_attempts) is not int or not 0 <= self.login_negative_attempts <= 2:
             raise ConfigurationError("login_negative_attempts must be 0, 1 or 2")
         if profile == "failures" and self.login_negative_attempts > 1:
@@ -304,7 +318,7 @@ class LiveTestConfig:
         if self.soap_search is not None and not isinstance(self.soap_search, SoapSearch):
             raise ConfigurationError("live-test SOAP search is invalid")
         if (
-            self.profile in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}
+            self.profile in {"registrations", "login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}
             and self.soap_search is not None
         ):
             raise ConfigurationError("SOAP search requires the core or full profile")
@@ -432,6 +446,7 @@ class LiveTestConfig:
 
         return {
             "test_mrn": self.test_mrn,
+            "patient_mrns": list(self.patient_mrns),
             "access_review_reason": self.access_review_reason,
             "surgery_query": to_jsonable(self.surgery_query),
             "review_query": to_jsonable(self.review_query),
@@ -551,7 +566,7 @@ def load_live_test_config(path: Path) -> dict[str, Any]:
     unknown = set(payload) - _TOP_LEVEL_KEYS
     if unknown:
         raise ConfigurationError("live-test configuration contains unknown fields")
-    if payload.get("schema_version", LIVE_CONFIG_SCHEMA_VERSION) not in {2, 3, 4, 5, 6, 7}:
+    if payload.get("schema_version", LIVE_CONFIG_SCHEMA_VERSION) not in {2, 3, 4, 5, 6, 7, 8}:
         raise ConfigurationError(
             "unsupported live-test configuration schema version",
             code="LIVE_CONFIG_SCHEMA_UNSUPPORTED",
@@ -673,6 +688,7 @@ def _config_from_mapping(values: Mapping[str, Any]) -> LiveTestConfig:
         raise ConfigurationError("live-test asset_terms must be an array")
     return LiveTestConfig(
         test_mrn=values.get("test_mrn", default_test_mrn()),
+        patient_mrns=values.get("patient_mrns", ()),
         access_review_reason=values.get("access_review_reason"),
         profile=str(values.get("profile", "full")),
         login_negative_attempts=values.get("login_negative_attempts"),

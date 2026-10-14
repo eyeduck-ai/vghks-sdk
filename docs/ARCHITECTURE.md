@@ -75,4 +75,6 @@ PDF／JPEG 檔頭只決定是否交給二進位驗證器。Runtime 與安全診�
 
 **恢復證據必須屬於同一次操作**：Runtime 診斷的 `capture_operation_id` 連到 raw 操作，不能用兩個 recorder 的相同流水號推論。`offline/recovery.py` 核對完整請求次序、明確 timeout、原角色 SSO、新表單、成功結果與完成事件，才標記該回應已恢復；原 readiness 錯誤及後續解析失敗仍保留。舊事件只在完整次序有唯一匹配時驗證，不增加 HTTP。
 
+**批次掛號屬於測試應用層**：`live/registrations.py` 依明確的 `patient_mrns` 清單，逐一呼叫既有 `patients.get_registration_history`；Service 仍回傳一位病人的一份掛號結果，不新增 QuerySpec。批次共用 Session 與 SDK 節流，保存每筆 JSON、原始 capture、逐筆 journal 及整批 checkpoint；不在 Parser 選下一名病人。只有明確未到診圖示為 True，缺圖示維持未知；掛號人員原始代碼只保留於本機結果。離線重測設定保持整份清單與同一 registrations 範圍。`offline/registrations.py` 將完整清單、逐筆 journal、步驟及結果與 capture 範圍內的原始掛號分頁核對；`parsing/webmaas.py` 的純識別／計數函式供 Adapter、live 及 offline 共用，正常 SDK 匯入不因此載入 HAR 工具。只輸出統計與固定問題碼，原實測狀態保留。
+
 修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。

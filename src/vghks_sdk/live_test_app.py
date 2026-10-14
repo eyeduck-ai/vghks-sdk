@@ -8,6 +8,7 @@ import getpass
 import json
 import os
 import platform
+import re
 import sys
 import tempfile
 import zipfile
@@ -54,6 +55,7 @@ from .live.runner import (
     execute_live_test,
     package_bootstrap_failure,
 )
+from .local_io import read_mrns
 from .models import SoapRecord, VisitCase, VisitFilter
 from .offline.analyze import analyze_bundle
 from .offline.replay import replay_hars
@@ -69,6 +71,10 @@ def add_live_test_arguments(
 ) -> None:
     parser.add_argument("--config", type=Path, help="credential-free live-test JSON")
     parser.add_argument("--test-mrn", help="authorized patient identifier for live queries")
+    batch = parser.add_mutually_exclusive_group()
+    batch.add_argument("--mrn-file", type=Path, help="registrations: UTF-8 TXT or CSV patient list")
+    batch.add_argument("--patient-mrn", action="append", dest="patient_mrns",
+                       help="registrations: authorized MRN; repeat for every patient")
     parser.add_argument(
         "--comparison-mrn",
         help="second account MRN: pacs = VGHKS; regression = union hospital",
@@ -86,7 +92,7 @@ def add_live_test_arguments(
     )
     parser.add_argument(
         "--profile",
-        choices=("login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
+        choices=("registrations", "login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password", "core", "full"),
         default=None,
         help="explicit test depth; double-click uses the profile selected at build time",
     )
@@ -253,9 +259,9 @@ def run_live_test_namespace(
             cli_values=_namespace_cli_values(args),
             json_values=_configuration_values(args),
         )
-        if config.profile not in {"login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
+        if config.profile not in {"registrations", "login", "auth", "atomic", "comprehensive", "ophthalmology", "dbr", "pacs", "visits", "soap", "regression", "scans", "failures", "session", "password"}:
             raise ConfigurationError(
-                "--plan requires login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session or password profile"
+                "--plan requires registrations, login, auth, atomic, comprehensive, ophthalmology, dbr, pacs, visits, soap, regression, scans, failures, session or password profile"
             )
         plan = build_test_plan(config)
         if config.profile == "pacs":
@@ -297,7 +303,10 @@ def run_live_test_namespace(
         if config.session_pause and not interactive:
             raise ConfigurationError("--session-pause requires an interactive console")
         plan = build_test_plan(config) if config.profile not in {"core", "full"} else None
-        patient_required = config.profile not in {"soap", "password"} and (
+        if config.profile == "registrations" and not interactive and not config.patient_mrns:
+            raise ConfigurationError("provide --mrn-file or --patient-mrn for registrations",
+                                     code="BATCH_MRNS_REQUIRED")
+        patient_required = config.profile not in {"registrations", "soap", "password"} and (
             plan is None or any(
                 row["scope"] in {"patient", "history", "text_history"}
                 for row in plan["operations"]
@@ -462,6 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(supplied)
     if zero_argument_start or (
         args.plan and not args.config and not args.profile and not args.only_operations
+        and not args.mrn_file and not args.patient_mrns
     ):
         # A portable double-click uses the profile selected at build time.
         # Old sidecars / profile environment settings cannot change that scope.
@@ -614,7 +624,10 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
     ):
         raise ConfigurationError("SOAP search flags cannot be combined with --skip-search")
     values: dict[str, Any] = {}
+    if getattr(args, "mrn_file", None) is not None:
+        values["patient_mrns"] = read_mrns(args.mrn_file)
     for key in (
+        "patient_mrns",
         "test_mrn",
         "access_review_reason",
         "profile",
@@ -642,6 +655,10 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
         value = getattr(args, key, None)
         if value is not None:
             values[key] = value
+    if "patient_mrns" in values:
+        if getattr(args, "profile", None) not in {None, "registrations"}:
+            raise ConfigurationError("batch MRN inputs require the registrations profile")
+        values["profile"] = "registrations"
     if getattr(args, "only_operations", None):
         if getattr(args, "profile", None) not in {None, "atomic", "comprehensive"}:
             raise ConfigurationError("--only requires atomic or comprehensive profile")
@@ -734,6 +751,26 @@ def _namespace_cli_values(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _interactive_wizard(config: LiveTestConfig, *, quick: bool = False) -> LiveTestConfig:
+    if config.profile == "registrations":
+        print("\n批次掛號測試: 依序查完輸入清單, 保留未到診標記及原始掛號人員代碼。")
+        print("同一帳號共用 Session; 每次請求保留預設節流。單筆錯誤續跑, 登入失敗停止。")
+        if not config.patient_mrns:
+            filename = input("病歷號 TXT/CSV 路徑 (Enter 改貼上病歷號): ").strip().strip('"')
+            if filename:
+                mrns = read_mrns(Path(filename))
+            else:
+                print("貼上病歷號, 可換行、空白或逗號分隔; 空白行結束。")
+                mrns = []
+                while True:
+                    line = input().strip()
+                    if not line:
+                        break
+                    mrns.extend(re.split(r"[\s,;\uFF0C\uFF1B]+", line))
+            config = replace(config, patient_mrns=mrns)
+        if not config.patient_mrns:
+            raise ConfigurationError("patient list is empty", code="BATCH_MRNS_REQUIRED")
+        print(f"將查詢 {len(config.patient_mrns)} 個不同病歷號; 結果及原始回應存入同一份 ZIP。")
+        return config
     if config.profile == "password":
         print("\n強制改密碼專項: 舊密碼最多送出一次, 不送錯誤密碼或改密碼表單。")
         print("保存原始頁面; 登入受阻時僅用現有 Cookie 探測 PRQ 目錄, 不重新登入。")

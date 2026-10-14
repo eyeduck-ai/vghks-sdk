@@ -36,6 +36,15 @@ def build_retest_config(
         "review_query",
     }
     value = {key: item for key, item in config.items() if key in allowed}
+    if config.get("profile") == "registrations":
+        value.update(schema_version=8, profile="registrations", only_operations=[],
+                     patient_mrns=config.get("patient_mrns", []), login_negative_attempts=0,
+                     download_assets=False, weekly_opd_soap=False)
+        resolved = resolve_live_test_config(json_values=value, environ={})
+        resolved.validate_for_execution()
+        result = resolved.to_safe_dict()
+        result.pop("output_root", None)
+        return result
     if config.get("profile") == "pacs":
         # A return ZIP contains one account. Retesting it must not silently
         # expand to two accounts, including bundles from the older tester.

@@ -33,6 +33,7 @@ from .opd_review import review_weekly_physicians
 from .pacs import pacs_test_summary
 from .password import password_test_summary
 from .recovery import verify_webmaas_recoveries
+from .registrations import registration_batch_summary
 from .replay import replay_bundle, request_parts, summarize_replay
 from .retest import build_retest_config as _retest_config
 from .session import (
@@ -253,6 +254,9 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         if not any(item["code"] == issue["code"] and item["operation"] == issue["operation"]
                    for item in problems):
             problems.append({"phase": "DATA", **issue, "capture_id": "", "step": ""})
+    registration_batch = registration_batch_summary(reader, steps)
+    problems.extend({"phase": "DATA", **issue, "capture_id": "", "step": ""}
+                    for issue in registration_batch["issues"])
     priority = {
         "CONNECTIVITY": 0,
         "AUTHENTICATION": 1,
@@ -378,6 +382,7 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
         "ophthalmology_orders": _ophthalmology_summary(reader),
         "order_assets": order_assets,
         "pacs_test": pacs_test,
+        "registration_batch": registration_batch,
         "earnings_reports": _earnings_results(steps),
         "report_content": _report_content_summary(steps, rows),
         "no_sample_operations": [row["operation"] for row in matrix if row["live_status"] == "NO_SAMPLE"],
@@ -1005,6 +1010,17 @@ def _markdown(report: dict[str, Any]) -> str:
             f"PDF {assets.get('pdf_files', 0)}、JPG {assets.get('jpg_files', 0)}，"
             f"問題 {len(assets.get('issues', []))}。逐檔核對下載 metadata 的大小、SHA-256 及檔案格式；原始實測狀態維持不變。",
             "",
+        ]
+    batch = report.get("registration_batch", {})
+    if batch.get("status") not in {None, "NOT_RUN"}:
+        lines += [
+            "", f"批次掛號存檔核對：{batch['status']}；原 EXE 狀態 {batch['recorded_status']}。",
+            f"輸入 {batch['requested_patient_count']} 人、完成 {batch['completed_patient_count']} 人、"
+            f"阻擋 {batch['blocked_patient_count']} 人、待執行 {batch['pending_patient_count']} 人；"
+            f"原頁與逐人存檔一致 {batch['verified_patient_count']} 人。",
+            f"掛號 {batch['record_count']} 筆，未到診 {batch['no_show_count']} 筆、到診狀態未知 "
+            f"{batch['attendance_unknown_count']} 筆；來源代碼 {batch['distinct_registered_by_code_count']} 種，保留原值且不分類。",
+            "沒有未到診圖示維持未知；此核對不查實際就診，也不改寫原實測狀態。", "",
         ]
     opd = report["opd_evidence"]
     if opd["recorded_rows_without_section"]:

@@ -48,11 +48,24 @@ basic = sdk.queries.run("webmaas.basic_info", mrn=mrn)
 - `visit_date`、`section_code`、`section_name`、`room`、`sequence_no`：日期、科別、診別與序號，保留序號前導零。
 - `expected_time`、`status`：預計看診時間與原始狀態。
 - `registered_at`、`registered_by`、`cancelled_at`、`cancelled_by`、`notes`：掛號／取消紀錄。
-- `columns`：完整原始欄位，保留未來新增欄位。
+- `no_show: bool | None`：已錄製的「未到診」圖示為 `True`，沒有可辨識圖示為 `None`（未知）；解析器不回傳 `False`。
+- `columns`：原始欄位的文字值，保留未來新增文字欄位；圖示屬性另由 `no_show` 表達。
 
 `visit_date` 支援西元與民國年格式。空白狀態保持空白；掛號與實際有無看診是不同資訊。判斷實際就診應使用 `sdk.records.get_visit_cases(mrn)`，需要時再取該次 SOAP。
 
-本次未加入未錄製的伺服器日期區間參數。方法循下一頁讀完並排除完全相同的重複列；應用可依 `visit_date` 篩選。要增加其他伺服器篩選條件，再錄對應 HAR。
+`no_show` 只辨識該列「註記」欄已錄製的 `<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>`。只有文字、只有圖片檔名、未知圖示、其他欄位、script／template 或明示隱藏的標記都不構成此證據。沒有圖示不表示已到診；不由掛號來源、日期、取消欄位或空白狀態推論。原有 `status`、`notes` 與 `columns` 文字保持原值，圖示不改寫成狀態文字。JSON 序列化的 `no_show` 為 `true` 或 `null`。
+
+`registered_by` 保留「掛號人員」的原始帳號／系統代碼，例如 `MWEB` 或 `OPD…`；尚無院方代碼對照，不分類成病人自行掛號或醫師代掛。
+
+```python
+for row in registrations:
+    if row.no_show is True:
+        print(row.visit_date, "來源標示未到診", row.registered_by)
+    else:
+        print(row.visit_date, "到診狀態未知", row.registered_by)
+```
+
+本次未加入未錄製的伺服器日期區間參數。方法循下一頁讀完並排除文字及 `no_show` 都相同的重複列；文字相同而未到診標記不同時保留兩列。應用可依 `visit_date` 篩選。要增加其他伺服器篩選條件，再錄對應 HAR。
 
 ## 空結果與錯誤
 
@@ -66,7 +79,13 @@ basic = sdk.queries.run("webmaas.basic_info", mrn=mrn)
 
 2026-09-20 的內網回傳已確認三項病人查詢可取得資料；合成測試另涵蓋空值、分頁、身分不符與登入過期。實際欄位會依病人與就醫狀態不同，不能把錄製樣本的筆數寫成程式假設。
 
+2026-10-13 另以既有三份掛號 HAR 禁止 socket 重解析：共 37 筆，7 筆「未到診」圖示回傳 `no_show=True`、其餘 30 筆為 `None`；掛號來源代碼及原文字欄位維持一致。離線 replay 共用相同 Parser；合成案例涵蓋未知／隱藏圖示及分頁去重。
+
+2026-10-14 的 0.23.4 批次院內回傳確認 13 個病歷號全部成功，91 筆掛號中 9 筆為 `True`、82 筆為 `None`；24 種來源代碼完整保留。逐人結果與原始 HTML 禁止 socket 重解析完全一致，沒有病人混用。0.23.5 的離線 `registration_batch` 另核對完整輸入、存檔及分頁，原 EXE 狀態維持 OK；本輪沒有分頁、空結果或失敗恢復樣本，這些仍依合成測試判讀。
+
 comprehensive 計畫包含病人查詢；雙擊採用建置時的 profile，登入專項不查病人。開發時只測此模組，可執行 `vghks-live-test.exe --config configs/patient-queries.example.json`。ZIP 的 `parsed/atomic/` 下分別有 `webmaas.basic_info/`、`webmaas.demographics/`、`webmaas.registration_query/`，每項獨立留下 HTTP capture 與結果。病歷號由 `--test-mrn`、設定、環境變數或自用 EXE 的內嵌預設提供；公開版沒有真實預設值，互動執行時會提示輸入。
+
+多病歷號的掛號整合測試可使用 `registrations` EXE 計畫，支援 TXT／CSV 或貼上清單；逐一呼叫同一個單病人 Service 並保存全部結果。操作與結果檔案見 [批次掛號測試](LIVE_TEST.md#批次掛號整合測試registrations)。此計畫不查實際就診清單。
 
 ## 醫師指定日門診掛號清單
 

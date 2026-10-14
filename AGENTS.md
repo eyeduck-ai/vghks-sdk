@@ -96,6 +96,8 @@ Windows EXE：Python 3.10 x64、PyInstaller 6.14.2、truststore 0.10.4，使用 
 
 EXE 修改後跑 tools/verify_*_exe.py，各工具只對 localhost 發合成請求。不能將這些成功當成內網實測成功。
 
+批次掛號專項用 `--default-profile registrations` 建置及 `tools/verify_registration_exe.py`（source／frozen）驗證。只查使用者明確提供的全部不同病歷號，不受 max_cases 抽樣限制；TXT／CSV 與貼上輸入保留前導零並依輸入順序去重。單一 SDK Session 依序查掛號及必要 CHECK_PAT／SSO，保留預設節流；單筆錯誤續跑、AuthenticationError 停止後續病人、Ctrl+C 保存已完成結果。patient_mrns 與逐筆結果只留本機 ZIP，重測設定保持整份清單。沒有未到診圖示維持 no_show=None；原始 registered_by 不分類自掛／醫師代掛。無未到診樣本為 NO_SAMPLE，不能掩蓋真正錯誤；排除就診、SOAP、附件、負向登入與異動。0.23.4 院內已確認 13 人、91 筆掛號、9 筆未到診及 82 筆未知，逐人存檔與原頁一致；本輪無分頁、空值或恢復樣本。0.23.5 的 offline/registrations.py 核對完整輸入、索引、journal、結果與原始分頁，重算統計並辨識缺檔／漏頁／病人或摘要不符；原 EXE 狀態不改寫，報告不含原始代碼與病人識別。
+
 歷年 DBR 專項用 `--default-profile dbr` 建置及 `tools/verify_dbr_exe.py` 驗證。單一授權病人、全部／各科歷年清單、預設最多八筆 DBR，不查逐次門診／SOAP；保留未執行、NO_SAMPLE、上游失敗與附件獨立續跑。二進位檔頭可避免 HTML 密碼解析，但不代表檔案完整；HTTP／登入目的 URL／實際 HTML 挑戰、附件格式與大小仍須檢查。十種 localhost source／frozen 情境及兩份原始 DBR PDF 禁止 socket 重解析須與另列的院內回傳分開記錄。
 
 0.22.8 院內 DBR 回傳已驗證兩筆醫囑、四份 PDF，兩份與原失敗樣本 SHA-256 一致；兩個 PACS 為有效空結果，正文仍為 ATTACHMENT_ONLY。0.22.9 改善本機存檔，unique_pdf_files／unique_jpg_files 是實際檔案數，pdf_files／jpg_files 保留逐筆可用數；離線 order_assets 核對存檔完整性，不改原實測狀態。這些存檔優化與院內下載證據分開記錄。

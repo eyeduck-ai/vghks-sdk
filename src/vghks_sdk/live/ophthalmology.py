@@ -213,7 +213,7 @@ def run_ophthalmology_test(
                      "REPORT_BRANCH_FAILED" if blocked else "NO_DBR_PDF_REFERENCE"},
             issue=ErrorInfo("DEPENDENCY_FAILED", "DEPENDENCY") if blocked else None,
         ))
-    write_json_atomic(root / "step_results.json", to_jsonable(steps))
+    write_json_atomic(root / "step_results.json", steps)
     status = _overall_status(steps, fatal_auth=fatal)
     _write_coverage(root, plan, steps, status)
     path = root / "run_summary.json"

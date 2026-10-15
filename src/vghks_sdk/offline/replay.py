@@ -6,7 +6,6 @@ are used in memory to reconstruct parser context, not exported in reports.
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 from collections import Counter
@@ -14,18 +13,20 @@ from collections.abc import Iterable, Mapping
 from datetime import date
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup
 
 from .. import parsing
 from ..acquisition import assess_data
 from ..contracts.check import discover_har_files
-from ..contracts.har import BASELINE_CONTRACTS, HarEntry, HarSignature, load_har
+from ..contracts.har import BASELINE_CONTRACTS, HarEntry, load_har
+from ..contracts.har import HarSignature as HarSignature
 from ..core.config import SDKSettings
 from ..core.errors import NotFoundError, ParseError, PasswordChangeRequiredError, error_code
 from ..core.network_errors import recorded_network_error_code
-from ..core.operations import OPERATION_BY_KEY, OPERATIONS
+from ..core.operations import OPERATION_BY_KEY
+from ..core.operations import OPERATIONS as OPERATIONS
 from ..local_io import write_json_atomic
 from ..models import (
     OrderDetailRef,
@@ -79,6 +80,9 @@ from ..parsing.surgery_cases import (
 from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form, registration_counts
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
+from .requests import captured_request_parts, identify_parts
+from .requests import identify_operation as identify_operation
+from .requests import request_parts as request_parts
 
 _CONTRACTS = {contract.operation_key: contract for contract in BASELINE_CONTRACTS}
 
@@ -92,49 +96,6 @@ def _patient_context_confirmed(content: bytes, mime: str) -> bool:
     except (ParseError, UnicodeError):
         return False
     return True
-
-
-def request_parts(request: Mapping[str, Any]) -> tuple[str, str, dict[str, str], dict[str, str]]:
-    url = urlsplit(str(request.get("url", "")))
-    query = dict(parse_qsl(url.query, keep_blank_values=True))
-    unprepared = request.get("unprepared_kwargs") or {}
-    params = unprepared.get("params", {})
-    if isinstance(params, dict):
-        query.update({str(key): str(value) for key, value in params.items()})
-    body = request.get("body") or {}
-    form: dict[str, str] = {}
-    if isinstance(body.get("value"), dict):
-        form = {str(key): str(value) for key, value in body["value"].items()}
-    else:
-        text = body.get("text")
-        if text is None and body.get("base64"):
-            text = base64.b64decode(body["base64"], validate=True).decode("utf-8")
-        if isinstance(text, str):
-            form = dict(parse_qsl(text, keep_blank_values=True))
-    return str(request.get("method", "")).upper(), url.path, query, form
-
-
-def identify_operation(request: Mapping[str, Any]) -> str:
-    method, path, query, form = request_parts(request)
-    # A displaytag next-page GET returns rows, not the initial token form.
-    if (
-        method == "GET" and path == "/webmaas/RSV/RSV11W001.do"
-        and query.get("patno")
-        and any(re.fullmatch(r"d-\d+-p", key) and value.isdecimal()
-                for key, value in query.items())
-    ):
-        return "webmaas.registration_query"
-    entry = HarEntry(
-        method, path, frozenset(query), frozenset(form), {**query, **form}, 0, None, ""
-    )
-    matched = [spec for spec in OPERATIONS if HarSignature.from_operation(spec).matches(entry)]
-    if not matched:
-        return ""
-    matched.sort(
-        key=lambda spec: len(spec.query_keys) + len(spec.form_keys) + len(spec.operation_values),
-        reverse=True,
-    )
-    return matched[0].key
 
 
 def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
@@ -166,7 +127,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     ]
     for sequence, row in enumerate(exchanges, 1):
         request = row.get("request") or {}
-        _, path, query, form = request_parts(request)
+        method, path, query, form = captured_request_parts(reader, request)
         params = {**query, **form}
         if path.endswith("/QueryPatientRecord.do"):
             visit_context_ready = False
@@ -177,7 +138,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             context_mrn = (
                 "" if context_national_id else params.get("queryPtID") or params.get("id", "")
             )
-        operation = identify_operation(request)
+        operation = identify_parts(method, path, query, form)
         address = urlsplit(str(request.get("url", "")))
         if operation in {"portal.entry", "portal.login"}:
             portal_base = urlunsplit((address.scheme, address.netloc, "", "", ""))
@@ -328,8 +289,8 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                 [(item["name"], item.get("value", "")) for item in post.get("params", [])]
             )
             request = {"method": original["method"], "url": original["url"], "body": {"text": body}}
-            operation = identify_operation(request)
-            _, request_path, query, form = request_parts(request)
+            method, request_path, query, form = request_parts(request)
+            operation = identify_parts(method, request_path, query, form)
             params = {**query, **form}
             if request_path.endswith("/QueryPatientRecord.do"):
                 visit_context_ready = False
@@ -536,23 +497,24 @@ def replay_response(
         if path.endswith("/login.do") or "syserrorexception.jsp" in path:
             raise ParseError("recorded query returned an authentication page",
                              code="AUTH_SESSION_LOGIN_PAGE")
+        soup = None
         if text:
             if has_portal_login_redirect(text, response_url, portal_base_url):
                 raise ParseError(
                     "recorded query returned automatic portal navigation",
                     code="AUTH_SESSION_REDIRECT",
                 )
-            soup = BeautifulSoup(text, "html.parser")
-            if soup.find(attrs={"name": "muid"}) and soup.find(attrs={"name": "mpassword"}):
-                raise ParseError(
-                    "recorded response is a login form", code="AUTH_SESSION_LOGIN_FORM"
-                )
+            if "<" in text:
+                soup = BeautifulSoup(text, "html.parser")
+                if soup.find(attrs={"name": "muid"}) and soup.find(attrs={"name": "mpassword"}):
+                    raise ParseError(
+                        "recorded response is a login form", code="AUTH_SESSION_LOGIN_FORM"
+                    )
         if operation == "prq.pacs_image":
             value = parse_binary_asset(content, media_type="image/jpeg")
         elif operation in {"prq.pdf_attachment", "oppl_records.pdf"}:
             value = parse_binary_asset(content, media_type="application/pdf")
         else:
-            soup = BeautifulSoup(text, "html.parser")
             value = _parse(
                 operation, text, params, context_mrn, soup,
                 context_national_id, trusted_visit_context,
@@ -616,7 +578,7 @@ def _parse(
     text: str,
     params: Mapping[str, str],
     context_mrn: str,
-    soup: BeautifulSoup,
+    soup: BeautifulSoup | None,
     context_national_id: str = "",
     trusted_visit_context: bool = False,
 ) -> Any:
@@ -691,6 +653,8 @@ def _parse(
         return parsing.parse_patient_demographics(json.loads(text), mrn)
     if key == "webmaas.basic_info":
         return parsing.parse_patient_basic_info(text, mrn)
+    if key in {"webmaas.registration_query", "prq.visit_cases", "prq.case_detail", "prq.soap"} and soup is None:
+        soup = BeautifulSoup(text, "html.parser")
     if key == "webmaas.registration_query":
         _require(soup.find("table", id="row") is not None, "WEBMAAS_REGISTRATION_STRUCTURE_MISSING")
         return parsing.parse_registration_records(text, mrn)

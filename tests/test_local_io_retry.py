@@ -36,7 +36,7 @@ class LocalRenameTests(unittest.TestCase):
                 return replace(source, destination)
 
             with patch("vghks_sdk.local_io.os.replace", side_effect=rename), patch("vghks_sdk.local_io.sleep"):
-                self.assertEqual(write_json_atomic(target, {"new": [1, 2, 3]}), target)
+                self.assertEqual(write_json_atomic(target, {"new": [1, 2, 3]}), target.resolve())
             self.assertEqual(json.loads(target.read_text("utf-8")), {"new": [1, 2, 3]})
             self.assertEqual(len(set(attempts)), 1)
             self.assertEqual(len(attempts), 3)

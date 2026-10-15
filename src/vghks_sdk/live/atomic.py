@@ -460,7 +460,7 @@ def run_atomic_test(
                             )
                         )
                     break
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
     if comprehensive and config.weekly_opd_soap:
         end = date.fromisoformat(plan["weekly_opd_soap"]["end_date"])
         workflow_dir = parsed / "workflows" / "opd_soap_week"

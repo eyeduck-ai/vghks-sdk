@@ -26,6 +26,8 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from vghks_sdk import __version__  # noqa: E402
 from vghks_sdk.local_io import write_json_atomic  # noqa: E402
+from vghks_sdk.offline import cache as analysis_cache  # noqa: E402
+from vghks_sdk.offline import requests as captured_requests  # noqa: E402
 from vghks_sdk.offline.analyze import _inspect_bundle, inspect_bundle  # noqa: E402
 from vghks_sdk.offline.bundle import BundleReader  # noqa: E402
 from vghks_sdk.offline.presentation import _markdown  # noqa: E402
@@ -46,7 +48,9 @@ def _file_hash(path: Path) -> str:
 def _run(source: Path, *, cached: bool, trace: bool = False):
     reads = Counter()
     decodes = 0
+    request_parses = 0
     original_read, original_loads = BundleReader.read, json.loads
+    original_parts = captured_requests.request_parts
 
     def read(reader, name):
         reads[name] += 1
@@ -57,12 +61,19 @@ def _run(source: Path, *, cached: bool, trace: bool = False):
         decodes += 1
         return original_loads(value, *args, **kwargs)
 
+    def parts(request):
+        nonlocal request_parses
+        request_parses += 1
+        return original_parts(request)
+
     gc.collect()
     if trace:
         tracemalloc.start()
     try:
         started = time.perf_counter()
-        with patch.object(BundleReader, "read", read), patch.object(json, "loads", loads), BundleReader(source) as reader:
+        with (patch.object(BundleReader, "read", read), patch.object(json, "loads", loads),
+              patch.object(captured_requests, "request_parts", parts),
+              patch.object(analysis_cache, "request_parts", parts), BundleReader(source) as reader):
             report, retest = (inspect_bundle if cached else _inspect_bundle)(reader)
             files = len(reader.names)
         seconds = time.perf_counter() - started
@@ -75,7 +86,7 @@ def _run(source: Path, *, cached: bool, trace: bool = False):
     return (report, retest, markdown), {
         "seconds": seconds, "peak_traced_bytes": peak, "file_count": files,
         "file_reads": sum(reads.values()), "manifest_reads": reads["capture_manifest.jsonl"],
-        "json_decodes": decodes,
+        "json_decodes": decodes, "request_parses": request_parses,
     }
 
 
@@ -103,7 +114,7 @@ def benchmark(source: Path, iterations: int = 5) -> dict:
             output["cached" if enabled else "uncached"] = {
                 "median_seconds": statistics.median(row["seconds"] for row in samples[enabled]),
                 "peak_traced_bytes": traced["peak_traced_bytes"],
-                **{key: traced[key] for key in ("file_count", "file_reads", "manifest_reads", "json_decodes")},
+                **{key: traced[key] for key in ("file_count", "file_reads", "manifest_reads", "json_decodes", "request_parses")},
             }
     unchanged = original_hash == _file_hash(source) if original_hash else None
     if unchanged is False:

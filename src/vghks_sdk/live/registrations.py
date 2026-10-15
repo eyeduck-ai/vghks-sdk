@@ -127,7 +127,7 @@ def run_registration_test(
             output=summary_path.relative_to(root).as_posix(),
             details={"no_show_count": totals["no_show"], "attendance_unknown_count": totals["unknown"]},
         ))
-    write_json_atomic(root / "step_results.json", to_jsonable(steps))
+    write_json_atomic(root / "step_results.json", steps)
     status = _overall_status(steps, fatal_auth=fatal)
     checkpoint(status)
     _write_coverage(root, plan, steps, status)

@@ -13,7 +13,7 @@ from ..core.readiness import AUTH_CHECK_REGISTRY
 from ..models.auth import PasswordStatus
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
-from .replay import request_parts
+from .requests import captured_request_parts
 
 _NETWORK_TARGETS = (*(spec.key for spec in AUTH_CHECK_REGISTRY), "mis")
 
@@ -405,7 +405,7 @@ def _portal_login_evidence(reader: BundleReader) -> list[dict[str, Any]]:
     for row in reader.jsonl("capture_manifest.jsonl"):
         if str(row.get("live_test_step", "")).startswith("network."):
             continue
-        method, path, _, _ = request_parts(row.get("request") or {})
+        method, path, _, _ = captured_request_parts(reader, row.get("request") or {})
         if path == "/index.do" and method == "GET":
             entry_seen = True
         if path != "/login.do" or method != "POST" or row.get("kind") != "HTTP_EXCHANGE":

@@ -200,7 +200,7 @@ def run_failure_test(
         observation = {"step": name, "operation": key, **_summary(result)}
         observations.append(observation)
         write_json_atomic(root / "parsed/failures/observations.json", observations)
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
         return result
 
     read("basic_info", "webmaas.basic_info", mrn=config.test_mrn)
@@ -367,7 +367,7 @@ def run_failure_test(
             "steps": to_jsonable(steps),
         },
     )
-    write_json_atomic(root / "step_results.json", to_jsonable(steps))
+    write_json_atomic(root / "step_results.json", steps)
     coverage = _classification_coverage(simulated, observations, recovery, steps)
     write_json_atomic(root / "parsed/failures/classification_coverage.json", coverage)
     _write_coverage(root, plan, steps, status)

@@ -2,6 +2,19 @@
 
 本文件集中記錄目前功能的證據與限制，不含患者、帳號、金額或原始私有回應。版本變更歷程見 [CHANGELOG](../CHANGELOG.md)，操作方式見 [LIVE_TEST](LIVE_TEST.md)。
 
+## 2026-10-15：離線解析與測試加速（未發布）
+
+- 預建操作簽章及當次 ZIP 的請求形狀快取，重用導覽／登入檢查的 DOM；各份回應仍獨立驗證。保留最具體匹配、同分次序、分頁特例、原匯入、未知 schema 與登入錯誤。
+- 完整 suite 822 項：809 項通過、13 項私有條件略過，含 11 項新回歸。單程序 155.8 秒、兩程序 85.6 秒；完整案例 ID、skip 與結果一致。空選取、匯入失敗、unexpected success、模組級 skip 及程序隔離均以實際 CLI 驗證。
+- 禁止 socket 下比較 478 種操作輸入及 594 種密碼通知／隱藏內容／script 組合，與改前結果一致；同一份 12 筆與 600 筆合成 ZIP 的完整 JSON／Markdown 報告、重測設定及原始 hash 亦一致。
+- 同一 600 筆合成 ZIP 各五輪：分析中位數 0.366 → 0.054 秒；此案例的請求參數解析 1,800 → 1 次。峰值追蹤記憶體 5.13 → 7.64 MiB，快取仍共用 32 MiB 總預算；詳見 [OPTIMIZATION](OPTIMIZATION.md)。
+- 步驟存檔移除重複序列化，500 步合成案例 6.47 → 4.99 秒；每步仍保存完整原子快照，既有錯誤續跑、登入停止及中斷存檔回歸通過。
+- 最終隔離建置的 source／frozen 各通過 login 七種、password 十五種、session 十二種、failures 23 種及 DBR 十種 localhost HTTPS 情境；comprehensive frozen 兩種亦通過。兩份原合成 ZIP 的 frozen CLI 完整報告／重測設定一致；保留原失敗退出碼。
+- wheel／sdist 實際內容、Ruff、59 項 API 同步與公開內容檢查通過；獨立安裝在禁止 socket 下通過 150 項回歸、59 項綁定、import／建構／CLI 及兩份原 ZIP 的完整比對。
+- GitHub Actions 的 `c227a70`：Ubuntu 3.12 通過；Windows 3.10 僅原子存檔的新測試失敗，原因為 8.3 短路徑與正式 writer 回傳的解析後路徑直接比較。本輪測試預期改用 `resolve()`，正式 writer 維持既有路徑契約；CI 兩平台改跑完整兩程序 suite。本機以 CI 指令重跑 822 項：809 通過、13 略過，耗時 87.1 秒，案例範圍與原單程序一致。
+
+以上為本機合成證據，未新增院內查詢、自然 TTL 或強制改密碼證據；原始院內回傳與 EXE 保留。
+
 ## 2026-10-15：P2／P3 剩餘優化（未發布）
 
 - 登入拆分為 Portal／應用 SSO／WebMAAS／共用傳輸，原 33 個方法的邏輯與簽名一致。新增可選 JSON TypedDict／純轉換及單次 ZIP 有界快取；既有 Service dict、Session、請求次序、錯誤及恢復規則保留。

@@ -13,7 +13,7 @@ from ..core.capture import RawCaptureSink
 from ..core.diagnostics import DiagnosticRecorder
 from ..core.errors import ErrorInfo, error_info
 from ..local_io import restrict_permissions, write_json_atomic
-from ..models import AuthCheckReport, to_jsonable
+from ..models import AuthCheckReport
 
 LIVE_TEST_MRN = "0000000"
 
@@ -138,7 +138,7 @@ def _run_step(
             raw_capture.set_live_step(None)
         # Persist completed work after every unit, including when the next
         # operation is interrupted. No response values enter this journal.
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
         if steps and steps[-1].name == name:
             last = steps[-1]
             line = f"{last.status} {name} ({last.duration_ms:.0f} ms) {last.error_code}".rstrip()
@@ -208,7 +208,7 @@ def _overall_status(steps: list[LiveTestStep], *, fatal_auth: bool) -> str:
 
 
 def _write_json(path: Path, value: Any) -> None:
-    write_json_atomic(path, to_jsonable(value))
+    write_json_atomic(path, value)
     restrict_permissions(path)
 
 

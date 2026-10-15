@@ -11,6 +11,10 @@ python tools/check_public_tree.py
 
 指定模組可用 `python -m unittest discover -s tests -p test_review.py -v`（先安裝 editable package）。測試只使用合成回應／localhost；真實 HAR 和 ZIP 並非必要依賴。
 
+快速驗證可用 `python run_tests.py --pattern "test_auth*.py" --pattern "test_password*.py"`；交付前用 `python run_tests.py --jobs 2 --durations 10` 跑完整 suite。預設仍為單程序；平行執行按模組隔離，保留全部案例與失敗退出碼。`--list` 列範圍，`--timings output/test-timings.json` 只存測試名稱／耗時。空選取或執行案例不符會失敗，完整測試不因加速而略過網路／TLS 案例。
+
+GitHub Actions 的 Windows 3.10／Ubuntu 3.12 使用相同完整平行測試指令，並保留 Ruff、API、公開內容與套件檢查。檔案路徑斷言先用 `Path.resolve()` 正規化，避免 Windows 暫存目錄的 8.3 別名造成誤判。
+
 ## 新增或修改一項功能
 
 先依 [ARCHITECTURE](ARCHITECTURE.md) 找修改位置；跨模組整理依 [優化順序與驗收條件](OPTIMIZATION.md) 分批進行。

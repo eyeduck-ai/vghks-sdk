@@ -126,7 +126,7 @@ def append_registration_comparison(
                     classify=_registration_status,
                 )
 
-    write_json_atomic(output_dir / "step_results.json", to_jsonable(steps))
+    write_json_atomic(output_dir / "step_results.json", steps)
     comparison_path = output_dir / "registration_comparison.json"
     write_json_atomic(comparison_path, _comparison_report(steps, manifest_path))
     status = (

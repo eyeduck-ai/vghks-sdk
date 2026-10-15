@@ -9,11 +9,14 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from .bundle import BundleReader, safe_member
+from .requests import RequestParts, request_key, request_parts
 
 _MAX_CACHE_BYTES = 32 * 1024 * 1024
 _MAX_ENTRY_BYTES = 8 * 1024 * 1024
 _MAX_SOURCE_BYTES = 4 * 1024 * 1024
 _MAX_ENTRIES = 64
+_MAX_REQUEST_ENTRIES = 4096
+_MAX_REQUEST_BYTES = 4 * 1024 * 1024
 
 
 def _size(value: Any, limit: int) -> int:
@@ -26,7 +29,7 @@ def _size(value: Any, limit: int) -> int:
         total += sys.getsizeof(item)
         if total > limit:
             return total
-        if isinstance(item, (dict, list)):
+        if isinstance(item, (dict, list, tuple)):
             identity = id(item)
             if identity in seen:
                 continue
@@ -62,6 +65,8 @@ class _AnalysisReader(BundleReader):
         self._max_entries = max(0, min(max_entries, _MAX_ENTRIES))
         self._cache: OrderedDict[tuple[str, str], tuple[Any, int]] = OrderedDict()
         self._cache_bytes = 0
+        self._requests: OrderedDict[tuple, tuple[RequestParts, int]] = OrderedDict()
+        self._request_bytes = 0
 
     @property
     def names(self) -> set[str]:
@@ -107,8 +112,10 @@ class _AnalysisReader(BundleReader):
         size += sys.getsizeof(key) + sys.getsizeof(name)
         if size > min(self._max_bytes, self._max_entry_bytes):
             return value
+        self._trim_requests(size)
         while self._cache and (
-            self._cache_bytes + size > self._max_bytes or len(self._cache) >= self._max_entries
+            self._cache_bytes + self._request_bytes + size > self._max_bytes
+            or len(self._cache) >= self._max_entries
         ):
             _, (_, removed) = self._cache.popitem(last=False)
             self._cache_bytes -= removed
@@ -116,6 +123,40 @@ class _AnalysisReader(BundleReader):
         self._cache_bytes += size
         return value
 
+    def _trim_requests(self, extra: int = 0) -> None:
+        while self._requests and self._cache_bytes + self._request_bytes + extra > self._max_bytes:
+            _, (_, removed) = self._requests.popitem(last=False)
+            self._request_bytes -= removed
+
+    def _request_parts(self, request: dict) -> RequestParts:
+        if not self._zip_snapshot or not self._max_bytes or not self._max_entries or type(request) is not dict:
+            return request_parts(request)
+        key = request_key(request)
+        if key is None:
+            return request_parts(request)
+        if key in self._requests:
+            parts, _ = self._requests[key]
+            self._requests.move_to_end(key)
+            return parts
+        parts = request_parts(request)
+        limit = min(self._max_bytes, self._max_entry_bytes, _MAX_REQUEST_BYTES)
+        size = _size([key, *parts], limit) + 256
+        if size > limit:
+            return parts
+        while self._requests and (
+            self._request_bytes + size > _MAX_REQUEST_BYTES
+            or len(self._requests) >= _MAX_REQUEST_ENTRIES
+        ):
+            _, (_, removed) = self._requests.popitem(last=False)
+            self._request_bytes -= removed
+        self._trim_requests(size)
+        if self._cache_bytes + self._request_bytes + size <= self._max_bytes:
+            self._requests[key] = (parts, size)
+            self._request_bytes += size
+        return parts
+
     def close(self) -> None:
         self._cache.clear()
         self._cache_bytes = 0
+        self._requests.clear()
+        self._request_bytes = 0

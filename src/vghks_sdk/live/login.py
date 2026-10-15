@@ -186,7 +186,7 @@ def run_login_test(
                 issue=None if missing else ErrorInfo(reason, "DEPENDENCY"),
             )
         )
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
 
     # Independent and wholly offline, so an unavailable network cannot hide these.
     for scenario in SCENARIOS:

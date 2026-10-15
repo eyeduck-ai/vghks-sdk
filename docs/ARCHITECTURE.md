@@ -79,7 +79,7 @@ PRQ 旗標／歷年清單的純解析集中於 `parsing/prq_extensions.py`，手
 
 離線職責分開：`analyze.py` 組裝報告、`evidence.py` 彙整安全摘要及問題分類、`presentation.py` 呈現／比較已組裝報告；`replay.py` 重解析、`assets.py` 核對存檔、`pacs.py`／`registrations.py` 核對專項、`session.py`／`recovery.py` 核對 Session 與恢復、`retest.py` 產生設定。舊 analyze 匯入保留；登入證據與附件契約仍由 `contracts/auth_evidence.py`、`order_assets.py` 共用。
 
-`offline/cache.py` 只在單次 ZIP 分析內共用 JSON，結束或失敗即清除；目錄、自訂 Reader 與二進位仍直接讀取。`BundleReader.json`／`jsonl` 的公開新值語意保留，快取不跨分析或 SDK Session 共用。上限與量測見 [OPTIMIZATION](OPTIMIZATION.md)。
+`offline/cache.py` 只在單次 ZIP 分析內共用 JSON 與請求解析，結束或失敗即清除；目錄、自訂 Reader 與二進位仍直接讀取。`requests.py` 預建唯讀操作簽章，請求形狀快取只存解析所需欄位。`BundleReader.json`／`jsonl` 的公開新值語意保留，快取不跨分析或 SDK Session 共用。上限與量測見 [OPTIMIZATION](OPTIMIZATION.md)。
 
 恢復判定需以 `capture_operation_id` 對到同一次 raw 操作並核對完整次序。重解析、附件核對與原始實測各自保留，後續成功不覆寫原 ERROR；NO_SAMPLE 保留缺口，見 [VALIDATION](VALIDATION.md)。
 

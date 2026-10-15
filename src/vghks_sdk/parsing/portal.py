@@ -20,10 +20,14 @@ _ASSIGNMENT = re.compile(
 )
 
 
-def _navigation_literals(text: str) -> list[tuple[str, str]]:
+def _navigation_literals(text: str, *, soup: BeautifulSoup | None = None) -> list[tuple[str, str]]:
     """Read top-level literal assignments, never buttons, comments or callbacks."""
+    if "<" not in text:
+        return []
+    if soup is None:
+        soup = BeautifulSoup(text, "html.parser")
     values = []
-    for script in BeautifulSoup(text, "html.parser").find_all("script"):
+    for script in soup.find_all("script"):
         if script.get("src") or str(script.get("type", "")).lower() not in {
             "",
             "text/javascript",
@@ -164,7 +168,17 @@ def parse_password_status(text: str, *, login_stage: bool = False) -> PasswordSt
     concern; this result carries neither message text nor account/form values.
     """
 
+    # Plain text cannot contain a form/script. Entity-bearing content retains
+    # the full HTML path, including encoded policy prose and hidden notices.
+    if "<" not in text and "&" not in text:
+        compact = re.sub(r"\s+", "", text)
+        if "密碼" not in compact and "密码" not in compact and "password" not in text.casefold():
+            return PasswordStatus()
     soup = BeautifulSoup(text, "html.parser")
+    authenticated_navigation = any(
+        urlsplit(target).path.lower().lstrip("/") == "myportal.do"
+        for _, target in _navigation_literals(text, soup=soup)
+    )
     messages = []
     alert = re.compile(
         r"(?:window\.)?(?:alert|confirm)\s*\(\s*(?P<literal>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*')\s*\)\s*",
@@ -196,10 +210,6 @@ def parse_password_status(text: str, *, login_stage: bool = False) -> PasswordSt
             node.decompose()
     # Hidden optional password dialogs are not a required login step.
     change_form = False
-    authenticated_navigation = any(
-        urlsplit(target).path.lower().lstrip("/") == "myportal.do"
-        for _, target in _navigation_literals(text)
-    )
     if login_stage and not authenticated_navigation:
         for form in soup.find_all("form"):
             names = {

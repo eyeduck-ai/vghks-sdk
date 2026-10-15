@@ -166,7 +166,7 @@ def run_soap_test(
             output="parsed/soap/selection.json",
             details={"selected_count": len(selected), "minimum_target": 2},
         ))
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
 
     for index, patient in enumerate(selected, 1):
         if fatal:
@@ -203,7 +203,7 @@ def run_soap_test(
                 output=(patient_dir / "matching_visits.json").relative_to(root).as_posix(),
                 details={"reason": "REGISTERED_WITHOUT_MATCHING_OUTPATIENT_VISIT"},
             ))
-            write_json_atomic(root / "step_results.json", to_jsonable(steps))
+            write_json_atomic(root / "step_results.json", steps)
             continue
         matched_patients += 1
         for case_index, case in enumerate(matching[: config.max_items], 1):
@@ -257,7 +257,7 @@ def run_soap_test(
                 output=coverage_path.relative_to(root).as_posix(),
                 details={"record_count": fields[field]},
             ))
-    write_json_atomic(root / "step_results.json", to_jsonable(steps))
+    write_json_atomic(root / "step_results.json", steps)
     status = _overall_status(steps, fatal_auth=fatal)
     _write_coverage(root, plan, steps, status)
     summary_path = root / "run_summary.json"

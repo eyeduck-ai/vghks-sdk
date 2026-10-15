@@ -208,7 +208,7 @@ def run_visit_test(
         steps.append(
             LiveTestStep(name, status, operation=key, issue=ErrorInfo(reason, "DEPENDENCY"))
         )
-        write_json_atomic(root / "step_results.json", to_jsonable(steps))
+        write_json_atomic(root / "step_results.json", steps)
         print(f"{status} {name} {reason}", flush=True)
 
     if settings is not None:

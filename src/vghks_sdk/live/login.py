@@ -22,7 +22,7 @@ from ..sdk import VghksSDK
 from .atomic import _write_coverage
 from .login_simulation import SCENARIOS, run_scenario
 from .preflight import independent_readiness
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

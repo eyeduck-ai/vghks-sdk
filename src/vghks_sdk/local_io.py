@@ -10,11 +10,24 @@ import stat
 import tempfile
 import unicodedata
 from pathlib import Path
+from time import sleep
 from typing import Any
 
 from .core.errors import ConfigurationError
 from .identifiers import normalize_mrn
 from .models import AuthCheckReport, to_jsonable
+
+
+def _replace_atomic_file(source: str, destination: Path) -> None:
+    """Retry a Windows sharing/access/lock denial on the same local rename only."""
+    for delay in (0.02, 0.04, 0.08, None):
+        try:
+            os.replace(source, destination)
+            return
+        except PermissionError as exc:
+            if delay is None or getattr(exc, "winerror", None) not in {5, 32, 33}:
+                raise
+            sleep(delay)
 
 
 def read_mrns(path: Path) -> list[str]:
@@ -122,7 +135,7 @@ def _write_json_atomic(
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_name, destination)
+        _replace_atomic_file(temporary_name, destination)
     except (OSError, UnicodeError, TypeError, ValueError) as exc:
         raise ConfigurationError(
             message,
@@ -156,7 +169,7 @@ def write_bytes_atomic(path: Path, content: bytes) -> Path:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary_name, destination)
+        _replace_atomic_file(temporary_name, destination)
     except OSError as exc:
         raise ConfigurationError(
             "unable to write binary asset",

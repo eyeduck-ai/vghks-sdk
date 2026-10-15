@@ -28,8 +28,8 @@ from ..core.tls import TLS12, TLS12_COMPAT, TLS_DEFAULT, create_requests_session
 from ..core.transport import SafeSessionTransport
 from ..local_io import write_json_atomic
 from ..models import AuthCheckReport, AuthCheckTarget, to_jsonable
-from .profile import LiveTestStep, _run_step
 from .schannel import probe_schannel
+from .steps import LiveTestStep, _run_step
 
 
 def run_network_checks(

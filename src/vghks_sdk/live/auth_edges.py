@@ -15,7 +15,7 @@ from ..local_io import write_json_atomic
 from ..models import to_jsonable
 from ..sdk import VghksSDK
 from .login import negative_login, password_post_budget
-from .profile import LiveTestStep, _run_step
+from .steps import LiveTestStep, _run_step
 
 
 def run_before_login_checks(config, steps, *, credentials, settings, root: Path, **capture) -> bool:

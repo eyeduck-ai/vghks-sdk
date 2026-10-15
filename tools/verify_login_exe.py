@@ -23,6 +23,8 @@ from test_personnel import EMPLOYEE, options_page  # noqa: E402
 from test_tls import LegacyAesLoopbackTests  # noqa: E402
 from verify_review_exe import ReviewIntranet  # noqa: E402
 
+from vghks_sdk.core.config import SDKSettings  # noqa: E402
+from vghks_sdk.core.readiness import AUTH_CHECK_REGISTRY  # noqa: E402
 from vghks_sdk.live.login_simulation import SCENARIOS  # noqa: E402
 from vghks_sdk.offline.analyze import inspect_bundle  # noqa: E402
 from vghks_sdk.offline.bundle import BundleReader  # noqa: E402
@@ -103,6 +105,7 @@ def main():
             "negative_redirect",
         ):
             helper.server.test_state = state = {
+                "account": EMPLOYEE,
                 "mode": mode,
                 "origin": origin,
                 "login_posts": 0,
@@ -172,8 +175,15 @@ def main():
                     "mis": "",
                     "review": "/Pck",
                     "personnel": "/DDPortal",
+                    "attendance": "/PSPDPortal",
                 }.items():
                     environment[f"VGHKS_{app.upper()}_BASE_URL"] = origin + suffix
+                settings = SDKSettings(**{
+                    f"{app}_base_url": environment[f"VGHKS_{app.upper()}_BASE_URL"]
+                    for app in ("portal", "prq", "sectord", "webmaas", "oppl", "audit", "mis", "review", "personnel", "attendance")
+                })
+                assert all(urlsplit(getattr(settings, f"{spec.key}_base_url")).hostname == "localhost"
+                           for spec in AUTH_CHECK_REGISTRY)
                 process = subprocess.run(
                     command,
                     cwd=directory,

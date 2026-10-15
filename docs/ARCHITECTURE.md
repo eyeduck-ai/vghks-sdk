@@ -1,80 +1,92 @@
-# 架構
+# SDK 架構
 
-應用程式或 workflow → Service → Adapter → Runtime／Requests；Adapter 呼叫純 Parser 產生 models。59 個唯讀功能由 queries.py 統一登錄，可供自動測試與其他應用發現。
+SDK 以 `VghksSDK` 組裝各領域 Service，共用一個有狀態的 Runtime／Session。應用程式與院內 EXE 使用同一份 API；多步驟任務由 workflow 組合。
 
-```text
-application / workflows
-        ↓
-services       ← sdk.py 組裝各領域
-        ↓
-adapters ──────→ parsing ──────→ models
-        ↓
-runtime / core / authentication
-        ↓
-Requests Session（鎖、節流、retry、capture）
+## 一次查詢的流程
+
+```mermaid
+flowchart TD
+    App["應用程式 / workflows"] --> Service["Service：公開 API"]
+    Service --> Adapter["Adapter：請求流程"]
+    Adapter --> Runtime["Runtime：操作鎖與登入恢復"]
+    Runtime --> Transport["Transport：TLS、節流與有限重試"]
+    Transport --> Session["Requests Session"]
+    Runtime --> Auth["Auth Adapter：Portal / SSO"]
+    Auth --> Transport
+    Adapter --> Parser["Parser：純解析"]
+    Parser --> Model["Model：結果與型別參照"]
 ```
 
-| 模組 | 責任 |
+一個原子功能回傳一份有意義的結果，可以包含 SSO、病人 context 與必要分頁等多個 HTTP 請求。圖中箭頭表示執行流程；Runtime 透過 Protocol 使用登入能力，不匯入具體 Auth Adapter。
+
+## 模組責任
+
+下列路徑均相對於 `src/vghks_sdk/`。
+
+| 模組 | 負責的事 |
 | --- | --- |
-| sdk.py | 公開 facade 與依賴注入，提供 context manager |
-| services/ | 穩定 API，讓應用不依賴 endpoint 與 HTML |
-| adapters/ | 病人、就診、表單、SSO 模式等請求次序 |
-| parsing/ | 無網路的 HTML／JSON／binary 解析，可用同一份證據反覆測試 |
-| models/ | 不同領域型別、篩選條件與參照；`py.typed` 隨 wheel 發布 |
-| acquisition.py | 對已取得的模型評估資料狀態，分開解析缺漏與可恢復 warnings，或將一次唯讀呼叫包成可選用的 AcquisitionResult；不新增 HTTP 或重試。測試器共用相同眼科欄位對齊判定 |
-| runtime.py / core/ | Session、操作鎖、登入復原、傳輸政策、錯誤與診斷 |
-| workflows/ | 跨多次原子操作的任務、去重、部分失敗及階段輸出 |
-| live/ | 使用 SDK 的內網測試器；公開匯出按需載入，讀取設定不載入測試執行流程 |
-| contracts/ | 錄製契約與純證據判斷；`auth_evidence.py` 共用登入證據條件，`order_assets.py` 共用醫囑附件目錄及格式定義；不載入測試執行流程 |
-| offline/ | 只讀本機錄製資料，驗證及重解析，不重送 HAR 請求；`analyze.py` 組裝報告，`assets.py` 核對附件存檔，`session.py` 解讀 Session 對照，`recovery.py` 核對恢復次序，`retest.py` 產生重測設定 |
-| local_io.py | 共用 JSON／二進位原子替換與本機權限處理；保留各入口的錯誤碼及安全欄位白名單 |
+| `sdk.py` | 組裝 Service／Adapter／Runtime、注入 transport、管理關閉與 context manager |
+| `services/` | 公開用途、輸入檢查與型別回傳；透過 Adapter Protocol 呼叫 |
+| `adapters/` | 各子系統的請求次序、表單／token、病人與就診 context；`auth.py` 管 Portal 與 SSO |
+| `parsing/` | HTML／JSON／二進位純解析；靜態讀取已知 JS literal，不執行腳本 |
+| `models/` | 資料模型、Filter、驗證與綁定病人／就診的 Ref |
+| `runtime.py` | 完整操作鎖、登入／子系統恢復、寫入嘗試追蹤與操作診斷 |
+| `core/` | 設定、錯誤、HTTP contract、Transport、TLS、節流、有限重試與診斷介面 |
+| `queries.py` | 可發現的唯讀結果、輸入與 discovery 相依；動態呼叫既有 Service |
+| `responses.py` | 可選的 JSON TypedDict 轉換；共用純 Parser，不發 HTTP、不改 Service 原回傳 |
+| `acquisition.py` | 選用的統一結果與既有資料狀態評估；不新增 HTTP 或重試 |
+| `search.py`／`workflows/` | 選擇資料來源、多步驟查詢、篩選、去重、錯誤續跑及階段存檔 |
+| `contracts/` | HAR 契約及共用純證據規則，如登入證據、附件目錄與格式 |
+| `live/`／`live_test_app.py` | SDK 的測試應用：計畫、採樣、錄製、coverage、結果 ZIP |
+| `offline/` | 只讀 HAR／ZIP：重解析、完整性核對、恢復證據與重測設定 |
+| `cli.py`／`__main__.py` | 命令列入口，依子命令呼叫查詢、workflow 或離線工具 |
+| `local_io.py` | JSON／二進位原子寫入與本機檔案權限處理 |
 
-密碼狀態由純 `parsing/portal.py` 判讀，Auth Adapter 保存 `PasswordStatus` 並在明確強制變更時結束登入；Runtime 決定既有登入的恢復，Service 只公開安全觀察值。`live/auth_edges.py` 才負責刻意錯誤密碼與不先登入的直接探測；一般 SDK 不會執行這些負向測試。`live/password.py` 負責一次舊帳密觀察：登入受阻時只用既有 Cookie 對照目錄，成功時才使用一般 SDK 病人 API；不放寬 SDK 強制變更政策。可信密碼頁目的地由純 Parser 選擇，測試器另做一次 GET，`offline/password.py` 只整理白名單欄位。EXE 的 Cookie 遺失與合成過期保持獨立證據，不等待或宣稱自然 TTL。
+PRQ 旗標／歷年清單的純解析集中於 `parsing/prq_extensions.py`，手術回覆判定位於 `parsing/oppl.py`。Adapter 與 offline 共用純函式；舊 Adapter 匯入保留相容入口。後續整理見 [OPTIMIZATION](OPTIMIZATION.md)。
 
-一般 `import vghks_sdk` 不載入 live／offline；直接使用型別模型及 Services。`operation_models.py` 保留舊匯入相容性，新程式使用 models。既有 core/full CLI 持續支援。
+`adapters/prq.py` 保留 `PrqAdapter` 組裝入口：`prq_context.py` 管共用病人／就診 context 與調閱審查，`prq_visits.py` 管就診／SOAP，`prq_orders.py` 管各類清單，`prq_assets.py` 管報告與附件。各組操作使用同一 Runtime，完整操作鎖與請求次序不變。
 
-離線分析與院內測試器共用純 `contracts/auth_evidence.py`，避免為辨認一筆預期拒絕而載入執行錯誤密碼的流程。重測設定由 `offline/retest.py` 呼叫同一份 `live/config.py` 驗證；此相依只讀設定，不建立 SDK 或送出請求。`live` 原有匯出及登入測試的證據函式匯入保持相容。
+`adapters/auth.py` 保留 `AuthenticationAdapter` 與共用狀態：`auth_portal.py` 管 Portal 登入，`auth_sso.py` 管應用 SSO／簽到退入口，`auth_webmaas.py` 管頁面角色／表單與局部恢復，`auth_shared.py` 管 Session 型別、傳輸及來源驗證。所有組件使用同一 Session，原 `AppSession`／`SsoForm` 匯入仍可用。
 
-醫囑附件的目錄、MIME 與副檔名由 `contracts/order_assets.py` 定義，workflow 存檔、live 測試器與 offline 核對共用同一份契約；workflow 執行時才載入，保持一般 SDK import 不載入錄製工具。`workflows/order_reports.py` 的查詢入口管理參照去重、型別檢查、錯誤與快取；存檔方法管理模型結果及附件寫入。測試 runner 已保存的 JSON 會直接沿用，只回傳值的 runner 仍有存檔備援；二進位一律經 `local_io.write_bytes_atomic` 保存。快取保留附件 metadata，完成存檔後不持有所有附件位元組。
+## 領域與來源對照
 
-`offline/assets.py` 只在原 ZIP 中核對成功附件的 outcome、metadata、大小、SHA-256 與格式，不 import workflow 或 live 執行模組。原始 HTTP replay 與附件存檔核對各自保留證據；存檔問題加入分析 findings，原 live_status 維持原值。`pdf_files`／`jpg_files` 表示逐筆醫囑的可用附件數，唯一檔案數與 downloaded_bytes 來自去重後的成功查詢。
+| 公開 Service | 主要 Adapter／Parser | 領域文件 |
+| --- | --- | --- |
+| `auth` | `adapters/auth.py`；`parsing/portal.py`、`webmaas.py` | [連線與登入](CONNECTIONS.md) |
+| `patients` | `adapters/webmaas.py`；`parsing/webmaas.py` | [病人與掛號](PATIENTS.md) |
+| `opd`／`records`／`orders`／`medications` | `adapters/prq.py`、`prq_extensions.py`；`parsing/prq.py`、`prq_extensions.py`、`soap.py`、`clinical.py`、`report_data.py`、`scanned_records.py` | [就診](VISITS.md)、[SOAP](SOAP.md)、[數值](NUMERIC_REPORTS.md)、[掃描](SCANNED_RECORDS.md) |
+| `surgery` | `adapters/oppl.py`、`surgery_cases.py`；對應 Parser | [排程](SURGERY_SCHEDULE.md)、[案例](SURGERY_CASES.md) |
+| `reviews` | `adapters/review.py`、`review_auth.py`；`parsing/review.py` | [審查](REVIEWS.md) |
+| `audit`／`earnings` | `adapters/audit.py`、`earnings.py`；`parsing/audit.py`、`documents.py` | [API](API_REFERENCE.md)、[連線](CONNECTIONS.md) |
+| `personnel`／`attendance` | 各自的 Adapter／Parser | [人事](PERSONNEL.md)、[簽到退](ATTENDANCE.md) |
 
-`live/pacs.py` 負責純抽樣與兩種圖片模式的存檔摘要；`live/pacs_compare.py` 是雙院測試應用層，先驗證兩組輸入，再依序呼叫既有 runner。每院獨立建立 SDK、Session、病人 context、錄製及標準 ZIP，沿用既有 offline replay／附件核對路徑。雙院摘要只組合目標模式的證據與原錯誤，不發 HTTP、不補重試；個別 ZIP 的重測設定保留單院範圍。
+## 穩定邊界
 
-`offline/pacs.py` 在同一 ZIP 中重算各模式的唯一圖片參照、下載 outcome 與實際存檔完整性，與 `offline/assets.py` 共用逐檔 metadata／hash 驗證。它只輸出固定院區標籤、狀態、計數與問題碼，不載入 live 執行流程、不公開參照值，且保留原 EXE 狀態。已知 `resVal` 報告換行模板在 `parsing/report_data.py` 完整比對後直接讀 literal，未知 script 保留問題碼與部分解析狀態。
+- **兩種登錄各有用途**：`core/operations.py` 定義底層 HTTP method／path／異動屬性；`queries.py` 定義公開唯讀結果。兩者不是一對一，`queries.dependencies` 只供發現輸入，`queries.run` 不自動執行上游查詢。
+- **Session 有共享狀態**：同一 SDK 的病人 context、HID、SSO 角色與 token 共用。Runtime 在完整操作期間持有 `operation_lock`；不同帳號各用獨立 SDK。維持預設 0.8–1.8 秒節流。
+- **恢復有範圍**：可恢復的唯讀操作最多恢復一次；WebMAAS 明確 timeout 只重建原角色 SSO。登入拒絕、尚未登入與強制改密碼各自分類；密碼 POST、異動及已送出審查不能套用一般重播。TLS 政策由 `core/connections.py` 按來源共用，保留嚴格憑證模式。
+- **參照綁定來源**：Adapter 先核對病人，再使用 VisitCase／Ref。歷史就診的 `mrn` 是明細來源號碼，`lookup_mrn` 是清單查詢號碼；下載驗證允許來源、路徑及病人，不接受任意 URL。
+- **狀態保留差異**：合法空值、未執行、只有附件、部分解析與未知 schema 分開。Parser 保留來源及解析問題；PDF／JPG 成功下載不含 OCR，也不代表已取得醫療數值。
+- **處置由應用決定**：`acquire`／`queries.run_result` 保留原回傳於 `value`；SDK 提供資料狀態與結構化原因，workflow 決定排程及續跑。外層 `retry_safe=False` 不能被底層網路原因覆蓋，見 [ACQUISITION](ACQUISITION.md)。
+- **提交須保留邊界**：PRQ 遇已錄製的調閱審查頁，核對病歷號／HID／當頁選項後預設送一次 `1A`。手術經 SurgeryCommand；`attendance.punch` 明確呼叫才送出，且排除於唯讀目錄與 EXE。
+- **診斷分兩層**：一般診斷保存有限結構欄位；raw capture 刻意保存完整內容。Portal 與 MIS 帳密分開；raw／parsed／ZIP 可能含個資，只留本機。
 
-PDF／JPEG 檔頭只決定是否交給二進位驗證器。Runtime 與安全診斷共用純 `parsing/assets.py`，避免壓縮位元組進入 HTML 密碼或表單解析；HTTP 拒絕、登入目的 URL、實際 HTML 挑戰與附件格式／大小檢查仍分別執行。下載不代表已擷取 PDF／JPG 內的醫療文字或數值。
+## 測試與離線資料流
 
-**兩種目錄的用途不同**：core/operations.py 記錄 HTTP contract（method、path、欄位、是否異動）；queries.py 記錄有意義的公開唯讀結果（Service、輸入、抽樣 scope、發現相依）。一個結果可能需多次 HTTP。
+`live → SDK → raw／parsed／journal → ZIP`；`offline → BundleReader → replay／contracts／完整性核對 → 分析報告與重測設定`。批次掛號在 `live/registrations.py` 逐人呼叫單筆 Service，Parser 不選下一名病人。
 
-**Session 有狀態**：病人 context 與同主機 SSO 模式可能互相影響；Runtime 在完整操作期間持有 RLock 並管理 cache invalidation。不要在同一 Session 外加 thread pool；獨立任務各用 SDK，並維持整體節流。
+`live/profile.py` 編排 core／full；`live/steps.py` 共用結果、步驟記錄與逐步存檔，`live/patient.py` 處理逐次就診、歷年清單與本機搜尋。其他專項直接使用共用 steps，舊 profile 匯入仍可用。
 
-**本人打卡有獨立領域**：`attendance` 的 Model／Parser／Adapter／Service 共用 Runtime。狀態與日期紀錄是 `own_account` 唯讀結果，不需要病人或醫師輸入；測試器日期範圍可用於只選本人操作的 atomic 計畫。SSO 等待頁只解析已知 literal 並 GET 固定狀態頁，首張已核對的狀態限一次使用。查詢頁只含姓名，Adapter 以同一操作的狀態及 Session 綁定帳號；requested mode 與來源明示模式分開。`attendance.punch` 是不可重送的異動，獨立於唯讀目錄及 EXE；回覆不明保留未知結果與 SDK 原因鏈。詳見 [ATTENDANCE](ATTENDANCE.md)。
+離線職責分開：`analyze.py` 組裝報告、`evidence.py` 彙整安全摘要及問題分類、`presentation.py` 呈現／比較已組裝報告；`replay.py` 重解析、`assets.py` 核對存檔、`pacs.py`／`registrations.py` 核對專項、`session.py`／`recovery.py` 核對 Session 與恢復、`retest.py` 產生設定。舊 analyze 匯入保留；登入證據與附件契約仍由 `contracts/auth_evidence.py`、`order_assets.py` 共用。
 
-**就診清單可含歷史病歷號**：PRQ Adapter 建立並辨識病人 context 後，Parser 才接受正式啟用就診列中的舊號。`VisitCase.mrn` 是該列明細連結的來源號碼，`lookup_mrn` 是取得整份清單的號碼；門診組合以 `patient_mrn` 對應掛號，單次 SOAP／醫囑仍使用來源號碼。獨立解析或來源不明連結維持嚴格檢查。
+`offline/cache.py` 只在單次 ZIP 分析內共用 JSON，結束或失敗即清除；目錄、自訂 Reader 與二進位仍直接讀取。`BundleReader.json`／`jsonl` 的公開新值語意保留，快取不跨分析或 SDK Session 共用。上限與量測見 [OPTIMIZATION](OPTIMIZATION.md)。
 
-**病歷調閱審查自動處理**：`parsing/prq_access_review.py` 只解析錄製表單及可選原因；PRQ Adapter 核對病歷號與當前 HID，當頁確實提供錄製的照護原因 `1A` 時自動提交一次。`access_review_reason` 保留為明確覆寫。`prq.access_review` 登錄為不可重試的寫入型底層操作；`prq.visit_cases`／`prq.soap` 仍是唯讀結果 QuerySpec。Runtime 記住同一操作中曾嘗試寫入，失敗或回應不明時不重新登入重跑整個操作，也不重送審查 POST。
+恢復判定需以 `capture_operation_id` 對到同一次 raw 操作並核對完整次序。重解析、附件核對與原始實測各自保留，後續成功不覆寫原 ERROR；NO_SAMPLE 保留缺口，見 [VALIDATION](VALIDATION.md)。
 
-**WebMAAS SSO 頁面可供首次查詢**：SSO 轉址若已到達指定查詢頁，AuthenticationAdapter 將其 HTML 限一次交給 WebMAAS Adapter 使用；缺表單或 token 才對固定頁面 GET 一次。單獨 `CHECK_PAT` 不消耗未提交的首次表單；下次送出掛號後再 GET 新表單。角色切換與重新登入會建立新 AppSession，舊 token 不跨 Session 使用。回歸 EXE 的雙帳號比較另為每個帳號及查詢順序建立獨立 SDK Session。
+一般 import／建構 SDK 不發網路；一般 SDK import 不載入 live／offline 執行流程。`live` 公開匯出按需載入，offline 可讀 `live.config`，不因此載入測試 runner。
 
-**登入失敗不等於 Session 過期**：AuthExpiredError 才代表可嘗試恢復的既有登入；LoginRejectedError 為 AuthenticationError 的另一個子類別，不能進入重登入迴圈。Adapter 區分登入建立階段與查詢階段的回應，Runtime 在重登入遭拒時保留原錯誤。原子查詢最多恢復一次；MIS 二次驗證與異動不套用這個自動重做機制。詳見 [CONNECTIONS](CONNECTIONS.md#session-過期與登入失敗)。
+## 擴充與相容性
 
-**連線政策由 SDK 共用**：core/connections.py 管理每個 HTTPS 來源的優先 TLS 模式及成功狀態，core/transport.py 在有限重試內切換，並在初次不可重試 POST 前匿名確認連線。live/preflight.py 沿用相同優先設定；一般 Service 不依賴測試器。Session／Cookie 不因換模式重建。預設行為與嚴格模式見 [CONNECTIONS](CONNECTIONS.md)。
+新增功能依序接 Model → Parser → HTTP contract／Adapter → Service／Protocol → QuerySpec／discovery／offline replay，並更新 API generator。流程見 [DEVELOPMENT](DEVELOPMENT.md) 與 [HAR_RECORDING](HAR_RECORDING.md)，組合範例見 [COMPOSITION](COMPOSITION.md)。
 
-**測試參數屬於執行，不屬於 SDK**：LiveTestConfig.test_mrn 沿各 profile 傳遞，不使用真實病歷號全域常數。公開預設只有合成識別值；自用 EXE 的 private defaults 在建置時注入，wheel 不包含它。
-
-**診斷有兩層**：一般 DiagnosticRecorder 記錄有限的結構化錯誤；RawCaptureRecorder 為使用者明確啟用的完整未加密證據。所有 raw／parsed 回傳仍可能含個資，不能公開。
-
-**失敗分類由 SDK 提供，處置由應用決定**：Transport 辨識 DNS、逾時、TLS 及 HTTP；Runtime 保留登入恢復階段與安全重試條件；Parser 辨識合法空值與未知 schema。`ErrorInfo.cause` 保留明確 SDK 原因鏈，`root_cause` 不含原始訊息。`acquire`／`queries.run_result` 將這些資訊與資料可用性包成選用的結果，不改變原有 Service 型別。workflow／整合系統決定重試預算、排程、通知與部分資料存檔；不可因底層是網路錯誤而忽略外層 `retry_safe=False`。詳見 [ACQUISITION](ACQUISITION.md)。
-
-**SOAP 結構化屬於純解析**：`parsing/soap.py` 依標籤、rowspan 及摘要標頭處理同一個 SOAP 回應；`parsing/prq.py` 保留原解析器匯入入口。SoapRecord 保留原有 blocks／full_text，新增分段、SoapDiagnosis／SoapOrder／SoapMedication，以及明示「服藥期限」的 SoapChronicPrescriptionPeriod。醫囑與藥囑是頁面列印摘要，不含報告參照；取詳細醫囑及報告仍由 orders／medications 原子操作負責。未知列保留原文及 parsing_issues，不能猜測醫療含義。
-
-**歷年掃描病歷先完整列出再篩選**：Parser 依歷年頁的表格列保存每個 PDF 的病歷類別、顯示日期、表格來源及 subtype；`UploadHistory` 提供完整清單和類別精確篩選。眼科便利入口依「門診-記錄-眼科紀錄」病歷類別選取，不能把 subtype `OPG` 當成科別。單次 SOAP 的掃描參照由獨立 Parser／Adapter／Service 處理；`collect_ophthalmology_scans` 再查眼科就診、比對參照並去重，保留其他類別、未分類項目及查詢不完整狀態。
-
-**子系統 timeout 與 Portal 恢復分開**：`parsing/webmaas.py` 純辨識同來源固定 timeout 頁及可見通知；AuthenticationAdapter 清除 WebMAAS 狀態並保留中斷頁的允許角色。Runtime 只在可重做的唯讀操作內，以原角色重建一次 SSO，再用新表單續查；不強制 Portal 登入。`auth.check` 保留原問題供獨立複查，EXE 不把後續成功抹成沒有失敗。一般缺表單仍是 PARSE。
-
-**恢復證據必須屬於同一次操作**：Runtime 診斷的 `capture_operation_id` 連到 raw 操作，不能用兩個 recorder 的相同流水號推論。`offline/recovery.py` 核對完整請求次序、明確 timeout、原角色 SSO、新表單、成功結果與完成事件，才標記該回應已恢復；原 readiness 錯誤及後續解析失敗仍保留。舊事件只在完整次序有唯一匹配時驗證，不增加 HTTP。
-
-**批次掛號屬於測試應用層**：`live/registrations.py` 依明確的 `patient_mrns` 清單，逐一呼叫既有 `patients.get_registration_history`；Service 仍回傳一位病人的一份掛號結果，不新增 QuerySpec。批次共用 Session 與 SDK 節流，保存每筆 JSON、原始 capture、逐筆 journal 及整批 checkpoint；不在 Parser 選下一名病人。只有明確未到診圖示為 True，缺圖示維持未知；掛號人員原始代碼只保留於本機結果。離線重測設定保持整份清單與同一 registrations 範圍。`offline/registrations.py` 將完整清單、逐筆 journal、步驟及結果與 capture 範圍內的原始掛號分頁核對；`parsing/webmaas.py` 的純識別／計數函式供 Adapter、live 及 offline 共用，正常 SDK 匯入不因此載入 HAR 工具。只輸出統計與固定問題碼，原實測狀態保留。
-
-修改順序與檢查表見 [AGENTS](../AGENTS.md)；實際組合見 [COMPOSITION](COMPOSITION.md)。
+版本唯一來源為 `_version.py`；`build_info.py` 記錄建置資訊。`operation_models.py` 保留舊匯入，新程式從 `models` 匯入；`py.typed` 隨 wheel 發布。公開 Service、CLI 與相容入口的變更需保留回歸測試，後續整理順序見 [OPTIMIZATION](OPTIMIZATION.md)。

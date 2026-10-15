@@ -1,13 +1,17 @@
 # 原子功能參考
 
 本文件由 `python tools/generate_api_reference.py` 產生；共 59 個登錄唯讀查詢。
-用途文字維護於該工具，簽名與回傳型別取自真正的 Service；`--check` 檢查文件是否落後。
+用途文字維護於該工具，簽名與回傳型別取自真正的 Service，並核對目錄輸入綁定；`--check` 檢查文件是否落後。
 
 每個原子功能回傳一種可使用的結果，可能需要數個 HTTP 請求完成 SSO、病人 context 或分頁。
 優先直接呼叫 `sdk.<service>.<method>(...)`。動態任務可用 `sdk.queries.run(key, **inputs)`；
 目錄中的 dependencies 是測試器發現輸入時的相依關係，不表示 Service 每次都會重新執行那些查詢。
 
 原子操作不負責把所有病人／所有附件自動跑完；這由 workflows 或應用程式負責。
+
+既有 JSON Service 仍回傳 dict；可選用 `as_patient_flags(key, raw, mrn)`、
+`as_surgery_payload(key, raw, mrn=mrn)`、`as_review_options(raw)`、`as_review_doctors(raw)` 取得 TypedDict 檢視。
+這些頂層純函式只驗證已知 schema／病人，不發 HTTP；保留未知欄位與原值。未確認的欄位型別為 object，來源代碼不推論意義。
 
 ## sdk.attendance
 

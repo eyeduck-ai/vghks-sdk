@@ -13,12 +13,18 @@ python tools/check_public_tree.py
 
 ## 新增或修改一項功能
 
+先依 [ARCHITECTURE](ARCHITECTURE.md) 找修改位置；跨模組整理依 [優化順序與驗收條件](OPTIMIZATION.md) 分批進行。
+
+PRQ 修改放對應的 `prq_context`／`prq_visits`／`prq_orders`／`prq_assets`，由原 `PrqAdapter` 組合；live 專項共用 `live.steps`。離線摘要放 `offline.evidence`，報告呈現放 `offline.presentation`，不匯入測試執行流程。
+
+登入修改放 `auth_portal`／`auth_sso`／`auth_webmaas`，共用狀態仍由原 `AuthenticationAdapter` 管理。可選 JSON 型別放 `models/json_responses.py`，`responses.py` 共用原 Parser 驗證；不得為型別轉換新增 HTTP 或重複查詢 ID。
+
 1. 在 models 定義輸入、回傳與參照；保留伺服器原始欄位，不猜業務意義。
 2. 純 Parser 對已知成功、空結果、登入頁、未知 schema、缺欄位寫必要的合成測試。
 3. 在 core/operations.py 登錄 request contract；Adapter 透過 Runtime 發送，不直接另開 requests.Session。
 4. Service 與 Protocol 暴露穩定介面；需要新領域時由 sdk.py 組裝並匯出型別。
 5. 唯讀結果加入 queries.py；live/atomic.py 添加 discovery input；新 protocol／schema 也接入 offline/replay.py。
-6. 更新 `tools/generate_api_reference.py` 用途字典後重新產生 API_REFERENCE；補適當組合範例。
+6. 更新 `tools/generate_api_reference.py` 用途字典後重新產生 API_REFERENCE；工具同時核對 QuerySpec 與 Service 輸入綁定。補合成 discovery／replay 樣本及適當組合範例。
 7. 本機測試、私有證據重解析、localhost EXE 檢查通過後，才以內網回傳確認實際可用。
 
 不要為細小改動新增抽象框架；已驗證的分層可直接擴充。CLI／公開 Service 有相容性需求，變更參數、回傳與狀態時同步測試及 CHANGELOG。
@@ -35,6 +41,10 @@ python run_sdk.py analyze-bundle --input data/returns/return.zip --output output
 設定 `VGHKS_RUN_HAR_CONTRACT=1` 後執行 tests，可加入本機可用的 HAR／歷史回傳回歸；沒有檔案的項目會跳過。不得對外回報「跳過」為成功驗證。
 
 離線分析不修改原始測試結果；要同時看 recorded_status、live_status、重解析結果、report_data_status。合法空結果不能當成功取得正文，HTTP 200 也可能只是登入／viewer 頁。
+
+離線效能用 `python tools/benchmark_offline.py` 重現合成量測；`--input 本機.zip --iterations 5` 可對照自己的證據。工具禁止 socket，核對完整報告、Markdown、重測設定及原 ZIP hash；只輸出計數、耗時與追蹤記憶體。修改快取時維持單次分析範圍、上限及目錄即時讀取，不能只比較速度。
+
+JSON／二進位原子寫入遇到 Windows 換檔拒絕（5／32／33）時，僅對同一暫存檔短重試，最多四次／140 ms；永久失敗仍回原入口錯誤碼，其他 I/O 錯誤直接回報。
 
 醫囑附件以 `order_assets` 核對 ZIP 內實際存檔與下載 metadata，包含大小、SHA-256 及格式。原始 HTTP replay 與存檔核對是不同證據；存檔問題不能改寫原成功步驟，也不能因原成功便忽略缺檔。組合 workflow 重用 runner 已寫好的結果，自訂 runner 僅回傳值時仍會保存；PDF／JPG 走 `local_io.write_bytes_atomic`，存檔失敗保留 OUTPUT_WRITE_FAILED 並續跑其他附件。
 

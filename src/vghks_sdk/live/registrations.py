@@ -14,7 +14,7 @@ from ..parsing.webmaas import registration_counts
 from ..queries import query_spec
 from .atomic import _write_coverage
 from .preflight import independent_readiness, run_network_checks
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

@@ -24,7 +24,7 @@ from .core.readiness import (
 )
 from .diagnostics.probe import run_diagnostic_probe
 from .live.console import configure_console_output
-from .live.profile import LIVE_TEST_MRN
+from .live.steps import LIVE_TEST_MRN
 from .live_test_app import add_live_test_arguments, run_live_test_namespace
 from .local_io import read_mrns, write_auth_check_report
 from .models import AuthCheckReport, VisitFilter

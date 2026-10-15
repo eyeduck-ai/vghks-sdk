@@ -2,6 +2,35 @@
 
 本文件集中記錄目前功能的證據與限制，不含患者、帳號、金額或原始私有回應。版本變更歷程見 [CHANGELOG](../CHANGELOG.md)，操作方式見 [LIVE_TEST](LIVE_TEST.md)。
 
+## 2026-10-15：P2／P3 剩餘優化（未發布）
+
+- 登入拆分為 Portal／應用 SSO／WebMAAS／共用傳輸，原 33 個方法的邏輯與簽名一致。新增可選 JSON TypedDict／純轉換及單次 ZIP 有界快取；既有 Service dict、Session、請求次序、錯誤及恢復規則保留。
+- 完整 suite 811 項：798 項通過、13 項私有條件跳過；新增 21 項回歸。Ruff、59 項 API 同步、公開內容及 wheel／sdist 檢查通過；獨立安裝另在禁止 socket 下通過 112 項回歸、輸入綁定、import／建構／CLI。
+- 同一份 12 筆及放大為 600 筆的合成 ZIP，原始碼與獨立安裝均在禁止 socket 下比對完整 JSON／Markdown 報告及重測設定（排除 analyzer build）；frozen CLI 亦完全一致。原 ZIP hash 與原失敗狀態保留。
+- 合成 benchmark 各五輪：JSON 解碼 2,407 → 1,203 次，峰值追蹤記憶體 8.16 → 5.13 MiB，耗時中位數 0.371 → 0.372 秒；總耗時相近。快取只限當次 ZIP 分析，目錄／自訂 Reader／二進位不快取；詳見 [OPTIMIZATION](OPTIMIZATION.md)。
+- 最終隔離建置的 source／frozen 各通過 login 七種、password 十五種、session 十二種、failures 23 種及 DBR 十種 localhost HTTPS 情境；failures 每輪另含 68 個無 socket 模擬，comprehensive frozen 兩種情境通過。保留密碼／異動送出次數、原始失敗與重測範圍。
+- 測試重現 Windows 原子換檔拒絕，已補同一暫存檔最多四次／140 ms 的有限重試；永久失敗、原檔完整性與入口錯誤碼均有回歸。
+
+以上均為本機合成證據，未新增院內查詢、自然 TTL 或強制改密碼證據；既有院內 EXE、建置紀錄與原始回傳保留。
+
+## 2026-10-15：P2 模組責任拆分（未發布）
+
+- offline 拆分組裝／證據摘要／呈現，live 拆分編排／共用步驟／病人流程，PRQ 拆分 context／就診／清單／報告附件；保留原入口與方法簽名。
+- 完整 suite 790 項：777 項通過、13 項私有條件跳過；七項新增回歸涵蓋跨操作 context 隔離、審查後不重播、相容匯入、按需載入、錯誤續跑、登入停止及中斷存檔。Ruff、59 項 API 同步與公開內容檢查通過。
+- 同一份 12 筆合成回應 ZIP 禁止 socket 比較，完整 JSON／Markdown 報告及重測設定一致，原 ZIP hash 不變。core／full／SOAP 解析失敗／查詢登入錯誤四種流程的呼叫次序與 JSON／JSONL 存檔一致（排除執行時間與耗時）。
+- 隔離建置的 DBR source／frozen 各十種 localhost HTTPS 情境與離線 CLI 通過；visits EXE 三種情境及直接 SDK 對照、comprehensive EXE 兩種情境亦通過。共用驗證工具改按現行目錄核對，啟動前檢查全部目標均為 localhost。
+- wheel／sdist 內容檢查與獨立安裝通過；128 項回歸、59 項輸入綁定、import／建構／CLI 及四種 live 流程在禁止 socket 下通過。同一合成 ZIP 的 frozen CLI 報告與重測設定也一致。
+- 以上為本機合成驗證，未新增院內功能或自然 TTL 證據；原有院內 EXE、建置紀錄與回傳保留。後續型別與效能結果見上節。
+
+## 2026-10-14：P1 架構整理（未發布）
+
+- PRQ 旗標／歷年清單與手術回覆判定移至純 Parser，Adapter 與 offline 共用；舊匯入、Service 回傳及錯誤碼保留。
+- 補齊 Service Protocol、QuerySpec 輸入綁定檢查及全目錄合成 discovery／replay 回歸；保留位置參數別名，未知 discovery scope 明確報錯。
+- 完整 suite 783 項：770 項通過、13 項私有條件跳過；16 項新增回歸均通過。Ruff、59 項 API 同步及公開內容檢查通過。
+- 同一份 12 筆合成回應 ZIP 在禁止 socket 下，比較完整 JSON／Markdown 分析及重測設定完全一致，原 ZIP SHA-256 不變。這是本機合成證據，未新增院內查詢或改寫既有院內結論。
+- 隔離建置的 DBR source／frozen 各十種 localhost HTTPS 情境及離線 ZIP 分析通過；另以預設 scans 的 EXE 驗證零參數啟動、單次／歷年參照與 PDF。原有院內 EXE、建置紀錄及回傳保留。
+- wheel／sdist 實際內容檢查通過；從獨立目錄安裝 wheel，禁止 socket 下通過 16 項新增回歸、59 項輸入綁定、import／建構／CLI，以及同一合成 ZIP 的完整報告與重測設定比較。
+
 ## 目前狀態速覽
 
 | 項目 | 已有證據 | 尚未由目前版本院內驗證 |

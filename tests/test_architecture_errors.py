@@ -152,7 +152,7 @@ def forbid_connection(*args, **kwargs):
 
 socket.socket.connect = forbid_connection
 importlib.import_module('vghks_sdk.offline.analyze')
-for module in ('profile', 'runner', 'login', 'auth_edges', 'atomic', 'preflight'):
+for module in ('profile', 'patient', 'steps', 'runner', 'login', 'auth_edges', 'atomic', 'preflight'):
     assert 'vghks_sdk.live.' + module not in sys.modules, module
 live = importlib.import_module('vghks_sdk.live')
 exports = {
@@ -209,6 +209,13 @@ else:
 
         runtime_modules = _imported_modules(PACKAGE / "runtime.py")
         self.assertFalse(any("adapters" in module for module in runtime_modules))
+        for folder in ("parsing", "offline"):
+            for path in (PACKAGE / folder).glob("*.py"):
+                modules = _imported_modules(path)
+                self.assertFalse(
+                    any("adapters" in module or "services" in module for module in modules),
+                    path.name,
+                )
         contract_source = (PACKAGE / "contracts" / "har.py").read_text(encoding="utf-8")
         for forbidden in ("PortalCredentials", "SDKSettings", "VghksSDK", "requests."):
             self.assertNotIn(forbidden, contract_source)

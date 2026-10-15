@@ -49,12 +49,12 @@ from .live.presets import (
     soap_test_round,
     visit_search_round,
 )
-from .live.profile import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .live.runner import (
     create_live_test_bundle,
     execute_live_test,
     package_bootstrap_failure,
 )
+from .live.steps import LIVE_TEST_MRN, LIVE_TEST_SCHEMA_VERSION
 from .local_io import read_mrns
 from .models import SoapRecord, VisitCase, VisitFilter
 from .offline.analyze import analyze_bundle

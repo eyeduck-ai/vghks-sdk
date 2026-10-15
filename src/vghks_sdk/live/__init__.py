@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .bundle import LiveTestBundleManager, pack_incomplete_run
     from .config import LiveTestConfig
-    from .profile import LIVE_TEST_MRN, LiveTestResult, run_live_test
+    from .profile import run_live_test
+    from .steps import LIVE_TEST_MRN, LiveTestResult
 
 __all__ = [
     "LIVE_TEST_MRN",
@@ -20,10 +21,10 @@ __all__ = [
 ]
 
 _EXPORT_MODULES = {
-    "LIVE_TEST_MRN": "profile",
+    "LIVE_TEST_MRN": "steps",
     "LiveTestBundleManager": "bundle",
     "LiveTestConfig": "config",
-    "LiveTestResult": "profile",
+    "LiveTestResult": "steps",
     "pack_incomplete_run": "bundle",
     "run_live_test": "profile",
 }

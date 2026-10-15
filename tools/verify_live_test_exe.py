@@ -23,8 +23,14 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT / "tests")]
 
+from test_attendance import history_page, status_page  # noqa: E402
 from test_personnel import directory_row, options_page, results_page  # noqa: E402
 from test_tls import LegacyAesLoopbackTests  # noqa: E402
+
+from vghks_sdk.core.config import SDKSettings  # noqa: E402
+from vghks_sdk.core.operations import OPERATIONS  # noqa: E402
+from vghks_sdk.core.readiness import AUTH_CHECK_REGISTRY  # noqa: E402
+from vghks_sdk.queries import QUERY_SPECS  # noqa: E402
 
 DAY = date(2026, 9, 19)
 
@@ -101,7 +107,9 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
                     + "</form>"
                 )
             prefix = (
-                "/DDPortal"
+                "/PSPDPortal"
+                if "030201_09" in dn
+                else "/DDPortal"
                 if "02060101_06" in dn
                 else "/OPPLWeb"
                 if "0108_04" in dn or "010801_04" in dn
@@ -116,11 +124,14 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
                 "keyOne": "1",
                 "keyTwo": "2",
                 "keyThree": "3",
-                "uid": "SYNTHETIC",
+                "uid": state.get("account", "SYNTHETIC"),
+                "USR_ID": state.get("account", "SYNTHETIC"),
                 "targetURL": "qlogAction.do?method=qLog"
                 if "010801_04" in dn
                 else "surgAction.do?method=surg"
                 if prefix == "/OPPLWeb"
+                else base + "/oFSchedule.do?reqCode=getPCClockInLog"
+                if prefix == "/PSPDPortal"
                 else base + "/landing.do",
             }
             body = (
@@ -129,6 +140,31 @@ class SyntheticIntranet(BaseHTTPRequestHandler):
                 + "</form>"
             )
             return self.reply(body)
+        if path == "/PSPDPortal/WPSAutoLogon":
+            return self.reply("", 302, location="/PSPDPortal/access_wait.jsp?" + urlencode(
+                {"targetURL": "/PSPDPortal/oFSchedule.do?reqCode=getPCClockInLog"}))
+        if path == "/PSPDPortal/access_wait.jsp":
+            return self.reply('<html><body onload="window.location.replace(\'/PSPDPortal/oFSchedule.do?reqCode=getPCClockInLog\');"></body></html>')
+        if path == "/PSPDPortal/oFSchedule.do":
+            if params.get("reqCode") == "getPCClockInLog":
+                return self.reply(status_page(state.get("account", "SYNTHETIC")))
+            if params.get("reqCode") == "getProcessedFingerLog":
+                return self.reply(history_page(rows=(),
+                    start=date.fromisoformat(params["value(begDate)"]),
+                    end=date.fromisoformat(params["value(endDate)"])))
+            state["mutation_attempts"] += 1
+            return self.reply("unsupported attendance action", 500)
+        if path == "/webmaas/WPSAutoLogon":
+            target = params.get("targetURL", "")
+            assert target in {
+                state["origin"] + "/webmaas/RSV/RSV11W001.do",
+                state["origin"] + "/webmaas/QUY/QUY15W001.do",
+            }
+            return self.reply("", 302, location=target)
+        if path in {"/webmaas/RSV/RSV11W001.do", "/webmaas/QUY/QUY15W001.do"}:
+            form_id = "RSV11WForm" if "/RSV/" in path else "QUY15WForm"
+            return self.reply(f'<form id="{form_id}"><input type="hidden" '
+                'name="org.apache.struts.taglib.html.TOKEN" value="synthetic-token"></form>')
         if path == "/DDPortal/WPSAutoLogon":
             return self.reply("", 302, location="/DDPortal/DRQuery.jsp")
         if path == "/DDPortal/DRQuery.jsp":
@@ -340,8 +376,18 @@ def main():
                         "mis": "",
                         "review": "/Pck",
                         "personnel": "/DDPortal",
+                        "attendance": "/PSPDPortal",
                     }.items()
                 }
+                expected_targets = {spec.key for spec in AUTH_CHECK_REGISTRY}
+                if mode == "weekly_workflow":
+                    expected_targets.add("mis")
+                settings = SDKSettings(**endpoints)
+                # Refuse to launch if a newly added target still has a real origin.
+                assert all(
+                    urlsplit(getattr(settings, f"{key}_base_url")).hostname == "localhost"
+                    for key in expected_targets
+                )
                 config = {
                     "schema_version": 5,
                     "profile": "comprehensive",
@@ -411,7 +457,7 @@ def main():
 
                     summary = read("run_summary.json")
                     modes = read("parsed/network/selected_profiles.json")
-                    assert len(modes) == (10 if mode == "weekly_workflow" else 9) and all(
+                    assert set(modes) == expected_targets and all(
                         value["certificate_verification"] and value["applied"]
                         for value in modes.values()
                     )
@@ -448,8 +494,13 @@ def main():
                         assert state["mis_password_posts"] == 2
                         assert state["mis_reports"] == ["PMO003R1", "PMO004R1"]
                         coverage = read("coverage.json")
-                        assert len(coverage["operations"]) == 57
-                        assert len(coverage["excluded_write_operations"]) == 4
+                        assert {row["operation"] for row in coverage["operations"]} == {
+                            spec.key for spec in QUERY_SPECS
+                        }
+                        assert set(coverage["excluded_write_operations"]) == {
+                            spec.key for spec in OPERATIONS
+                            if spec.mutates and spec.key != "prq.access_review"
+                        }
                         assert len(coverage["earnings_reports"]) == 4 and all(
                             row["status"] == "OK" for row in coverage["earnings_reports"]
                         )
@@ -489,7 +540,8 @@ def main():
                     }
     finally:
         helper.doCleanups()
-    test_log = (output / "tests.log").read_text(encoding="utf-8", errors="replace")
+    test_path = output / "tests.log"
+    test_log = test_path.read_text(encoding="utf-8", errors="replace") if test_path.is_file() else ""
     results["unit_tests_passed"] = (
         int(re.search(r"Ran (\d+) tests", test_log).group(1))
         if re.search(r"\nOK\s*$", test_log)

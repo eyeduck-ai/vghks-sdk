@@ -6,6 +6,7 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+from vghks_sdk.core.errors import AuthenticationError, ParseError
 from vghks_sdk.core.readiness import make_auth_report
 from vghks_sdk.live.profile import LiveTestResult, LiveTestStep, run_live_test
 from vghks_sdk.live.registration_compare import _primary_portal_failed
@@ -104,6 +105,76 @@ class ProfileSDK:
 
 
 class LiveProfileTests(unittest.TestCase):
+    def test_case_parse_failure_preserves_partial_history_and_continues(self):
+        sdk = ProfileSDK()
+        original = sdk.get_soap
+
+        def soap(case):
+            if case == sdk.cases[0]:
+                sdk.calls.append(f"soap:{case.case_no}")
+                raise ParseError("synthetic schema", code="PRQ_SOAP_CONTAINER_MISSING")
+            return original(case)
+
+        sdk.get_soap = soap
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = run_live_test(sdk, output_dir=root, download_assets=False,
+                                   soap_search=SoapSearch("APPLY"))
+            history = json.loads((root / "parsed/visit_history.json").read_text("utf-8"))
+            summary = json.loads((root / "run_summary.json").read_text("utf-8"))
+            journal = json.loads((root / "step_results.json").read_text("utf-8"))
+            self.assertEqual(result.status, "COMPLETED_WITH_ERRORS")
+            self.assertEqual([row["status"] for row in history["records"]], ["PARTIAL_ERROR", "OK"])
+            self.assertEqual(history["records"][0]["issues"][0]["code"], "PRQ_SOAP_CONTAINER_MISSING")
+            self.assertEqual(summary["steps"][:len(journal)], journal)
+            self.assertEqual(journal[-1]["name"], "soap_search")
+            self.assertTrue(all(step["status"] == "SKIPPED" for step in summary["steps"][len(journal):]))
+            self.assertEqual(sdk.calls, ["auth", "demographics", "registration", "case_list",
+                "detail:NEW", "soap:NEW", "numeric:NEW", "detail:OLD", "soap:OLD", "numeric:OLD"])
+
+    def test_case_authentication_failure_stops_dependent_calls_and_keeps_outputs(self):
+        sdk = ProfileSDK()
+
+        def soap(case):
+            sdk.calls.append(f"soap:{case.case_no}")
+            raise AuthenticationError("synthetic authentication failure")
+
+        sdk.get_soap = soap
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = run_live_test(sdk, output_dir=root, download_assets=False)
+            history = json.loads((root / "parsed/visit_history.json").read_text("utf-8"))
+            self.assertEqual(result.status, "AUTHENTICATION_FAILED")
+            self.assertEqual(len(history["records"]), 1)
+            self.assertEqual(history["records"][0]["soap_status"], "ERROR")
+            self.assertEqual(history["records"][0]["numeric_status"], "SKIPPED")
+            self.assertEqual(sdk.calls, ["auth", "demographics", "registration", "case_list",
+                                        "detail:NEW", "soap:NEW"])
+            self.assertFalse((root / "parsed/soap_search.json").exists())
+            self.assertTrue((root / "run_summary.json").is_file())
+
+    def test_interrupted_case_keeps_completed_files_and_step_journal(self):
+        sdk = ProfileSDK()
+        original = sdk.get_soap
+
+        def soap(case):
+            if case == sdk.cases[1]:
+                raise KeyboardInterrupt
+            return original(case)
+
+        sdk.get_soap = soap
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(KeyboardInterrupt):
+                run_live_test(sdk, output_dir=root, download_assets=False)
+            journal = json.loads((root / "step_results.json").read_text("utf-8"))
+            self.assertEqual(journal[-1]["name"], "visit_0002_case_detail")
+            self.assertEqual(journal[-1]["status"], "OK")
+            self.assertTrue((root / "parsed/visit_history/cases/0001/soap.json").is_file())
+            self.assertTrue((root / "parsed/visit_history/cases/0001/numeric.json").is_file())
+            self.assertFalse((root / "parsed/visit_history/cases/0002/soap.json").exists())
+            self.assertFalse((root / "run_summary.json").exists())
+
     def test_core_fetches_only_latest_and_searches_without_another_request(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             sdk = ProfileSDK()

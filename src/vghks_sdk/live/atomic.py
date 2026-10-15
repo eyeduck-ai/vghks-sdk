@@ -10,7 +10,7 @@ from typing import Any
 
 from ..acquisition import assess_data
 from ..core.config import EarningsCredentials, SDKSettings
-from ..core.errors import AuthenticationError, ErrorInfo
+from ..core.errors import AuthenticationError, ConfigurationError, ErrorInfo
 from ..core.operations import OPERATIONS
 from ..core.readiness import AUTH_CHECK_REGISTRY, resolve_auth_targets
 from ..local_io import write_json_atomic
@@ -41,7 +41,8 @@ from ..workflows.patient_records import select_asset_orders
 from .config import LiveTestConfig
 from .preflight import independent_readiness, run_network_checks
 from .presets import SCAN_RECORD_QUERIES
-from .profile import (
+from .scenarios import diverse_sample, history_scenarios, reference_group
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,
@@ -49,7 +50,6 @@ from .profile import (
     _run_step,
     _target_ready,
 )
-from .scenarios import diverse_sample, history_scenarios, reference_group
 
 OPHTHALMOLOGY_QUERIES = (
     "prq.visit_cases",
@@ -788,7 +788,7 @@ def _query_inputs(
         ]
     elif spec.scope == "image":
         refs = [ref for study in values.get("prq.pacs_study", []) for ref in study.images]
-    else:
+    elif spec.scope == "pdf":
         # Prefer the explicit surgery-history source in a focused retest.
         # The same download operation also accepts report/upload attachments.
         refs = []
@@ -829,6 +829,10 @@ def _query_inputs(
         refs.extend(ref for soap in values.get("prq.soap", []) for ref in soap.scanned_pdf_refs)
         refs.extend(
             ref for report in values.get("prq.upload_history", []) for ref in report.pdf_refs
+        )
+    else:
+        raise ConfigurationError(
+            "query scope has no discovery handler", code="QUERY_DISCOVERY_UNSUPPORTED"
         )
     unique = list(dict.fromkeys(ref for ref in refs if ref is not None))
     if config.profile == "comprehensive":

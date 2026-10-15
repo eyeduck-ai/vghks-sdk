@@ -12,7 +12,7 @@ from ..core.errors import ConfigurationError, ParseError, RequestError, SDKError
 from ..core.operations import operation_spec
 from ..models import FormSnapshot, MutationReceipt, SurgeryCommand, SurgeryRecord
 from ..parsing.documents import parse_form
-from ..parsing.oppl import parse_oppl_payload, parse_surgery_records
+from ..parsing.oppl import mutation_acknowledged, parse_oppl_payload, parse_surgery_records
 from ..runtime import SDKRuntime
 from ..surgery_commands import prepare_command
 from .oppl_headers import oppl_ajax_headers
@@ -250,29 +250,3 @@ class OpplAdapter:
     def _url(self, path: str) -> str:
         base = urlsplit(self.runtime.settings.oppl_base_url)
         return f"{base.scheme}://{base.netloc}{path}"
-
-
-def mutation_acknowledged(key: str, payload: Any) -> bool:
-    if key == "oppl.create_schedule":
-        return (
-            isinstance(payload, dict)
-            and payload.get("msg") == "手術排程新增成功!!!"
-            and bool(payload.get("orreqno"))
-        )
-    if key == "oppl.create_consent":
-        return payload == "Y"
-    expected = {
-        "oppl.edit_schedule": "手術排程編輯成功!!!",
-        "oppl.cancel_schedule": "手術排程取消成功!!!",
-    }.get(key)
-    if not expected or not isinstance(payload, str):
-        return False
-    # Some HAR exporters decode UTF-8 text/plain as Windows-1252, including
-    # undefined control bytes. Recognize only the exact observed success text.
-    mojibake = "".join(
-        bytes([byte]).decode("cp1252", errors="replace")
-        if byte not in {0x81, 0x8D, 0x8F, 0x90, 0x9D}
-        else chr(byte)
-        for byte in expected.encode("utf-8")
-    )
-    return payload in {expected, mojibake, expected.encode("utf-8").decode("latin1")}

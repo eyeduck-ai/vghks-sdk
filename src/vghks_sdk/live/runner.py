@@ -24,12 +24,12 @@ from .bundle import LiveTestArchive, LiveTestBundleManager
 from .capture import RawCaptureRecorder
 from .config import LiveTestConfig
 from .environment import environment_report
-from .profile import (
+from .profile import run_live_test
+from .steps import (
     LIVE_TEST_MRN,
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,
-    run_live_test,
 )
 
 

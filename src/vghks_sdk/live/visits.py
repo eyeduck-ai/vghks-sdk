@@ -16,7 +16,7 @@ from ..models import VisitCase, VisitFilter, to_jsonable
 from ..queries import query_spec, run_query
 from .atomic import _classify, _counts, _write_coverage
 from .preflight import independent_readiness, run_network_checks
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

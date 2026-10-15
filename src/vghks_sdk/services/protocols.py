@@ -9,12 +9,13 @@ from typing import Protocol
 from ..extension_protocols import (
     AttendanceServiceProtocol,
     EarningsServiceProtocol,
-    PatientQueriesProtocol,
+    PatientServiceQueriesProtocol,
     PersonnelProtocol,
     ReviewsProtocol,
     SurgeryCasesProtocol,
     SurgeryQueriesProtocol,
 )
+from ..extension_protocols import PatientQueriesProtocol as PatientQueriesProtocol
 from ..models import (
     AuthCheckReport,
     BinaryAsset,
@@ -36,6 +37,7 @@ from ..models import (
     PacsImageRef,
     PacsStudy,
     PacsStudyRef,
+    PasswordStatus,
     PatientBasicInfo,
     PatientDemographics,
     PatientSurgeryRecord,
@@ -60,6 +62,9 @@ class AuthServiceProtocol(Protocol):
 
     def check(self, only: Sequence[str] | None = None) -> AuthCheckReport: ...
 
+    @property
+    def password_status(self) -> PasswordStatus: ...
+
 
 class PatientsServiceProtocol(Protocol):
     def get_basic_info(self, mrn: str) -> PatientBasicInfo: ...
@@ -73,7 +78,7 @@ class OpdServiceProtocol(Protocol):
     def get_doctor_patients(self, card_no: str, visit_date: date) -> list[OutpatientPatient]: ...
 
 
-class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
+class RecordsServiceProtocol(PatientServiceQueriesProtocol, Protocol):
     def get_visit_cases(
         self,
         mrn: str | None = None,
@@ -102,6 +107,10 @@ class RecordsServiceProtocol(PatientQueriesProtocol, Protocol):
     ) -> tuple[ScannedRecord, ...]: ...
 
     def get_upload_history(self, mrn: str, main_type: str = "", days: str = "*") -> UploadHistory: ...
+
+    def get_ophthalmology_scan_history(
+        self, mrn: str, days: str = "*"
+    ) -> tuple[ScannedRecord, ...]: ...
 
     def get_numeric_report(self, case: VisitCase) -> NumericReport: ...
 
@@ -149,7 +158,9 @@ class SurgeryServiceProtocol(SurgeryQueriesProtocol, SurgeryCasesProtocol, Proto
     def edit_schedule(self, command: SurgeryCommand) -> MutationReceipt: ...
     def cancel_schedule(self, command: SurgeryCommand) -> MutationReceipt: ...
     def create_consent(self, command: SurgeryCommand) -> MutationReceipt: ...
-    def get_schedule(self, card_no: str, start: date, end: date) -> list[SurgeryRecord]: ...
+    def get_schedule(
+        self, card_no: str, start: date, end: date, **filters: str
+    ) -> list[SurgeryRecord]: ...
 
 
 class AuditServiceProtocol(Protocol):

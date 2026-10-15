@@ -20,8 +20,6 @@ from bs4 import BeautifulSoup
 
 from .. import parsing
 from ..acquisition import assess_data
-from ..adapters.oppl import mutation_acknowledged
-from ..adapters.prq_extensions import parse_text_history, parse_upload_history
 from ..contracts.check import discover_har_files
 from ..contracts.har import BASELINE_CONTRACTS, HarEntry, HarSignature, load_har
 from ..core.config import SDKSettings
@@ -49,7 +47,7 @@ from ..parsing.attendance import (
     parse_attendance_state,
 )
 from ..parsing.documents import parse_form
-from ..parsing.oppl import OPPL_JSON_FIELDS, parse_oppl_payload
+from ..parsing.oppl import OPPL_JSON_FIELDS, mutation_acknowledged, parse_oppl_payload
 from ..parsing.personnel import parse_personnel_options, parse_personnel_records
 from ..parsing.portal import (
     has_portal_login_redirect,
@@ -59,6 +57,12 @@ from ..parsing.portal import (
     parse_password_status,
 )
 from ..parsing.prq import require_patient_context
+from ..parsing.prq_extensions import (
+    parse_patient_flags,
+    parse_text_history,
+    parse_upload_history,
+    parse_upload_types,
+)
 from ..parsing.review import (
     parse_login_info,
     parse_review_case,
@@ -660,15 +664,7 @@ def _parse(
     if key == "oppl.schedule_form":
         return parse_form(text, "openForm")
     if key == "prq.upload_types":
-        payload = json.loads(text)
-        _require(
-            isinstance(payload, list)
-            and all(
-                isinstance(row, dict) and {"maintp", "mainnm"}.issubset(row) for row in payload
-            ),
-            "UPLOAD_TYPES_INVALID",
-        )
-        return payload
+        return parse_upload_types(json.loads(text))
     if key in {
         "prq.allergy",
         "prq.advance_directives",
@@ -676,8 +672,6 @@ def _parse(
         "prq.bed_transfers",
         "prq.care_cases",
     }:
-        from ..adapters.prq_extensions import parse_patient_flags
-
         return parse_patient_flags(key, json.loads(text), mrn)
     if key == "prq.text_report_history":
         return parse_text_history(text, mrn, params.get("dept", ""))

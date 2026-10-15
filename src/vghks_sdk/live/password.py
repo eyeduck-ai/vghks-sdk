@@ -18,7 +18,7 @@ from ..queries import query_spec
 from ..sdk import VghksSDK
 from .defaults import SYNTHETIC_MRN
 from .login import password_post_budget
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

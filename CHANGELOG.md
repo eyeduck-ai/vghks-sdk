@@ -1,5 +1,20 @@
 # Changelog
 
+## 未發布
+
+- 補後續架構評估：保留現有分層，依合成 CPU profile 優先評估離線簽章索引與單次請求解析；登入證據共用及大型批次存檔需另量測，維持操作鎖、節流與中斷存檔。
+- 完成剩餘本機優化：PRQ／OPPL／審查 JSON 新增可選 TypedDict 與純轉換函式；保留原 Service 的 dict 回傳、未知欄位、來源值及錯誤碼，不增加 HTTP。
+- 登入拆為 Portal／應用 SSO／WebMAAS／共用傳輸組件，原 AuthenticationAdapter、AppSession、SsoForm 與共享狀態保留；不改密碼、審查與異動的送出／恢復規則。
+- 離線 ZIP 分析新增單次有界 JSON 快取與合成 benchmark；公開 Reader、目錄即時讀取、二進位及大小限制保留。600 筆合成案例的 JSON 解碼與追蹤記憶體下降，總耗時相近。
+- 修正測試中重現的 Windows 原子換檔拒絕：同一暫存檔最多短重試四次／140 ms，保留永久失敗及各入口錯誤碼；補原子性、位元組、清理與非適用錯誤回歸。
+- P2 模組責任拆分：離線分析分為組裝／證據摘要／呈現，live 分為編排／共用步驟／病人流程，PRQ 分為 context／就診／清單／報告附件；保留既有 API、相容匯入、操作鎖與請求流程。
+- 補跨 PRQ 操作的 context 隔離、審查後失敗不重播，以及 live 解析失敗續跑、登入停止與中斷存檔回歸。
+- EXE 共用驗證工具按現行目錄核對目標／查詢／異動排除，啟動前檢查所有來源為 localhost；隔離驗證不依賴既有測試 log。
+- P1 架構整理：PRQ 旗標／歷年清單及手術回覆判定移至純 Parser，保留舊 Adapter 匯入；上傳類型 schema 由 Adapter 與 offline 共用。
+- 補齊公開 Service Protocol，保留 Adapter 的 `reference` 與 Service 的 `ref`；查詢目錄新增輸入綁定檢查，沿用位置參數別名。
+- 全目錄新增合成 discovery／replay 接線回歸；未知 discovery scope 明確回報 `QUERY_DISCOVERY_UNSUPPORTED`，避免誤用 PDF 採樣。
+- 同一合成 ZIP 禁止 socket 比較完整報告與重測設定；P1／P2／P3 本機優化進度及尚待院內驗證的缺口見 OPTIMIZATION。
+
 ## 0.23.5
 
 - 0.23.4 批次掛號院內回傳確認 13 個病歷號全部完成、91 筆掛號中 9 筆有未到診圖示、82 筆到診狀態未知；24 種掛號來源代碼維持原值。13 份逐人 JSON 與原始回應禁止 socket 重解析完全一致，沒有病人混用或未恢復錯誤。

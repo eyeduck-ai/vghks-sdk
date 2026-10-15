@@ -14,7 +14,7 @@ from ..core.errors import AuthenticationError, ErrorInfo
 from ..local_io import write_json_atomic
 from ..models import RegistrationRecord, to_jsonable
 from ..sdk import VghksSDK
-from .profile import LiveTestResult, LiveTestStep, _overall_status, _run_step
+from .steps import LiveTestResult, LiveTestStep, _overall_status, _run_step
 
 
 def append_registration_comparison(

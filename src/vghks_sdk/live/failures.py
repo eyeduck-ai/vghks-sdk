@@ -33,7 +33,7 @@ from .failure_simulation import (
 from .login_simulation import SCENARIOS, run_scenario
 from .preflight import independent_readiness
 from .presets import FAILURE_QUERIES
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

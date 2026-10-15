@@ -13,7 +13,8 @@ from ..queries import query_spec, run_query
 from ..workflows.opd_soap import classify_opd_registration, select_registration_visits
 from .atomic import _write_coverage
 from .preflight import independent_readiness, run_network_checks
-from .profile import (
+from .scenarios import diverse_sample
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,
@@ -21,7 +22,6 @@ from .profile import (
     _run_step,
     _target_ready,
 )
-from .scenarios import diverse_sample
 
 
 def build_soap_plan(config: Any) -> dict[str, Any]:

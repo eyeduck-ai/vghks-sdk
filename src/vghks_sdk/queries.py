@@ -6,6 +6,8 @@ for session setup, patient/case context and the required UI preflights.
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
@@ -302,6 +304,34 @@ def run_query(sdk: Any, key: str, **inputs: Any) -> Any:
         )
     service = getattr(sdk, spec.service)
     return getattr(service, spec.method)(*(inputs[name] for name in spec.inputs))
+
+
+def validate_query_bindings(
+    service_types: Mapping[str, type], specs: Sequence[QuerySpec] = QUERY_SPECS
+) -> None:
+    """Check catalog calls against unbound Service methods, without executing them.
+
+    Primary inputs are positional and may use public aliases such as doctor_card.
+    Alternative inputs are passed as keywords, exactly as run_query does.
+    Service classes are supplied by tooling; SDK imports never load test tooling.
+    """
+    for spec in specs:
+        variants = (spec.inputs, *spec.alternative_inputs)
+        if any(len(names) != len(set(names)) for names in variants):
+            raise RuntimeError(f"query {spec.key} contains duplicate input names")
+        if len({frozenset(names) for names in variants}) != len(variants):
+            raise RuntimeError(f"query {spec.key} contains duplicate input variants")
+        try:
+            method = getattr(service_types[spec.service], spec.method)
+            signature = inspect.signature(method)
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
+            raise RuntimeError(f"query {spec.key} has no callable Service method") from exc
+        try:
+            signature.bind(None, *(object() for _ in spec.inputs))
+            for names in spec.alternative_inputs:
+                signature.bind(None, **dict.fromkeys(names, None))
+        except TypeError as exc:
+            raise RuntimeError(f"query {spec.key} inputs do not bind to {spec.sdk_method}") from exc
 
 
 class Queries:

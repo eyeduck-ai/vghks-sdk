@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from ..local_io import write_json_atomic
 from ..models import to_jsonable
 from ..queries import query_spec
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

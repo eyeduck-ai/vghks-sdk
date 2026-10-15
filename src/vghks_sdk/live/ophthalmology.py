@@ -14,7 +14,7 @@ from ..queries import run_query
 from ..workflows.order_reports import collect_order_reports, matching_order_terms
 from .atomic import _classify, _counts, _write_coverage
 from .preflight import independent_readiness, run_network_checks
-from .profile import (
+from .steps import (
     LIVE_TEST_SCHEMA_VERSION,
     LiveTestResult,
     LiveTestStep,

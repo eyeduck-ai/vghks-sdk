@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date
 
@@ -46,15 +47,20 @@ _DIAGNOSIS_ROW = re.compile(
     re.I,
 )
 _MEDICATION_COLUMNS = ("劑量", "單位", "途徑", "頻次", "天數", "總發藥量")
+_MEDICATION_HEADER = re.compile(r"^\s*藥\s*名")
 _ORDER_HEADER = re.compile(r"^\s*檢查驗項目\s+數量(?:\s+檢查驗項目\s+數量)*\s*$")
 _QUANTITY = re.compile(r"\s*(?P<quantity>\d+(?:\.\d+)?)(?=\s|$)")
 _EMPTY_TEXT = {"查無資料", "查無SOAP資料", "無SOAP資料"}
 _CHRONIC_NOTICE = "慢性病連續處方箋處方"
 _CHRONIC_PERIOD = re.compile(
-    r"^\s*慢性病連續處方箋處方\s*服藥期限\s*[:\uff1a]\s*"
+    r"^[\s◆]*服藥期限\s*:\s*"
     r"(?P<start>\d{4}[-/]\d{1,2}[-/]\d{1,2})\s*[\u223c\uff5e~至]\s*"
-    r"(?P<end>\d{4}[-/]\d{1,2}[-/]\d{1,2})(?=\s|◆|$)"
+    r"(?P<end>\d{4}[-/]\d{1,2}[-/]\d{1,2})(?=\s|◆|[(),;。]|健保(?:卡)?號碼|$)"
 )
+_PRINTED_MONTHS = re.compile(r"(?<!\w)(?:處方(?:期間|月數)\s*:\s*|共\s*)([1-9]\d?)\s*(?:個)?月")
+_PRINTED_PERIODS = re.compile(r"(?<!\w)(?:(?:處方)?期數\s*:\s*|(?:共|分)\s*)([1-9]\d?)\s*期")
+_PRINTED_DISPENSES = re.compile(r"(?<!\w)(?:領藥次數\s*:\s*|(?:共|分)\s*)([1-9]\d?)\s*次")
+_PRINTED_COUNT_PATTERNS = (_PRINTED_MONTHS, _PRINTED_PERIODS, _PRINTED_DISPENSES)
 
 
 def _label(text: str) -> str | None:
@@ -168,29 +174,119 @@ def _medications(text: str) -> tuple[list[SoapMedication], bool]:
     return result, failed
 
 
-def _chronic_periods(
-    preamble: str, source_block_index: int
-) -> tuple[list[SoapChronicPrescriptionPeriod], bool]:
-    periods: list[SoapChronicPrescriptionPeriod] = []
-    failed = False
-    for line in preamble.splitlines():
-        if not line.lstrip().startswith(_CHRONIC_NOTICE):
-            continue
-        match = _CHRONIC_PERIOD.match(line)
-        if match is None:
-            failed = True
-            continue
-        try:
-            start = date(*(int(part) for part in re.split(r"[-/]", match["start"])))
-            end = date(*(int(part) for part in re.split(r"[-/]", match["end"])))
-        except ValueError:
-            failed = True
-            continue
-        if end < start:
-            failed = True
-            continue
-        periods.append(SoapChronicPrescriptionPeriod(start, end, source_block_index, raw_text=line))
-    return periods, failed
+def _chronic_period(text: str, block_index: int) -> SoapChronicPrescriptionPeriod | None:
+    normalized = unicodedata.normalize("NFKC", text).removeprefix(_CHRONIC_NOTICE)
+    match = _CHRONIC_PERIOD.match(normalized)
+    if match is None:
+        return None
+    try:
+        start = date(*(int(part) for part in re.split(r"[-/]", match["start"])))
+        end = date(*(int(part) for part in re.split(r"[-/]", match["end"])))
+    except ValueError:
+        return None
+    if end < start:
+        return None
+
+    def printed(pattern: re.Pattern[str]) -> int | None:
+        counts = {int(count) for count in pattern.findall(normalized[match.end() :])}
+        return counts.pop() if len(counts) == 1 else None
+
+    return SoapChronicPrescriptionPeriod(
+        start, end, block_index, raw_text=text, printed_months=printed(_PRINTED_MONTHS),
+        printed_period_count=printed(_PRINTED_PERIODS),
+        printed_dispense_count=printed(_PRINTED_DISPENSES),
+    )
+
+
+class _MedicationParser:
+    def __init__(self, unclassified: list[str], issues: list[str]):
+        self.unclassified, self.issues = unclassified, issues
+        self.rows: list[SoapMedication] = []
+        self.periods: list[SoapChronicPrescriptionPeriod] = []
+        self.incomplete: set[int] = set()
+        self.pending: tuple[str, int | None] | None = None
+
+    def block(self, text: str, block_index: int, *, allow_preamble: bool = False) -> bool | None:
+        """Return table presence, or None if the block was not a medication summary."""
+        lines = text.lstrip().splitlines()
+        starts = [i for i, line in enumerate(lines) if _MEDICATION_HEADER.match(line)
+                  or line.lstrip().startswith(_CHRONIC_NOTICE)]
+        pending, self.pending = self.pending, None
+        if not starts or (starts[0] and not allow_preamble):
+            return None
+        if starts[0]:
+            self.unclassified.append("\n".join(lines[: starts[0]]).strip())
+        kind, period_index = pending if pending is not None and not starts[0] else ("regular", None)
+        has_table = False
+        for start, stop in zip(starts, [*starts[1:], len(lines)]):
+            if lines[start].lstrip().startswith(_CHRONIC_NOTICE):
+                notice = "\n".join(lines[start:stop]).strip()
+                self.unclassified.append(notice)
+                period = _chronic_period(notice, block_index)
+                kind, period_index = "chronic", None
+                if period is None:
+                    self.issues.append("SOAP_CHRONIC_PRESCRIPTION_PERIOD_UNRECOGNIZED")
+                else:
+                    period_index = len(self.periods)
+                    self.periods.append(period)
+                # A notice in its own <pre> applies only to the next adjacent table.
+                if stop == len(lines):
+                    self.pending = (kind, period_index)
+                continue
+
+            has_table = True
+            table = "\n".join(lines[start:stop]).lstrip()
+            header = table.splitlines()[0]
+            if all(header.count(key) == 1 for key in _MEDICATION_COLUMNS):
+                rows, failed = _medications(table)
+                self.rows.extend(replace(row, prescription_type=kind, chronic_period_index=period_index)
+                                 for row in rows)
+                if failed:
+                    self.issues.append("SOAP_MEDICATION_ROW_UNRECOGNIZED")
+            else:
+                failed = True
+                self.unclassified.append(table)
+                self.issues.append("SOAP_MEDICATION_HEADER_UNRECOGNIZED")
+            if failed and period_index is not None:
+                self.incomplete.add(period_index)
+        return has_table
+
+    def with_estimates(self) -> tuple[SoapChronicPrescriptionPeriod, ...]:
+        day_values: dict[int, set[str]] = {}
+        for row in self.rows:
+            if row.chronic_period_index is not None:
+                day_values.setdefault(row.chronic_period_index, set()).add(
+                    unicodedata.normalize("NFKC", row.days)
+                )
+        periods = []
+        for index, period in enumerate(self.periods):
+            days = day_values.get(index, set())
+            has_printed_count = any(pattern.search(unicodedata.normalize("NFKC", period.raw_text))
+                                    for pattern in _PRINTED_COUNT_PATTERNS)
+            if index not in self.incomplete and len(days) == 1 and not has_printed_count:
+                value = next(iter(days))
+                if re.fullmatch(r"[0-9]{2}", value) and 28 <= (cycle_days := int(value)) <= 31:
+                    cycles, remainder = divmod((period.end_date - period.start_date).days, cycle_days)
+                    if cycles in {2, 3} and remainder == 0:
+                        period = replace(period, estimated_cycles=cycles, estimated_cycle_days=cycle_days)
+            periods.append(period)
+        return tuple(periods)
+
+
+def parse_soap_medications(blocks: Iterable[str]) -> tuple[
+    tuple[SoapMedication, ...], tuple[SoapChronicPrescriptionPeriod, ...], tuple[str, ...]
+]:
+    """Reparse saved SOAP text without requests; only use blocks with explicit leading headings.
+
+    The original HTML section labels are unavailable here. Use parse_soap for HTML
+    and retain prior row order if projecting metadata onto an existing snapshot.
+    """
+    issues: list[str] = []
+    parser = _MedicationParser([], issues)
+    for index, text in enumerate(blocks):
+        if text.strip():
+            parser.block(text, index)
+    return tuple(parser.rows), parser.with_estimates(), tuple(dict.fromkeys(issues))
 
 
 def _orders(text: str) -> tuple[list[SoapOrder], bool]:
@@ -252,8 +348,7 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
     issues: list[str] = []
     diagnoses: list[SoapDiagnosis] = []
     orders: list[SoapOrder] = []
-    medications: list[SoapMedication] = []
-    chronic_periods: list[SoapChronicPrescriptionPeriod] = []
+    medication_parser = _MedicationParser(unclassified, issues)
     for node in nodes:
         text = normalize_multiline_text(node.get_text("", strip=False))
         if text.strip():
@@ -263,6 +358,7 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
         if inline:
             code = _label(inline[1])
         if code:
+            medication_parser.pending = None
             present.append(code)
             texts.setdefault(code, []).append(text[inline.end() :] if inline else text)
             continue
@@ -272,37 +368,14 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
         lines = text.lstrip().splitlines()
         header = lines[0]
         if _DIAGNOSIS_HEADER.match(stripped):
+            medication_parser.pending = None
             present.append("DIAGNOSES")
             rows, failed = _diagnoses(text)
             diagnoses.extend(rows)
             if failed:
                 issues.append("SOAP_DIAGNOSIS_ROW_UNRECOGNIZED")
-        elif (medication_header_index := next(
-            (index for index, line in enumerate(lines) if re.match(r"^\s*藥\s*名", line)),
-            None,
-        )) is not None:
-            # Some SOAP printouts put a prescription notice above the column
-            # header inside the same <pre>. Keep that notice, then parse the
-            # explicitly labelled table; never infer medication from prose.
-            preamble = "\n".join(lines[:medication_header_index]).strip()
-            if preamble:
-                unclassified.append(preamble)
-                periods, failed = _chronic_periods(preamble, len(blocks) - 1)
-                chronic_periods.extend(periods)
-                if failed:
-                    issues.append("SOAP_CHRONIC_PRESCRIPTION_PERIOD_UNRECOGNIZED")
-            medication_text = "\n".join(lines[medication_header_index:]).lstrip()
-            medication_header = medication_text.splitlines()[0]
-            present.append("MEDICATIONS")
-            if not all(medication_header.count(key) == 1 for key in _MEDICATION_COLUMNS):
-                issues.append("SOAP_MEDICATION_HEADER_UNRECOGNIZED")
-                unclassified.append(medication_text)
-                continue
-            prescriptions, failed = _medications(medication_text)
-            medications.extend(prescriptions)
-            if failed:
-                issues.append("SOAP_MEDICATION_ROW_UNRECOGNIZED")
         elif header.startswith("檢查驗項目"):
+            medication_parser.pending = None
             present.append("ORDERS")
             if not _ORDER_HEADER.fullmatch(header):
                 issues.append("SOAP_ORDER_HEADER_UNRECOGNIZED")
@@ -313,7 +386,11 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
             if failed:
                 issues.append("SOAP_ORDER_ROW_UNRECOGNIZED")
         else:
-            unclassified.append(text)
+            has_table = medication_parser.block(text, len(blocks) - 1, allow_preamble=True)
+            if has_table:
+                present.append("MEDICATIONS")
+            elif has_table is None:
+                unclassified.append(text)
     if blocks and not present:
         issues.append("SOAP_SECTIONS_UNRECOGNIZED")
 
@@ -332,10 +409,10 @@ def parse_soap(html_text: str, case: VisitCase) -> SoapRecord:
         plan=section("P"),
         diagnoses=tuple(diagnoses),
         orders=tuple(orders),
-        medications=tuple(medications),
+        medications=tuple(medication_parser.rows),
         present_sections=tuple(dict.fromkeys(present)),
         unclassified_blocks=tuple(unclassified),
         parsing_issues=tuple(dict.fromkeys(issues)),
-        chronic_prescription_periods=tuple(chronic_periods),
+        chronic_prescription_periods=medication_parser.with_estimates(),
         scanned_pdf_refs=scanned_pdf_refs,
     )

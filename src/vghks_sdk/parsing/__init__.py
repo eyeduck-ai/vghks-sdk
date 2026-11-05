@@ -21,6 +21,7 @@ from .prq import (
     parse_soap,
     parse_visit_cases,
 )
+from .soap import parse_soap_medications
 from .webmaas import (
     find_next_displaytag_href,
     parse_patient_basic_info,
@@ -45,6 +46,7 @@ __all__ = [
     "parse_patient_identity",
     "parse_registration_records",
     "parse_soap",
+    "parse_soap_medications",
     "parse_surgery_history",
     "parse_surgery_records",
     "parse_treatments",

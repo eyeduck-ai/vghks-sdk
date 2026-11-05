@@ -205,6 +205,8 @@ class SoapMedication:
     days: str
     total_quantity: str
     raw_text: str = ""
+    prescription_type: str | None = None  # regular/chronic when identified in the printout.
+    chronic_period_index: int | None = None  # Index in the record's chronic_prescription_periods.
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +218,11 @@ class SoapChronicPrescriptionPeriod:
     source_block_index: int
     source_label: str = "服藥期限"
     raw_text: str = ""
+    printed_months: int | None = None
+    printed_period_count: int | None = None
+    printed_dispense_count: int | None = None
+    estimated_cycles: int | None = None
+    estimated_cycle_days: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,7 +4,7 @@ import json
 import os
 import unittest
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 from html import escape
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +18,7 @@ from vghks_sdk.contracts.har import load_har
 from vghks_sdk.core.errors import ConfigurationError, ParseError
 from vghks_sdk.models import SoapRecord, VisitCase, to_jsonable
 from vghks_sdk.offline.replay import replay_response
+from vghks_sdk.parsing import parse_soap_medications
 from vghks_sdk.parsing.prq import parse_soap
 from vghks_sdk.services.records import RecordsService
 
@@ -30,10 +31,10 @@ def pre(text: str) -> str:
     return f'<div class="soap"><pre>{escape(text)}</pre></div>'
 
 
-def medication(name: str = "SYNTHETIC DROP", *, chinese: bool = False) -> str:
+def medication(name: str = "SYNTHETIC DROP", *, chinese: bool = False, days: str = "7") -> str:
     # Public synthetic data, using the displayed column widths seen in HAR.
     padding = 32 - len(name) - (sum(ord(c) > 127 for c in name) if chinese else 0)
-    return name + " " * padding + f"{'1':<7}{'DROP':<5}{'OU':<5}{'BID':<7}{'7':<6}1.00"
+    return name + " " * padding + f"{'1':<7}{'DROP':<5}{'OU':<5}{'BID':<7}{days:<6}1.00"
 
 
 def order(name: str, quantity: str) -> str:
@@ -145,6 +146,71 @@ class StructuredSoapTests(unittest.TestCase):
         self.assertEqual(len(record.medications), 2)
         self.assertEqual(record.parsing_issues, ())
 
+    def test_mixed_prescriptions_keep_printed_row_order_and_replay_locally(self):
+        notice = "慢性病連續處方箋處方　服藥期限：２０２６／０９／２１ ∼ ２０２６／１２／１４　◆健保號碼：************"
+        rows = (medication(), medication("SYNTHETIC CHRONIC A", days="28"),
+                medication("SYNTHETIC CHRONIC B", days="28"))
+        text = "\n".join((MEDICATION_HEADER, rows[0], notice, MEDICATION_HEADER, rows[1],
+                          MEDICATION_HEADER, rows[2]))
+        record = parse_soap('<div id="data">' + pre("S: synthetic") + pre(text) + "</div>", CASE)
+        self.assertEqual([row.raw_text for row in record.medications], list(rows))
+        self.assertEqual([row.prescription_type for row in record.medications],
+                         ["regular", "chronic", "chronic"])
+        self.assertEqual([row.chronic_period_index for row in record.medications], [None, 0, 0])
+        self.assertEqual(record.parsing_issues, ())
+        self.assertEqual(record.unclassified_blocks, (notice,))
+        self.assertEqual(record.blocks[1], text)
+        period, = record.chronic_prescription_periods
+        self.assertEqual((period.start_date, period.end_date), (date(2026, 9, 21), date(2026, 12, 14)))
+        self.assertEqual((period.source_block_index, period.raw_text), (1, notice))
+        self.assertEqual((period.estimated_cycles, period.estimated_cycle_days), (3, 28))
+        self.assertIsNone(period.printed_dispense_count)
+        self.assertEqual(parse_soap_medications(record.blocks),
+                         (record.medications, record.chronic_prescription_periods, ()))
+
+    def test_estimates_need_an_exact_complete_and_consistent_monthly_group(self):
+        start = date(2026, 9, 21)
+        for elapsed, days, broken, expected in (
+            (56, ("28", "28"), False, (2, 28)),
+            (90, ("30", "30"), False, (3, 30)),
+            (83, ("28", "28"), False, (None, None)),
+            (84, ("28", "30"), False, (None, None)),
+            (84, ("28", ""), False, (None, None)),
+            (84, ("28", "28"), True, (None, None)),
+            (42, ("14", "14"), False, (None, None)),
+            (112, ("28", "28"), False, (None, None)),
+        ):
+            with self.subTest(elapsed=elapsed, days=days, broken=broken):
+                notice = f"慢性病連續處方箋處方 服藥期限:{start}~{start + timedelta(days=elapsed)}"
+                text = "\n".join((notice, MEDICATION_HEADER, medication("SYNTHETIC A", days=days[0]),
+                                  medication("SYNTHETIC B", days=days[1])))
+                if broken:
+                    text += "\nSYNTHETIC UNKNOWN MEDICATION ROW"
+                rows, (period,), issues = parse_soap_medications([text])
+                self.assertEqual(len(rows), 2)
+                self.assertEqual((period.estimated_cycles, period.estimated_cycle_days), expected)
+                self.assertEqual(issues, ("SOAP_MEDICATION_ROW_UNRECOGNIZED",) if broken else ())
+
+    def test_explicit_prescription_counts_and_adjacent_blocks_stay_distinct(self):
+        notice = ("慢性病連續處方箋處方　服藥期限：2026/09/21 ∼ 2026/12/14\n"
+                  "◆處方月數：３個月　◆分３期　◆領藥次數：３次")
+        table = MEDICATION_HEADER + "\n" + medication(days="28")
+        blocks = (notice, table, "S: synthetic", table)
+        rows, (period,), issues = parse_soap_medications(blocks)
+        self.assertEqual(issues, ())
+        self.assertEqual([row.prescription_type for row in rows], ["chronic", "regular"])
+        self.assertEqual([row.chronic_period_index for row in rows], [0, None])
+        self.assertEqual((period.printed_months, period.printed_period_count, period.printed_dispense_count), (3, 3, 3))
+        self.assertEqual((period.estimated_cycles, period.estimated_cycle_days), (None, None))
+        record = parse_soap('<div id="data">' + "".join(pre(block) for block in blocks) + "</div>", CASE)
+        self.assertEqual((record.medications, record.chronic_prescription_periods), (rows, (period,)))
+
+    def test_text_replay_does_not_search_medication_headings_inside_prose(self):
+        text = "This may be S or O in the HTML\n" + MEDICATION_HEADER + "\n" + medication()
+        self.assertEqual(parse_soap_medications([text]), ((), (), ()))
+        source = '<div id="data"><table><tr><th>S:</th><td>' + pre(text) + '</td></tr></table></div>'
+        self.assertEqual(parse_soap(source, CASE).medications, ())
+
     def test_malformed_chronic_dates_are_reported_without_losing_medications(self):
         notices = (
             "慢性病連續處方箋處方 服藥期限:2026/09/21 ∼ 2026/13/14",
@@ -158,6 +224,8 @@ class StructuredSoapTests(unittest.TestCase):
                 ) + "</div>"
                 record = parse_soap(source, CASE)
                 self.assertEqual(len(record.medications), 1)
+                self.assertEqual(record.medications[0].prescription_type, "chronic")
+                self.assertIsNone(record.medications[0].chronic_period_index)
                 self.assertEqual(record.chronic_prescription_periods, ())
                 self.assertEqual(record.unclassified_blocks, (notice,))
                 self.assertEqual(record.parsing_issues, (

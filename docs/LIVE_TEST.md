@@ -1,5 +1,7 @@
 # 內網測試 EXE
 
+原生 PACS 開啟使用獨立的 `dist/vghks-pacs-launch-test.exe`。雙擊後輸入帳密與病歷號，程式查詢近 4000 天醫囑、分批確認 PACS 按鈕，選號後交接 DownloadApp 並保存結果；不必輸入 reqno。`--prepare-only` 可只取得資訊，非互動舊用法仍須明確指定檢查單號。此程式不屬於下方 `pacs` JPEG 下載計畫，操作、回傳及建置見 [PACS_LAUNCH_TEST](PACS_LAUNCH_TEST.md)。
+
 雙擊 `dist/vghks-live-test.exe` 使用建置時選定的計畫。只需搬一個 EXE，不讀旁邊過時的設定檔。建置工具預設 comprehensive，可用 `--default-profile registrations`、`pacs`、`dbr`、`ophthalmology`、`password`、`session`、`failures`、`scans`、`regression`、`login`、`visits` 或 `soap` 選擇專項版本；先用 `--plan` 檢視範圍。
 
 批次掛號 EXE 的雙擊預設為 `registrations`。輸入 Portal 帳密及病歷號清單後，依序保存全部掛號、未到診圖示與原始掛號人員代碼。`pacs`、`dbr`、`password`、`session` 等專項可明確選用。各版本的院內與本機證據分別列於驗證文件。[VALIDATION](VALIDATION.md)

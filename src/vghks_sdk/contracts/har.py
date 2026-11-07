@@ -43,7 +43,7 @@ from ..parsing.assets import MAX_BINARY_ASSET_BYTES
 from ..parsing.portal import parse_login_target
 
 _OPERATION_KEYS = frozenset(
-    {"method", "ordertype", "reqCode", "querymethod", "queryType", "qryType", "Use", "type"}
+    {"method", "ordertype", "reqCode", "querymethod", "queryType", "qryType", "Use", "type", "LoginLevel"}
 )
 _SYNTHETIC_CASE = VisitCase(
     mrn="CONTRACT",

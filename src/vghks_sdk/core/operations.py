@@ -57,6 +57,17 @@ def _spec(
 
 
 OPERATIONS: tuple[OperationSpec, ...] = (
+    _spec(
+        "smartwonder.launch_bootstrap", "smartwonder", "GET",
+        "/SmartWonderRAD/Query/qryExternalAP.jsp",
+        query=("LoginID", "PatID", "AccNo", "LoginLevel"),
+        values=(("LoginLevel", "RAD"),), contract_required=False,
+    ),
+    _spec(
+        "smartwonder.launch_viewer", "smartwonder", "GET",
+        "/SmartWonderRAD/Viewer/vwrIris.jsp",
+        query=("LoginID", "WonderClientIP"), contract_required=False,
+    ),
     _spec("portal.entry", "portal", "GET", "/index.do", contract_required=False),
     _spec(
         "portal.login",
@@ -903,7 +914,7 @@ def validate_operation_registry() -> None:
     if len(OPERATION_BY_KEY) != len(OPERATIONS):
         raise RuntimeError("operation registry contains duplicate keys")
     signatures: set[tuple[object, ...]] = set()
-    allowed_values = {"method", "reqCode", "querymethod", "queryType", "qryType", "Use", "type"}
+    allowed_values = {"method", "reqCode", "querymethod", "queryType", "qryType", "Use", "type", "LoginLevel"}
     for spec in OPERATIONS:
         if spec.method not in {"GET", "POST"}:
             raise RuntimeError(f"operation {spec.key} has an unsupported method")

@@ -32,6 +32,7 @@ tmp/
 /diagnostics/
 live-test/
 live-test-results/
+pacs-launch-results/
 captures/
 *.vghks-live.zip
 credentials*.json

@@ -28,6 +28,9 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any]) -> dict[str, 
 
 
 def _markdown(report: dict[str, Any]) -> str:
+    if report.get("profile") == "pacs_launch":
+        from .pacs_launch_report import pacs_launch_markdown
+        return pacs_launch_markdown(report)
     root = report["root_cause"]
     lines = [
         "# 內網測試回傳分析",

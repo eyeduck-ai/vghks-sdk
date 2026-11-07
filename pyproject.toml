@@ -26,6 +26,7 @@ dependencies = [
 [project.scripts]
 vghks-sdk = "vghks_sdk.cli:main"
 vghks-live-test = "vghks_sdk.live_test_app:main"
+vghks-pacs-launch-test = "vghks_sdk.live.pacs_launch:main"
 
 [project.optional-dependencies]
 build = ["PyInstaller==6.14.2"]

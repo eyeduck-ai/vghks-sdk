@@ -23,6 +23,7 @@ class PublicTreeTests(unittest.TestCase):
             "dist/report.zip",
             "output/diagnostics/result.json",
             "docs/patient.har",
+            "pacs-launch-results/runs/example/run_config.json",
         ):
             with self.subTest(path=path):
                 self.assertTrue(guard.check_content(path, b"{}"))

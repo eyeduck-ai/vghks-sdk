@@ -220,7 +220,7 @@ else:
         for forbidden in ("PortalCredentials", "SDKSettings", "VghksSDK", "requests."):
             self.assertNotIn(forbidden, contract_source)
 
-    def test_testing_namespace_is_gone_and_capture_is_only_assembled_by_live_runner(self) -> None:
+    def test_testing_namespace_is_gone_and_capture_is_only_assembled_by_live_runners(self) -> None:
         self.assertIsNone(importlib.util.find_spec("vghks_sdk.testing"))
         importers: list[str] = []
         for path in PACKAGE.rglob("*.py"):
@@ -228,7 +228,12 @@ else:
                 continue
             if "RawCaptureRecorder" in path.read_text(encoding="utf-8"):
                 importers.append(path.relative_to(PACKAGE).as_posix())
-        self.assertEqual(importers, ["live/runner.py"])
+        # Native PACS has an explicit standalone runner, separate from the
+        # automatic read-only profiles. Core SDK imports still cannot assemble
+        # a filesystem recorder.
+        self.assertEqual(sorted(importers), [
+            "live/pacs_launch.py", "live/pacs_launch_capture.py", "live/runner.py",
+        ])
 
     def test_version_has_one_runtime_source(self) -> None:
         self.assertRegex(__version__, r"^\d+\.\d+\.\d+$")

@@ -80,6 +80,7 @@ from ..parsing.surgery_cases import (
 from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form, registration_counts
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
+from .pacs_launch import PACS_PREPARATION_OPERATIONS, PacsLaunchReplay
 from .requests import captured_request_parts, identify_parts, is_registration_page
 from .requests import identify_operation as identify_operation
 from .requests import request_parts as request_parts
@@ -99,6 +100,7 @@ def _patient_context_confirmed(content: bytes, mime: str) -> bool:
 
 
 def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
+    pacs_replay = PacsLaunchReplay()
     summary = reader.json("run_summary.json")
     context_mrn = str(summary.get("test_mrn") or "")
     context_national_id = ""
@@ -156,6 +158,14 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             # Displaytag may omit patno on subsequent pages. Use only a
             # successful POST from this recorded operation and origin.
             params = {"patno": query.get("patno", registration_mrn)}
+        pacs_scope = str(row.get("sdk_operation_id") or "")
+        if pacs_scope:
+            pacs_scope += "|" + address.scheme + "://" + address.netloc
+        pacs_replay.begin(
+            "smartwonder.launch_bootstrap"
+            if path == OPERATION_BY_KEY["smartwonder.launch_bootstrap"].path else operation,
+            pacs_scope,
+        )
         if operation in {"portal.entry", "portal.login"}:
             portal_base = urlunsplit((address.scheme, address.netloc, "", "", ""))
         group = str(row.get("request_group_id") or "")
@@ -238,6 +248,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
+            or operation in PACS_PREPARATION_OPERATIONS
             or operation in {"prq.patient_identity", "prq.access_review", "webmaas.basic_info_landing"}
         ):
             body_path = row.get("response_file")
@@ -262,6 +273,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         response_url=str(response.get("url") or request.get("url", "")),
                         portal_base_url=portal_base,
                         webmaas_base_url=webmaas_base,
+                        pacs_replay=pacs_replay,
+                        pacs_scope=pacs_scope,
                     )
                 )
                 if (
@@ -299,6 +312,7 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
     files, _ = discover_har_files(input_path)
     rows = []
     for archive_index, path in enumerate(files, 1):
+        pacs_replay = PacsLaunchReplay()
         archive = load_har(path)
         raw_entries = json.loads(path.read_text(encoding="utf-8-sig"))["log"]["entries"]
         context_mrn = ""
@@ -315,6 +329,15 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
             method, request_path, query, form = request_parts(request)
             operation = identify_parts(method, request_path, query, form)
             params = {**query, **form}
+            pacs_scope = str(raw.get("pageref") or "")
+            if pacs_scope:
+                address = urlsplit(original["url"])
+                pacs_scope += "|" + address.scheme + "://" + address.netloc
+            pacs_replay.begin(
+                "smartwonder.launch_bootstrap"
+                if request_path == OPERATION_BY_KEY["smartwonder.launch_bootstrap"].path else operation,
+                pacs_scope,
+            )
             if request_path.endswith("/QueryPatientRecord.do"):
                 visit_context_ready = False
                 context_hid = params.get("hid", "")
@@ -352,7 +375,8 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                 context_mrn = params.get("hhisnum") or params["patno"]
             if operation not in QUERY_BY_KEY and not (
                 operation
-                and (OPERATION_BY_KEY[operation].mutates or operation == "prq.patient_identity")
+                and (OPERATION_BY_KEY[operation].mutates or operation == "prq.patient_identity"
+                     or operation in PACS_PREPARATION_OPERATIONS)
             ):
                 continue
             if not 200 <= entry.response_status < 300:
@@ -391,6 +415,8 @@ def replay_hars(input_path: Path, *, output_path: Path) -> dict[str, Any]:
                     context_hid=context_hid,
                     context_national_id=context_national_id,
                     trusted_visit_context=visit_context_ready,
+                    pacs_replay=pacs_replay,
+                    pacs_scope=pacs_scope,
                 )
                 if operation == "prq.patient_identity":
                     context_mrn = (
@@ -440,8 +466,12 @@ def replay_response(
     response_url: str = "",
     portal_base_url: str = "https://portal.vghks.gov.tw",
     webmaas_base_url: str = SDKSettings().webmaas_base_url,
+    pacs_replay: PacsLaunchReplay | None = None,
+    pacs_scope: str = "",
 ) -> dict[str, Any]:
     notice: dict[str, Any] = {}
+    if pacs_replay is not None:
+        pacs_replay.begin(operation, pacs_scope)
     try:
         if not content and operation != "portal.login":
             return {
@@ -451,6 +481,10 @@ def replay_response(
             }
         entry = HarEntry("", "", frozenset(), frozenset(), {}, 200, content, mime)
         text = "" if binary_asset_media_type(content) else entry.text()
+        if operation in PACS_PREPARATION_OPERATIONS:
+            return (pacs_replay or PacsLaunchReplay()).replay(
+                operation, text, params, scope=pacs_scope,
+            )
         if text:
             password_status = parse_password_status(text, login_stage=operation == "portal.login")
             if password_status.status != "NO_NOTICE":

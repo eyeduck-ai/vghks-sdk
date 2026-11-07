@@ -38,6 +38,7 @@ from ..models import (
     TreatmentRecord,
     VisitCase,
 )
+from ..models.pacs_launch import PacsLaunchRef
 from .common import normalize_inline_text, strip_markup
 
 _ORDER_VARIABLES = {"orderStr", "qrcodeStr", "mydate", "rcpDt", "orspDept"}
@@ -78,6 +79,12 @@ def parse_clinical_orders(
                     "order constructor contained an unsupported expression",
                     code="PRQ_ORDER_EXPRESSION_UNSUPPORTED",
                 )
+            launch_refs = _pacs_launch_refs_from_source(
+                "".join(value or "" for value in values), expected_mrn=mrn
+            )
+            if len(launch_refs) > 1:
+                raise ParseError("order has multiple PACS launch references",
+                                 code="PACS_LAUNCH_REF_AMBIGUOUS")
             navigation_ref = detail_ref or report_ref
             resolved_case_no = (
                 navigation_ref.case_no
@@ -107,6 +114,7 @@ def parse_clinical_orders(
                 report_ref=report_ref,
                 pacs_ref=pacs_ref,
                 pdf_refs=_pdf_refs_from_source(source, expected_mrn=mrn),
+                pacs_launch_ref=launch_refs[0] if launch_refs else None,
             )
             if not order.name or order.identity in seen:
                 continue
@@ -387,6 +395,7 @@ def parse_order_detail(html_text: str, *, reference: OrderDetailRef) -> OrderDet
         report_refs=tuple(item for item in refs if isinstance(item, OrderReportRef)),
         pacs_refs=_pacs_refs_from_source(html_text, expected_mrn=reference.mrn),
         pdf_refs=_pdf_refs_from_source(html_text, expected_mrn=reference.mrn),
+        pacs_launch_refs=_pacs_launch_refs_from_source(html_text, expected_mrn=reference.mrn),
     )
 
 
@@ -398,6 +407,7 @@ def parse_order_report(html_text: str, *, reference: OrderReportRef) -> OrderRep
     report_text, extraction_notes = extract_report_text(soup)
     pdf_refs = _pdf_refs_from_source(html_text, expected_mrn=reference.mrn)
     pacs_refs = _pacs_refs_from_source(html_text, expected_mrn=reference.mrn)
+    launch_refs = _pacs_launch_refs_from_source(html_text, expected_mrn=reference.mrn)
     if not fields and not report_text and not pdf_refs and not pacs_refs:
         # The server explicitly reports no data outside an empty rptDiv/data
         # container. Require its current-patient marker, not a generic blank page.
@@ -428,6 +438,7 @@ def parse_order_report(html_text: str, *, reference: OrderReportRef) -> OrderRep
             else "METADATA_ONLY"
         ),
         text_extraction_notes=extraction_notes,
+        pacs_launch_refs=launch_refs,
     )
 
 
@@ -557,6 +568,31 @@ def _order_refs_from_source(
         except ConfigurationError as exc:
             raise ParseError("order navigation reference was unsafe", code=exc.info.code) from exc
     return tuple(output)
+
+
+def _pacs_launch_refs_from_source(source: str, *, expected_mrn: str) -> tuple[PacsLaunchRef, ...]:
+    """Only the native PACS button supplies a launch reference, never JPG links."""
+
+    soup = BeautifulSoup(source, "html.parser")
+    for node in soup.select("script, style, template"):
+        node.decompose()
+    refs: list[PacsLaunchRef] = []
+    for node in soup.select("button#pacsBtn"):
+        if node.get("disabled") is not None:
+            continue
+        mrn = str(node.get("hhisnum", "")).strip()
+        request_no = str(node.get("reqno", "")).strip()
+        if not mrn or not request_no:
+            raise ParseError("PACS launch button is incomplete", code="PACS_LAUNCH_REF_INCOMPLETE")
+        if mrn != expected_mrn:
+            raise ParseError("PACS launch button patient mismatch", code="PACS_LAUNCH_REF_MRN_MISMATCH")
+        try:
+            reference = PacsLaunchRef(mrn, request_no)
+        except ConfigurationError as exc:
+            raise ParseError("unsafe PACS launch button", code=exc.info.code) from exc
+        if reference not in refs:
+            refs.append(reference)
+    return tuple(refs)
 
 
 def _pacs_refs_from_source(source: str, *, expected_mrn: str) -> tuple[PacsStudyRef, ...]:

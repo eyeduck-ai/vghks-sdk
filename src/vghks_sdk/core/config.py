@@ -102,6 +102,7 @@ class SDKSettings:
     profiles: Mapping[str, AppProfile] = field(default_factory=dict)
     auto_tls: bool = True
     allow_unverified_tls: bool = True
+    smartwonder_base_url: str = "http://pacswonder.vghks.gov.tw:8080/SmartWonderRAD"
 
     def __post_init__(self) -> None:
         if type(self.auto_tls) is not bool or type(self.allow_unverified_tls) is not bool:

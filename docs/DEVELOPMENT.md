@@ -143,17 +143,20 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 
 | 路徑／類型 | 保留與清理方式 |
 | --- | --- |
-| `data/recordings/`、`data/returns/` | 原始 HAR 與院內回傳 ZIP。若原件還在 EXE 旁，先保全原件，再核對原始雜湊與對應分析 |
-| `private/` | 本機檢閱、denylist 及自用建置參數 |
-| `dist/vghks-live-test.exe`、`output/build-info.json` | 現行 Windows 測試器及其 `build_id`、SDK 版本和預設計畫 |
-| `output/package/` | 目前工作樹建置並通過封包檢查的 wheel／sdist |
-| `output/verification/` | 整理後的合成驗證總結、效能量測及清理清單。驗證工具執行時先把報告寫到 `output/` |
-| `output/` 的院內分析與私有回歸 | 保留能支持院內驗證結論的紀錄，尤其是原始回傳已不在本機的情況 |
-| `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/`、`output/test-tmp/` | 可重建的建置或測試暫存。`output/build-tools/` 可暫存本機建置依賴，供同一環境重建套件 |
+| `data/`、`dist/` 的 HAR | 保留原檔；離線分析不得改寫，可用 manifest 歸檔 |
+| 院內回傳 ZIP／解壓目錄 | 分析完成前保留；問題已解決且使用者明確授權後可刪，先保存不含識別資料的結論、原檔 hash 與刪除清單 |
+| `private/` | 保留人工檢閱、denylist 及建置參數，不公開 |
+| `output/` 的院內分析與私有回歸結果 | 保留仍支撐驗證結論的紀錄；原始回傳已不在本機時，不因舊版本而刪除剩餘證據 |
+| `dist/vghks-live-test.exe`、`output/build-info.json` | 保留現行 EXE 與其建置資訊，更新後完成 localhost 驗證 |
+| `output/package/`、驗證報告 | 保留目前 SDK 與現行 EXE 對應套件及近期檢查結果；其他舊套件、重複 log 與安裝副本可移除 |
+| `output/verification/` | 整理後的合成驗證總結、效能量測及清理清單；驗證工具執行時先把報告寫到 `output/` |
+| `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/` | 可重建快取及封裝 metadata；`output/test-tmp/` 為測試暫存、`output/build-tools/` 可暫存建置依賴，核對無其他用途後才清除 |
 
-整理前列出目標、檔案數與大小，先核對現行 EXE／wheel 與驗證總結。通過驗證後可移除被取代的本機建置、重複 log、逐情境合成報告及暫存安裝副本。清理清單記錄移動、刪除結果及現行產物的 SHA-256，與其他本機產物同樣放在 Git 忽略的目錄。
+每次整理先記錄清理清單、檔案數與大小，再核對用途。同一版本驗證的逐情境 log 可在總結報告已通過後移除；保留近期完整測試、EXE 驗證總結與建置資訊。暫存安裝副本及舊 wheel／sdist 可重建；原始回傳是否刪除依問題狀態與使用者授權，不只看版本新舊。重構離線分析時，應先以同一份 ZIP 禁止 socket 重解析，比較完整報告及重測設定，完成後才執行已授權的清理。
 
-雙院 PACS 保留每院原始回傳、正式分析、單院重測設定、ZIP 雜湊及下載／文字核對摘要。重構離線分析時，以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定後，可清理重複的分析副本。
+散落原始證據可歸檔至本機 `data/recordings/archived-YYYY-MM-DD/` 或 `data/returns/`，以 manifest 保留原路徑、新路徑、大小及 SHA-256，搬移後核對每檔與整份目錄結構。歸檔日期不是錄製日期。未授權刪除的私有回歸保留固定路徑；同 hash 的 source／frozen 驗證報告若代表不同證據角色，也不能只靠內容相同便刪除。
+
+院內資料清理保留安全結論、原 ZIP hash、核對摘要、source／frozen 驗證總結及獨立安裝驗證摘要。已解決回傳經授權刪除時，ZIP、解壓 run 及其 raw 副本一併列入清單；包含 HAR 的目錄不能整棵刪除。記錄私有回歸是否依賴這些檔案；缺檔必須明確略過，不能宣稱已重新驗證院內資料。清理完成後核對現行 EXE／wheel 與 HAR 仍在。
 
 Windows 清理前解析完整目標路徑並確認位於 workspace 內，使用 PowerShell 的 `Remove-Item -LiteralPath` 或 `Move-Item -LiteralPath`。保留公開匯入、CLI 與測試使用的相容入口。
 

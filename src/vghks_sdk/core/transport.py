@@ -124,6 +124,7 @@ class SafeSessionTransport:
         url: str,
         *,
         retry_safe: bool = False,
+        allow_retry: bool = True,
         _connection_probe: bool = False,
         _response_byte_limit: int | None = None,
         **kwargs: Any,
@@ -136,8 +137,10 @@ class SafeSessionTransport:
                 self.policy.read_timeout_seconds,
             ),
         )
-        attempts = self.policy.max_attempts if (method == "GET" or retry_safe) else 1
-        safe_to_repeat = method == "GET" or retry_safe
+        # Some GET endpoints prepare a stateful external application. Their
+        # callers can prohibit replay without changing other read operations.
+        safe_to_repeat = allow_retry and (method == "GET" or retry_safe)
+        attempts = self.policy.max_attempts if safe_to_repeat else 1
         safe_path = urlsplit(url).path or "/"
         request_kwargs = kwargs
         buffer_body = None

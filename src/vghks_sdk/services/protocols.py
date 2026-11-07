@@ -55,6 +55,7 @@ from ..models import (
     VisitCase,
     VisitFilter,
 )
+from ..models.pacs_launch import PacsLaunchContext, PacsLaunchRef
 
 
 class AuthServiceProtocol(Protocol):
@@ -139,6 +140,12 @@ class OrdersServiceProtocol(Protocol):
     def get_order_report(self, ref: OrderReportRef) -> OrderReport: ...
 
     def get_pacs_study(self, ref: PacsStudyRef) -> PacsStudy: ...
+
+    def get_pacs_jpeg_study(self, ref: PacsStudyRef) -> PacsStudy: ...
+
+    def download_pacs_jpeg(self, ref: PacsImageRef) -> BinaryAsset: ...
+
+    def prepare_pacs_launch(self, ref: PacsLaunchRef) -> PacsLaunchContext: ...
 
     def download_pacs_image(self, ref: PacsImageRef) -> BinaryAsset: ...
 

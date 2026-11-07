@@ -42,6 +42,7 @@ from ..models import (
     UnsignedRecord,
     VisitCase,
 )
+from ..models.pacs_launch import PacsLaunchContext, PacsLaunchRef
 
 # Keep adapter protocols discoverable at the existing compatibility boundary.
 AttendanceAdapterProtocol = AttendanceProtocol
@@ -98,6 +99,8 @@ class PrqAdapterProtocol(PatientQueriesProtocol, Protocol):
     def get_order_report(self, reference: OrderReportRef) -> OrderReport: ...
 
     def get_pacs_study(self, reference: PacsStudyRef) -> PacsStudy: ...
+
+    def prepare_pacs_launch(self, reference: PacsLaunchRef) -> PacsLaunchContext: ...
 
     def download_pacs_image(self, reference: PacsImageRef) -> BinaryAsset: ...
 

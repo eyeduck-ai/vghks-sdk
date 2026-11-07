@@ -41,6 +41,7 @@ with VghksSDK(
 | `surgery`／`reviews` | 手術案例、排程、紀錄及同意書；審查案件、結果與附件清單 |
 | `audit`／`earnings`／`personnel`／`attendance` | 未簽病歷、績點與獎金、人事、本人簽到退 |
 | `auth`／`queries`／`vghks_sdk.workflows` | 連線檢查、唯讀目錄、多步驟查詢與收集 |
+| `vghks_sdk.integrations.smartiris` | 可選工作站模組：檢查 DownloadApp 並交接所選原生 PACS 檢查 |
 
 ## 使用重點
 
@@ -57,6 +58,7 @@ with VghksSDK(
 | 理解設計與效能 | [架構](docs/ARCHITECTURE.md)、[優化重點與量測](docs/OPTIMIZATION.md) |
 | 擴充、測試或建置 | [開發指南](docs/DEVELOPMENT.md)、[HAR 錄製](docs/HAR_RECORDING.md)、[AGENTS](AGENTS.md) |
 | 執行院內測試或判讀證據 | [EXE 使用方式](docs/LIVE_TEST.md)、[驗證範圍](docs/VALIDATION.md)、[資料安全](SECURITY.md) |
+| PACS 原生開啟、JPEG 命名與桌面整合 | [PACS_LAUNCH](docs/PACS_LAUNCH.md) |
 
 ## 開發與測試
 

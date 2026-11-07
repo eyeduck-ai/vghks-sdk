@@ -30,6 +30,7 @@ PUBLIC_FILES = {
     ".gitattributes",
     "run_sdk.py",
     "run_live_test.py",
+    "run_pacs_launch_test.py",
     "run_tests.py",
 }
 PRIVATE_PARTS = {
@@ -43,6 +44,7 @@ PRIVATE_PARTS = {
     "__pycache__",
     "captures",
     "live-test-results",
+    "pacs-launch-results",
     ".venv",
     "venv",
 }

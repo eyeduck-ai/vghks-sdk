@@ -2,6 +2,16 @@
 
 ## 未發布
 
+- 0.24.2 支援原生 PACS 專項 ZIP／目錄的正式離線分析，保留選單、本機預檢、交接與人工觀察的獨立狀態；缺檔及矛盾另列，重測設定不自動登入或呼叫檢閱器。原始證據 writer 與測試編排分開，舊匯入保留。
+- SmartIris 專用 Session 移除更長 URL prefix 的既有 adapter，確保四步交接均使用零重試 transport；被接管的資源在 client 關閉時釋放。
+- 0.24.1 兩份院內回傳均完成七筆醫囑探索、本機 DownloadApp 持有者預檢、單筆四步 HTTP 交接與人工 MATCHED；新版離線支援與 transport 修正另以合成／localhost 驗證。
+
+- 0.24.1 新增可選 `SmartIrisClient.check_availability()`：唯讀檢查設定檔案、程序、監聽埠與持有者，保留未知及其他程序占用，不送 HTTP 或自啟程序。院內測試器在選號後預檢，另記錄選號索引與停止掃描原因，將未掃完醫囑與交接結果清楚分開。
+- 0.24.0 院內 PACS 回傳已確認兩份歷年清單、144 來源列／112 筆不同醫囑、30 筆真 PACS 候選及一筆交接；四步 HTTP 200／`ok`、操作者 `MATCHED`。另有一輪登入遭拒後停止，未呼叫本機；剩餘 82 筆未掃描不算開啟失敗。當時的預檢尚待驗證；後續 0.24.1 院內證據另列。
+- 新增原生 PACS 的兩階段整合：`orders.prepare_pacs_launch(PacsLaunchRef)` 核對院方回應並建立單一 Study context；可選的 `integrations.smartiris.SmartIrisClient.open_study()` 以獨立 Session 與 Windows 跨程序鎖交接既有 DownloadApp，不自動重送或啟動 EXE。HTTP 交接與影像載入確認分開。
+- JPEG API 新增 `get_pacs_jpeg_study`／`download_pacs_jpeg` 及 `jpeg_ref(s)` 唯讀別名；保留舊方法、型別及 query ID。原生 `pacs_launch_ref(s)` 由真正 PACS 按鈕獨立發現，準備／交接不進一般唯讀採樣。
+- 補 PACS 純解析、參數綁定、跨程序交接與相容性合成測試；offline 依操作／HAR 頁面配對原始回應。新增獨立院內測試程式與 EXE 建置／localhost 驗證工具，保存兩份院方原頁及本機回應，排除密碼 POST。院內單筆成功範圍與後續限制見 VALIDATION。
+- PACS 專項 EXE 支援雙擊互動：輸入病歷號後，查近 4000 天全部／各科醫囑，以每批 30 筆確認真 PACS 按鈕，選號即交接本機檢閱器，不需手填 reqno。保存清單、明細、選擇來源、查詢缺漏與人工觀察，結束等待 Enter；舊明確檢查單號及只準備資訊模式保留。
 - 批次掛號逐筆同步日誌，每 100 位及結束時更新完整檢查點。Ctrl+C 與離線補封裝可由連續完整的日誌重建步驟與摘要，保留原始日誌及未提交數。舊 ZIP 沿用既有分析路徑。
 - PACS 離線分析共用同一 ZIP 內的附件核對結果，每個已存圖片只讀取及驗證一次。一般附件與 PACS 模式摘要保留各自的錯誤及統計。
 - PDF／JPG 採 64 MiB 有界串流。收到超限宣告長度或累計內容超限時關閉連線，保留 `BINARY_ASSET_TOO_LARGE` 和 HTTP 證據。成功附件沿用 `BinaryAsset`。

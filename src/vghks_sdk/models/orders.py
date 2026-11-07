@@ -17,6 +17,7 @@ from ._validation import (
     _validate_navigation_ref,
 )
 from .assets import PacsStudyRef, PdfAttachmentRef
+from .pacs_launch import PacsLaunchRef
 
 
 class OrderCategory(str, Enum):
@@ -141,6 +142,11 @@ class ClinicalOrder:
     pacs_ref: PacsStudyRef | None = None
     extra: Mapping[str, Any] | None = None
     pdf_refs: tuple[PdfAttachmentRef, ...] = ()
+    pacs_launch_ref: PacsLaunchRef | None = None
+
+    @property
+    def jpeg_ref(self) -> PacsStudyRef | None:
+        return self.pacs_ref
 
     @property
     def identity(self) -> tuple[str, ...]:
@@ -162,6 +168,11 @@ class OrderDetail:
     report_refs: tuple[OrderReportRef, ...] = ()
     pacs_refs: tuple[PacsStudyRef, ...] = ()
     pdf_refs: tuple[PdfAttachmentRef, ...] = ()
+    pacs_launch_refs: tuple[PacsLaunchRef, ...] = ()
+
+    @property
+    def jpeg_refs(self) -> tuple[PacsStudyRef, ...]:
+        return self.pacs_refs
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,3 +184,8 @@ class OrderReport:
     report_text: str = ""
     report_data_status: str = "UNASSESSED"
     text_extraction_notes: tuple[str, ...] = ()
+    pacs_launch_refs: tuple[PacsLaunchRef, ...] = ()
+
+    @property
+    def jpeg_refs(self) -> tuple[PacsStudyRef, ...]:
+        return self.pacs_refs

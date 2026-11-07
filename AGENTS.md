@@ -68,6 +68,11 @@
 
 ## 以 HAR 新增功能
 
+- 原生 PACS 與 JPEG 分開：`prepare_pacs_launch(PacsLaunchRef)` 只解析已錄製 SmartWonder SK／STUDY／單 UID，沿當前 PRQ Session 取兩頁，不重送 GET／密碼。`integrations.smartiris.SmartIrisClient.open_study(context)` 才明確交接 DownloadApp；獨立 loopback Session、Windows 跨程序鎖、無重試／轉址／自啟 EXE。HANDOFF_SENT 非影像載入；原生操作不進通用 queries/readiness。新 JPEG 名稱是舊實作別名；不把 JPEG ref 當 launch ref。`PacsLaunchContext` 的 SDK JSON 僅安全摘要，原件只本機。0.24.0 院內一筆已確認四步 HTTP 200／ok 並有操作者 MATCHED；其他檢查不由此推定成功，見 docs/PACS_LAUNCH_TEST.md。
+- 0.24.1 的 `SmartIrisClient.check_availability()` 只讀 Windows 檔案／程序／TCP 持有者，不送 HTTP／TCP connect、不執行 EXE、不在 import／建構執行。檔案存在、程序及 listener 分開；AVAILABLE 僅配置映像路徑符合當下 IPv4 listener owner，非協定／影像保證。權限與持有者不明保留 UNKNOWN，不能猜未安裝。測試器選定醫囑後先預檢，非 AVAILABLE 不 prepare／handoff；SDK `open_study` 相容契約不暗加檢查。0.24.1 兩份院內回傳皆確認 AVAILABLE、七筆醫囑全數掃描及所選檢查四步交接／人工 MATCHED。此證據只涵蓋當次工作站及所選檢查，其他安裝位置／權限情境仍為合成測試。
+- 0.24.2 原生 PACS 離線由 `offline/pacs_launch_report.py` 核對專項 schema 1，其他 schema 1 不放行；`offline/pacs_launch.py` 仍只負責準備頁配對重解析。原實測／封裝狀態不可覆寫，預檢、HTTP 與人工影像確認分開；缺檔、矛盾及未知格式保留問題，局部 VERIFIED 不得忽略已去重的同類錯誤。舊 0.24.0 缺索引只允許存檔候選唯一相符，記缺口、不選第一筆。retest 僅人工檢閱，登入／原生預算為零。注入的 SmartIris Session 由 client 接管，所有既有 adapter mounts 移除以維持零重試，原資源延至 close 釋放。
+- 原生 PACS 專項雙擊由操作者輸入 MRN，查近 4000 天 `*`／`OR` 醫囑並分批 30 筆確認，候選只用真 PACS 按鈕；不能把 seqNo／JPEG ref 當 reqno。同一病人不同醫囑的報告參照亦須拒絕；跨清單去重仍保留來源。選號才準備與交接一次，未選／取消／中斷不操作本機，查詢錯誤、待掃描與無按鈕分開存檔；結束等待 Enter。來源／EXE 的 localhost 證據不能取代院內確認。
+
 完整流程見 docs/HAR_RECORDING.md。依序檢查錄製範圍／缺少 body、抽出請求形狀與動態相依、設計模型及純 Parser、接 Adapter／Service，再登錄操作與測試。
 
 `core/operations.py` 描述底層 request contract；`queries.py` 描述使用者可呼叫的唯讀結果。兩者不是一對一，也不能只登錄其中一處便宣告功能完成。
@@ -128,7 +133,7 @@ WebMAAS Session 專項用 `--default-profile session` 建置及 `tools/verify_se
 
 - README 保持簡短。完整用途放 API_REFERENCE，架構放 ARCHITECTURE，新增功能流程放 HAR_RECORDING／DEVELOPMENT。
 - 更新 VALIDATION 的驗證層級，區分合成、HAR、localhost EXE、內網回傳；不複製個別病人與薪資內容。
-- 不為整理而移除仍被公開匯入、CLI 或測試使用的相容層。原始 HAR／return 是不可再生的證據，與可重建 cache／舊 wheel／EXE 分開。
+- 不為整理而移除仍被公開匯入、CLI 或測試使用的相容層。HAR 與可重建 cache／舊 wheel／EXE 分開。院內 return 在分析完成前保留；問題解決且使用者明確授權後可刪 ZIP、解壓目錄與 raw 副本，先保存安全結論與 hash／刪除 manifest。私有回歸缺樣本明確 skip，不將歷史結論冒充重新驗證。
 - `local_io.py` 共用 JSON 原子寫入與本機權限處理；安全登入報告仍經欄位白名單，維持各入口錯誤碼。離線索引與效能整理需保持同一原始 ZIP 的分析／重測設定一致，不把範圍外成功當成登入恢復。
 - `live/__init__.py` 按需載入相容匯出；offline 可讀 `live.config`，不可因此載入 login／auth_edges／runner 等測試執行流程。預期負向證據由 `contracts/auth_evidence.py` 共用，不能在 offline 重新實作較寬鬆規則。
 - Windows 移除／搬移前驗證完整路徑在 workspace 內，使用原生 LiteralPath；不可跨 shell 組字串刪除。

@@ -64,8 +64,8 @@
 | `prq.order_history` | `get_order_history(mrn: str, filter: OrderHistoryFilter) -> list[ClinicalOrder]` | 跨次就診醫囑；可依日期、期間及類別選擇。 |
 | `prq.order_detail` | `get_order_detail(ref: OrderDetailRef) -> OrderDetail` | 醫囑細部欄位及可繼續查詢的報告參照。 |
 | `prq.order_report` | `get_order_report(ref: OrderReportRef) -> OrderReport` | 醫囑路徑的文字、PDF 及 JPG 參照；支援已知 literal 換行模板，未知文字解析保留 PARTIAL。 |
-| `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 開啟 JPG 檢視資料，列出高榮 uid 或聯合院區 imgUrl 圖片參照；按鈕存在仍可能回傳空清單。 |
-| `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 依 uid 或 imgUrl 參照經 PRQ 下載一張 JPG，驗證格式及完整結尾。 |
+| `prq.pacs_study` | `get_pacs_study(ref: PacsStudyRef) -> PacsStudy` | 列出高榮 uid 或聯合院區 imgUrl 的 JPEG 參照，按鈕存在仍可能回傳空清單；推薦 get_pacs_jpeg_study(ref)，舊方法與查詢 ID 保留。原生檢閱另見 [PACS_LAUNCH](PACS_LAUNCH.md)。 |
+| `prq.pacs_image` | `download_pacs_image(ref: PacsImageRef) -> BinaryAsset` | 依 uid 或 imgUrl 參照經 PRQ 下載一張 JPG，驗證格式及完整結尾；推薦 download_pacs_jpeg(ref)，舊方法保留。 |
 | `prq.pdf_attachment` | `download_pdf(ref: PdfAttachmentRef) -> BinaryAsset` | 下載一個 PRQ PDF 附件；共用於檢查、掃描病歷、上傳文件及病人歷史手術。 |
 
 ## sdk.medications
@@ -127,6 +127,10 @@
 | 入口 | 用途 |
 | --- | --- |
 | `sdk.auth.login()` | 建立 Portal Session；一般查詢會按需登入。 |
+| `sdk.orders.get_pacs_jpeg_study(ref)`／`download_pacs_jpeg(ref)` | JPEG 清單與下載的推薦名稱；舊 get_pacs_study／download_pacs_image 完整相容。 |
+| `sdk.orders.prepare_pacs_launch(ref)` | 以 PacsLaunchRef 取得並核對單一 Study 的 PacsLaunchContext；不操作本機，不自動重送，未列入一般 queries 採樣。 |
+| `integrations.smartiris.SmartIrisClient.open_study(context)` | 可選的工作站整合；明確經 DownloadApp 交接。HANDOFF_SENT 不代表影像已載入，見 [PACS_LAUNCH](PACS_LAUNCH.md)。 |
+| `integrations.smartiris.SmartIrisClient.check_availability()` | 唯讀檢查設定的 DownloadApp 檔案、程序、IPv4 監聽與持有者；不送 HTTP。AVAILABLE 僅為當下程序／埠證據，非協定健康或影像載入保證。 |
 | `sdk.auth.check(only=[...])` | 檢查登入／子系統 SSO；WebMAAS 另驗證當次表單與 token，快取存在時重新 GET。以 report.ok／targets.issue 判定，不代表已有病人查詢資料。見 [CONNECTIONS](CONNECTIONS.md)。 |
 | `sdk.auth.password_status` | 查看已觀察的 PasswordStatus：NO_NOTICE、EXPIRING、CHANGE_REQUIRED；remaining_days 可為 None。不發請求、不含原始文字或帳密；同值納入 AuthCheckReport（schema 3）。 |
 | `sdk.connection_status()` | 查看每個服務實際選擇的 TLS／憑證驗證及連線確認狀態；不發出請求，不含帳密。 |

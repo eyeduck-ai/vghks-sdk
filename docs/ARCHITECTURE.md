@@ -27,6 +27,7 @@ flowchart TD
 | --- | --- |
 | `sdk.py` | 組裝 Service／Adapter／Runtime、注入 transport、管理關閉與 context manager |
 | `services/` | 公開用途、輸入檢查與型別回傳；由 `sdk.py` 注入 Adapter |
+| `integrations/` | 明確匯入的可選桌面整合；SmartIris 使用獨立 loopback Session，不讓核心查詢自動操作本機 |
 | `adapters/` | 各子系統的請求次序、表單／token、病人與就診 context；`auth.py` 管 Portal 與 SSO |
 | `parsing/` | HTML／JSON／二進位純解析；靜態讀取已知 JS literal，不執行腳本 |
 | `models/` | 資料模型、Filter、驗證與綁定病人／就診的 Ref |
@@ -85,6 +86,34 @@ JSON 與請求形狀快取限單次 ZIP 分析。批次掛號在當次分析建�
 恢復判定需以 `capture_operation_id` 對到同一次 raw 操作並核對完整次序。重解析、附件核對與原始實測各自保留，後續成功不覆寫原 ERROR；NO_SAMPLE 保留缺口，見 [VALIDATION](VALIDATION.md)。
 
 一般 import／建構 SDK 不發網路；一般 SDK import 不載入 live／offline 執行流程。`live` 公開匯出按需載入，offline 可讀 `live.config`，不因此載入測試 runner。
+
+## 原生 PACS 與 JPEG 的整合邊界
+
+兩條路徑共用 SDK 的醫囑資料與參照，但回傳的結果不同：JPEG 路徑列出／下載圖片；原生路徑產生當次啟動資訊，再由工作站明確交接。`prepare_pacs_launch` 不依賴 Windows，也不匯入桌面整合模組；`SmartIrisClient` 不持有 Portal Session。
+
+```mermaid
+flowchart LR
+    App["桌面應用／院內測試器"] --> Orders["orders：醫囑與真正 PACS 按鈕"]
+    Orders --> JPEG["get_pacs_jpeg_study／download_pacs_jpeg"]
+    Orders --> Prepare["prepare_pacs_launch"]
+    Prepare --> Context["PacsLaunchContext"]
+    App --> Check["check_availability：本機唯讀快照"]
+    Context --> Native["SmartIrisClient.open_study"]
+    Native --> Bridge["工作站 DownloadApp"]
+    Bridge --> Viewer["SmartIris"]
+```
+
+| 責任 | 模組 | 維持的邊界 |
+| --- | --- | --- |
+| 病人／檢查／帳號與單一 Study 綁定 | `models/pacs_launch.py`、`parsing/pacs_launch.py` | 純驗證與靜態解析，不執行 JS |
+| 院方啟動頁查詢 | `adapters/pacs_launch.py`、`orders.prepare_pacs_launch` | 共用 Runtime 操作鎖；不自動重送、不呼叫本機 |
+| 工作站程式及監聽快照 | `integrations/smartiris_availability.py` | 明確呼叫才讀系統資訊；未知與未安裝分開 |
+| 四步本機交接 | `integrations/smartiris.py` | 獨立 Session、固定 loopback、跨程序鎖、零重試；不建立瀏覽器視窗 |
+| 醫囑選單與階段結果 | `live/pacs_launch_discovery.py`、`live/pacs_launch.py` | 應用層負責分批搜尋、人工選擇及影像觀察；不藏入 Service |
+| 原始證據保存 | `live/pacs_launch_capture.py` | 院方頁面與本機交換分開保存；不錄密碼 POST、不發請求 |
+| 回傳核對 | `offline/pacs_launch.py`、`offline/pacs_launch_report.py` | 共用純 Parser；專項 schema 與原始狀態保留，不重送本機指令 |
+
+一般整合平台可直接組合「取得醫囑 → 選擇 → 本機預檢 → 準備 → 交接」，無需引用 `live` 測試器。後端服務的 localhost 不代表使用者電腦；本機交接必須在使用者工作站執行。預檢、HTTP 交接、人工影像確認各自是一份證據，任何一項都不替另一項宣告成功。
 
 ## 擴充與相容性
 

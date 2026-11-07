@@ -9,6 +9,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .assets import BinaryAsset
+from .pacs_launch import PacsLaunchBootstrap, PacsLaunchContext
 
 
 def to_jsonable(value: Any) -> Any:
@@ -19,6 +20,14 @@ def to_jsonable(value: Any) -> Any:
             "media_type": value.media_type,
             "size": value.size,
             "sha256": value.sha256,
+        }
+    if isinstance(value, PacsLaunchBootstrap):
+        return {
+            "kind": "pacs_launch_context" if isinstance(value, PacsLaunchContext)
+            else "pacs_launch_bootstrap",
+            "level": value.level,
+            "dicom_server": value.dicom_server,
+            "study_count": 1,
         }
     if is_dataclass(value):
         return {field.name: to_jsonable(getattr(value, field.name)) for field in fields(value)}

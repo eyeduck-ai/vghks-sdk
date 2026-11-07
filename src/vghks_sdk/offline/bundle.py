@@ -27,6 +27,20 @@ def safe_member(value: str) -> str:
     return path.as_posix()
 
 
+def is_pacs_launch_bundle(reader: BundleReader, summary: dict[str, Any]) -> bool:
+    """Use explicit profile evidence, including a replaced packaging summary."""
+    if summary.get("profile") is not None:
+        return summary.get("profile") == "pacs_launch"
+    if summary.get("schema_version") not in {3, 4, 5, 6}:
+        return False
+    for name in ("run_config.json", "parsed/pacs_launch_execution.json"):
+        if name in reader.names:
+            value = reader.json(name)
+            if isinstance(value, dict) and value.get("profile") == "pacs_launch":
+                return True
+    return False
+
+
 class BundleReader:
     """Bounded ZIP/directory reader; file checksums are neither needed nor read."""
 
@@ -129,7 +143,11 @@ class BundleReader:
             if required not in self.names:
                 raise _invalid("BUNDLE_FILE_MISSING")
         summary = self.json("run_summary.json")
-        if not isinstance(summary, dict) or summary.get("schema_version") not in {3, 4, 5, 6}:
+        if not isinstance(summary, dict) or not (
+            summary.get("schema_version") in {3, 4, 5, 6}
+            or (type(summary.get("schema_version")) is int and summary["schema_version"] == 1
+                and summary.get("profile") == "pacs_launch")
+        ):
             raise _invalid("BUNDLE_SUMMARY_UNSUPPORTED")
 
     def close(self) -> None:

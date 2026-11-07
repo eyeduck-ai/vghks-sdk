@@ -14,7 +14,7 @@ from ..core.errors import ConfigurationError
 from ..local_io import write_json_atomic
 from ..queries import QUERY_BY_KEY, QUERY_SPECS
 from .assets import verify_order_assets
-from .bundle import BundleReader
+from .bundle import BundleReader, is_pacs_launch_bundle
 from .cache import _AnalysisReader
 from .evidence import (
     _CASE_STEPS as _CASE_STEPS,
@@ -128,6 +128,9 @@ def inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]
 
 def _inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any]]:
     summary = reader.json("run_summary.json")
+    if is_pacs_launch_bundle(reader, summary):
+        from .pacs_launch_report import inspect_pacs_launch_bundle
+        return inspect_pacs_launch_bundle(reader)
     environment = reader.json("environment.json") if "environment.json" in reader.names else {}
     rows = replay_bundle(reader)
     steps = summary.get("steps") or []

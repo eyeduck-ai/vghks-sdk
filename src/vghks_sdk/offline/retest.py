@@ -11,6 +11,13 @@ from ..queries import QUERY_BY_KEY
 def build_retest_config(
     config: dict[str, Any], matrix: list[dict[str, Any]], main: dict[str, str] | None, status: str
 ) -> dict[str, Any]:
+    if config.get("profile") == "pacs_launch":
+        # This is deliberately not a runnable LiveTestConfig. Neither password
+        # submission nor a native side effect may be inferred from an archive.
+        return {"schema_version": 1, "profile": "pacs_launch",
+                "kind": "MANUAL_REVIEW_ONLY", "automatic_execution": False,
+                "password_posts": 0, "native_handoffs": 0,
+                "requires_manual_new_run": True}
     allowed = {
         "login_negative_attempts",
         "visit_filter",

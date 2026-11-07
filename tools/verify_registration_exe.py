@@ -163,6 +163,14 @@ def main() -> None:
                     assert saved["login_negative_attempts"] == 0
                     summary = json.loads(archive.read("parsed/registrations/batch_summary.json"))
                     assert summary["requested_patient_count"] == 3 and summary["pending_patient_count"] == 0
+                    assert summary["patient_journal_version"] == 1
+                    journal = archive.read("parsed/registrations/patient_results.jsonl")
+                    assert journal.endswith(b"\n")
+                    entries = [json.loads(line) for line in journal.splitlines()]
+                    assert [(entry["index"], entry["mrn"]) for entry in entries] == list(enumerate(MRNS, 1))
+                    assert [entry["step"] for entry in entries] == [
+                        step for step in run["steps"] if step["name"].startswith("registrations.patient_")
+                    ]
                     assert state["login_posts"] == 1
                     if mode in {"login_rejected", "login_http_error"}:
                         assert not state["registration_mrns"] and summary["blocked_patient_count"] == 3

@@ -19,6 +19,7 @@ from typing import Any, TextIO
 
 from ..core.errors import ConfigurationError, SDKError, error_info
 from ..local_io import restrict_permissions, restrict_tree_permissions, write_json_atomic
+from .registration_recovery import restore_registration_checkpoint
 
 OWNER_MARKER = ".vghks-live-test"
 INCOMPLETE_MARKER = ".incomplete"
@@ -211,11 +212,11 @@ class LiveTestBundleManager:
                 encoding="utf-8",
             )
             restrict_permissions(self.run_directory / COMPLETE_MARKER)
-            (self.run_directory / INCOMPLETE_MARKER).unlink(missing_ok=True)
             self.close_console()
             packaging_stage = "archive"
             archive = self._create_archive(normalized_status)
             restrict_tree_permissions(self.run_directory)
+            (self.run_directory / INCOMPLETE_MARKER).unlink(missing_ok=True)
         except Exception as exc:
             packaging_error = _packaging_error(exc, stage=packaging_stage)
             self._preserve_packaging_failure(packaging_error)
@@ -367,7 +368,7 @@ Do not replay requests or session state from this bundle.
                     # Excluding everything under it would silently drop all
                     # captured files. Only exclude an archive subtree inside
                     # the run, plus the archive currently being written.
-                    if path in {temporary, archive_path}:
+                    if path in {temporary, archive_path, self.run_directory / INCOMPLETE_MARKER}:
                         continue
                     if (
                         self.archive_directory != self.run_directory
@@ -423,19 +424,23 @@ def pack_incomplete_run(
     manager = LiveTestBundleManager.attach_incomplete(
         run_directory, archive_directory=archive_directory
     )
-    manager.log("Packaging an incomplete run offline; no network request will be sent.")
-    summary_path = manager.run_directory / "run_summary.json"
-    summary = _read_json_file(summary_path) if summary_path.is_file() else {}
-    summary.update(
-        {
-            "schema_version": 6,
-            "run_id": manager.run_id,
-            "status": "INTERRUPTED",
-            "recovered_at": _utc_now(),
-            "warning": _sensitive_warning(),
-        }
-    )
-    return manager.finalize(status="INTERRUPTED", summary=summary)
+    try:
+        manager.log("Packaging an incomplete run offline; no network request will be sent.")
+        summary = _read_json_file(manager.run_directory / "run_summary.json")
+        if not summary.get("steps"):
+            summary.update(restore_registration_checkpoint(manager.run_directory))
+        summary.update(
+            {
+                "schema_version": 6,
+                "run_id": manager.run_id,
+                "status": "INTERRUPTED",
+                "recovered_at": _utc_now(),
+                "warning": _sensitive_warning(),
+            }
+        )
+        return manager.finalize(status="INTERRUPTED", summary=summary)
+    finally:
+        manager.close_console()
 
 
 def _iter_bundle_files(root: Path) -> Iterable[Path]:

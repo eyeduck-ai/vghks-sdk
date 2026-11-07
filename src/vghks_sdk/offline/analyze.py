@@ -277,13 +277,17 @@ def _inspect_bundle(reader: BundleReader) -> tuple[dict[str, Any], dict[str, Any
                 for item in destination
             ):
                 destination.append(problem)
-    order_assets = verify_order_assets(reader, steps)
+    # Share outcomes only while both audits see the same validated ZIP.
+    pacs_asset_codes: dict[str, str] | None = (
+        {} if isinstance(reader, _AnalysisReader) and reader.is_zip_snapshot else None
+    )
+    order_assets = verify_order_assets(reader, steps, pacs_asset_codes=pacs_asset_codes)
     problems.extend(
         {"phase": "DATA", "code": issue["code"], "operation": issue["operation"],
          "capture_id": "", "step": ""}
         for issue in order_assets["issues"]
     )
-    pacs_test = pacs_test_summary(reader, steps)
+    pacs_test = pacs_test_summary(reader, steps, pacs_asset_codes=pacs_asset_codes)
     for issue in pacs_test["issues"]:
         if not any(item["code"] == issue["code"] and item["operation"] == issue["operation"]
                    for item in problems):

@@ -81,11 +81,23 @@ def read_mrns(path: Path) -> list[str]:
     return output
 
 
-def write_jsonl_line(handle: Any, value: Any) -> None:
+def write_jsonl_line(handle: Any, value: Any, *, durable: bool = False) -> None:
     try:
-        handle.write(json.dumps(to_jsonable(value), ensure_ascii=False, sort_keys=True))
-        handle.write("\n")
-        handle.flush()
+        line = json.dumps(to_jsonable(value), ensure_ascii=False, sort_keys=True) + "\n"
+        position = handle.tell() if durable else None
+        try:
+            handle.write(line)
+            handle.flush()
+            if durable:
+                os.fsync(handle.fileno())
+        except (OSError, UnicodeError, ValueError, KeyboardInterrupt):
+            if position is not None:
+                with contextlib.suppress(OSError, ValueError):
+                    handle.seek(position)
+                    handle.truncate()
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            raise
     except (OSError, UnicodeError, TypeError, ValueError) as exc:
         raise ConfigurationError(
             "unable to write JSONL output",

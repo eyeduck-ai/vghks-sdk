@@ -377,25 +377,28 @@ class DiagnosticRecorder:
 def _response_structure(response: Any) -> Mapping[str, Any]:
     from ..parsing.assets import binary_asset_media_type
 
-    raw = bytes(getattr(response, "content", b"") or b"")
+    body_limit_exceeded = getattr(response, "sdk_body_limit_exceeded", False) is True
+    raw = b"" if body_limit_exceeded else bytes(getattr(response, "content", b"") or b"")
     headers = getattr(response, "headers", {}) or {}
     content_type = str(headers.get("Content-Type", ""))
     mime_type = content_type.split(";", 1)[0].strip().lower()
     charset_match = _CHARSET_RE.search(content_type)
     declared_charset = charset_match.group(1).lower() if charset_match else ""
-    sample = raw[:_MAX_SHAPE_BYTES]
     base: dict[str, Any] = {
         "byte_length": len(raw),
-        "shape_truncated": len(raw) > len(sample),
+        "shape_truncated": body_limit_exceeded or len(raw) > _MAX_SHAPE_BYTES,
         "mime_type": mime_type,
         "declared_charset": _safe_code(declared_charset) if declared_charset else "",
         "decoded_as": "",
     }
+    if body_limit_exceeded:
+        base.update(kind="omitted", body_limit_exceeded=True)
+        return base
     binary_type = binary_asset_media_type(raw)
     if binary_type:
         base.update(kind="binary", binary_media_type=binary_type)
         return base
-    text, decoded_as = _decode_sample(sample, declared_charset)
+    text, decoded_as = _decode_sample(raw[:_MAX_SHAPE_BYTES], declared_charset)
     base["decoded_as"] = _safe_code(decoded_as)
 
     if len(raw) <= _MAX_SHAPE_BYTES:

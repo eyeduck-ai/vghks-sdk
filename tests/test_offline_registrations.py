@@ -4,7 +4,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,14 +12,17 @@ import requests
 from test_registration_batch import BatchSDK
 from test_webmaas import registration
 
+from vghks_sdk.core.config import PortalCredentials
 from vghks_sdk.core.errors import LoginRejectedError, ParseError
+from vghks_sdk.live.bundle import LiveTestBundleManager, pack_incomplete_run
 from vghks_sdk.live.capture import RawCaptureRecorder
 from vghks_sdk.live.config import LiveTestConfig
 from vghks_sdk.live.registrations import run_registration_test
-from vghks_sdk.local_io import write_json_atomic
+from vghks_sdk.live.runner import execute_live_test
+from vghks_sdk.local_io import write_json_atomic, write_jsonl_line
 from vghks_sdk.offline.analyze import analyze_bundle, inspect_bundle
 from vghks_sdk.offline.bundle import BundleReader
-from vghks_sdk.offline.replay import replay_response
+from vghks_sdk.offline.replay import replay_bundle, replay_response
 from vghks_sdk.parsing.webmaas import parse_registration_records, registration_identity
 
 MRNS = ("00000109", "TEST002", "TEST003")
@@ -99,6 +102,14 @@ class OfflineRegistrationTests(unittest.TestCase):
         with BundleReader(self.root) as reader:
             return inspect_bundle(reader)[0]
 
+    def manifest(self):
+        with BundleReader(self.root) as reader:
+            return reader.jsonl("capture_manifest.jsonl")
+
+    def write_manifest(self, rows):
+        path = self.root / "capture_manifest.jsonl"
+        path.write_text("\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
     def test_complete_batch_replays_pages_deduplicates_and_preserves_privacy(self):
         self.bundle()
         report = self.report()
@@ -117,6 +128,47 @@ class OfflineRegistrationTests(unittest.TestCase):
         text = (output / "analysis.md").read_text(encoding="utf-8")
         self.assertIn("批次掛號存檔核對", text)
         self.assertNotIn(SOURCE, text)
+
+    def test_page_without_patient_parameter_uses_only_the_same_capture_scope(self):
+        self.bundle(mrns=MRNS[:1], pages={MRNS[0]: [
+            registration(MRNS[0], notes_html=ICON, next_href="?d-123-p=2"),
+            registration(MRNS[0]),
+        ]})
+        rows = self.manifest()
+        rows[1]["request"]["url"] = URL + "?d-123-p=2"
+        self.write_manifest(rows)
+        report = self.report()
+        self.assertEqual(report["analysis_status"], "OK")
+        self.assertEqual(report["registration_batch"]["raw_response_count"], 2)
+        with BundleReader(self.root) as reader:
+            self.assertEqual([row["status"] for row in replay_bundle(reader)], ["PARSED", "PARSED"])
+
+        rows[1]["sdk_operation_id"] = "op-000002"
+        self.write_manifest(rows)
+        with BundleReader(self.root) as reader:
+            self.assertEqual(replay_bundle(reader)[1]["error_code"], "REPLAY_CONTEXT_MISSING")
+
+    def test_pagination_cannot_verify_a_foreign_origin_even_if_the_capture_matches(self):
+        foreign_page = "https://outside.invalid/webmaas/RSV/RSV11W001.do?d-123-p=2"
+        self.bundle(mrns=MRNS[:1], pages={MRNS[0]: [
+            registration(MRNS[0], notes_html=ICON, next_href=foreign_page),
+            registration(MRNS[0]),
+        ]})
+        rows = self.manifest()
+        rows[1]["request"]["url"] = foreign_page
+        self.write_manifest(rows)
+        batch = self.report()["registration_batch"]
+        self.assertEqual((batch["status"], batch["verified_patient_count"]), ("ERROR", 0))
+        self.assertIn("REGISTRATION_PAGINATION_INCOMPLETE", {issue["code"] for issue in batch["issues"]})
+
+    def test_capture_index_preserves_manifest_page_order(self):
+        self.bundle()
+        rows = self.manifest()
+        rows[1], rows[2] = rows[2], rows[1]
+        self.write_manifest(rows)
+        batch = self.report()["registration_batch"]
+        self.assertEqual((batch["status"], batch["verified_patient_count"]), ("ERROR", 2))
+        self.assertIn("REGISTRATION_PAGINATION_INCOMPLETE", {issue["code"] for issue in batch["issues"]})
 
     def test_saved_result_mismatches_cannot_be_hidden_by_ok_summary(self):
         mutations = {
@@ -205,6 +257,121 @@ class OfflineRegistrationTests(unittest.TestCase):
                 self.assertEqual(batch["status"], "OBSERVED")
                 self.assertEqual((batch["completed_patient_count"], batch["blocked_patient_count"], batch["pending_patient_count"]),
                                  (completed, blocked, pending))
+
+    def test_pack_incomplete_replays_only_consecutive_commits_beyond_the_checkpoint(self):
+        mrns = (*MRNS, "TEST004")
+        config = LiveTestConfig(profile="registrations", patient_mrns=mrns)
+        pages = {
+            MRNS[0]: [registration(MRNS[0], registered_by=SOURCE, notes_html=ICON)],
+            MRNS[1]: [registration(MRNS[1], empty=True)],
+            MRNS[2]: [registration(MRNS[2], registered_by="MWEB")],
+            mrns[3]: SystemExit(),
+        }
+        cases = {
+            "clean": "", "truncated": "REGISTRATION_JOURNAL_TRUNCATED",
+            "duplicate": "REGISTRATION_JOURNAL_MISMATCH",
+        }
+        for mode, expected_issue in cases.items():
+            with self.subTest(mode=mode), redirect_stdout(io.StringIO()):
+                self.root = self.root.parent / f"crash-{mode}"
+                manager = LiveTestBundleManager(self.root)
+                self.addCleanup(manager.close_console)
+                manager.write_config(config.to_safe_dict())
+                self.write("environment.json", {})
+                with (
+                    RawCaptureRecorder(self.root, prepare_root=False, run_id=manager.run_id) as capture,
+                    patch("vghks_sdk.live.registrations.CHECKPOINT_INTERVAL", 2),
+                    self.assertRaises(SystemExit),
+                ):
+                    run_registration_test(RecordedBatchSDK(capture, pages), config,
+                                          output_dir=self.root, raw_capture=capture)
+                manager.close_console()
+                path = "parsed/registrations/batch_summary.json"
+                self.assertEqual(self.read(path)["completed_patient_count"], 2)
+                self.assertFalse((self.root / "run_summary.json").exists())
+
+                journal_path = self.root / "parsed/registrations/patient_results.jsonl"
+                committed = journal_path.read_bytes()
+                last = committed.splitlines(keepends=True)[-1]
+                entry = json.loads(last)
+                next_line = json.dumps({"index": 4, "mrn": mrns[3], "registered_by_codes": {}, "step": {
+                    **entry["step"], "name": "registrations.patient_000004", "status": "BLOCKED",
+                    "output": "", "details": None,
+                }}).encode()
+                tail = b""
+                if mode == "truncated":
+                    tail = next_line
+                elif mode == "duplicate":
+                    tail = last + next_line + b"\n"
+                if tail:
+                    with journal_path.open("ab") as handle:
+                        handle.write(tail)
+
+                archive = pack_incomplete_run(self.root, archive_directory=Path(self.temp.name))
+                with BundleReader(archive.archive_path) as reader:
+                    report = inspect_bundle(reader)[0]
+                    summary = reader.json("run_summary.json")
+                    self.assertEqual(summary["steps"], reader.json("step_results.json"))
+                    self.assertEqual(summary["steps"][-1]["name"], "registrations.patient_000003")
+                    self.assertTrue(any(step["name"] == "auth_check.portal" for step in summary["steps"]))
+                    self.assertEqual(reader.read("parsed/registrations/patient_results.jsonl"), committed + tail)
+                self.assertEqual(journal_path.read_bytes(), committed + tail)
+                self.assertEqual(report["bundle_status"], "INTERRUPTED")
+                batch = report["registration_batch"]
+                self.assertEqual((batch["completed_patient_count"], batch["pending_patient_count"],
+                                  batch["verified_patient_count"], batch["distinct_registered_by_code_count"]), (3, 1, 3, 2))
+                self.assertEqual({i["code"] for i in batch["issues"]}, {expected_issue} if expected_issue else set())
+
+    def test_journal_write_failure_packages_committed_prefix_and_stops_queries(self):
+        config = LiveTestConfig(profile="registrations", patient_mrns=MRNS)
+        pages = {mrn: [registration(mrn, notes_html=ICON)] for mrn in MRNS}
+        sdk = RecordedBatchSDK(None, pages)
+
+        def sdk_context(*, raw_capture, **_):
+            sdk.capture = raw_capture
+            return nullcontext(sdk)
+
+        def append(handle, entry, *, durable):
+            if entry["index"] == 2:
+                with patch("vghks_sdk.local_io.os.fsync", side_effect=[OSError("synthetic sync failure"), None]):
+                    write_jsonl_line(handle, entry, durable=durable)
+            else:
+                write_jsonl_line(handle, entry, durable=durable)
+
+        console = io.StringIO()
+        with (
+            patch("vghks_sdk.live.runner.VghksSDK", side_effect=sdk_context),
+            patch("vghks_sdk.live.runner.environment_report", return_value={}),
+            patch("vghks_sdk.live.registrations.run_network_checks"),
+            patch("vghks_sdk.live.registrations.write_jsonl_line", side_effect=append),
+            redirect_stdout(console), redirect_stderr(console),
+        ):
+            execution = execute_live_test(config, PortalCredentials("SYNTHETIC", "SYNTHETIC-ONLY"),
+                                          output_dir=self.root, announce_archive=False)
+        self.assertEqual((execution.status, execution.error_code), ("BOOTSTRAP_FAILED", "OUTPUT_WRITE_FAILED"))
+        self.assertEqual(sdk.calls, list(MRNS[:2]))
+        self.assertNotIn("OK registrations.patient_000002", console.getvalue())
+        with BundleReader(execution.archive.archive_path) as reader:
+            report = inspect_bundle(reader)[0]
+            self.assertEqual(reader.json("run_summary.json")["steps"][-1]["name"], "registrations.patient_000001")
+        batch = report["registration_batch"]
+        self.assertEqual((batch["completed_patient_count"], batch["pending_patient_count"],
+                          batch["verified_patient_count"]), (1, 2, 1))
+        self.assertIn("REGISTRATION_RESULT_UNEXPECTED", {i["code"] for i in batch["issues"]})
+
+    def test_old_journal_without_version_retains_the_same_offline_result(self):
+        self.bundle()
+        original = self.report()["registration_batch"]
+        summary_path = "parsed/registrations/batch_summary.json"
+        summary = self.read(summary_path)
+        del summary["patient_journal_version"]
+        self.write(summary_path, summary)
+        journal = self.root / "parsed/registrations/patient_results.jsonl"
+        entries = [json.loads(line) for line in journal.read_bytes().splitlines()]
+        for entry in entries:
+            del entry["registered_by_codes"]
+        journal.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
+        self.assertEqual(self.report()["registration_batch"], original)
 
     def test_standalone_replay_checks_patient_and_counts_only_safe_fields(self):
         for expected, state in ((MRNS[0], "PARSED"), (MRNS[1], "PARSE_ERROR")):

@@ -10,6 +10,8 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from functools import partial
+from io import BytesIO
 from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
@@ -25,6 +27,52 @@ from .errors import ParseError, RequestError
 from .network_errors import network_error_code
 
 _CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
+_BODY_CHUNK_BYTES = 64 * 1024
+
+
+def content_length_exceeds(response: requests.Response, max_bytes: int) -> bool:
+    declared = str(response.headers.get("Content-Length", "")).strip()
+    if not declared.isascii() or not declared.isdecimal():
+        return False
+    # Compare decimal strings so even an overlong header can be rejected.
+    declared = declared.lstrip("0")
+    limit = str(max_bytes)
+    return (len(declared), declared) > (len(limit), limit)
+
+
+def _omit_oversize_body(response: requests.Response) -> None:
+    response.close()
+    response._content = b""
+    response._content_consumed = True
+    response.sdk_body_limit_exceeded = True
+
+
+def _buffer_limited_body(response: requests.Response, *, max_bytes: int, **_: Any) -> None:
+    if getattr(response, "sdk_body_limit_exceeded", False) is True:
+        return
+    if content_length_exceeds(response, max_bytes):
+        _omit_oversize_body(response)
+        return
+    if getattr(response, "_content_consumed", True):
+        if len(response.content or b"") > max_bytes:
+            _omit_oversize_body(response)
+        return
+
+    try:
+        with BytesIO() as body:
+            for chunk in response.iter_content(chunk_size=_BODY_CHUNK_BYTES):
+                if body.tell() + len(chunk) > max_bytes:
+                    _omit_oversize_body(response)
+                    return
+                body.write(chunk)
+            # Cache the one bounded read for Requests, Runtime and the recorders.
+            response._content = body.getvalue()
+            response._content_consumed = True
+    except BaseException as exc:
+        response.close()
+        if isinstance(exc, requests.RequestException) and exc.request is None:
+            exc.request = response.request
+        raise
 
 
 class _AnonymousAuth(requests.auth.AuthBase):
@@ -77,6 +125,7 @@ class SafeSessionTransport:
         *,
         retry_safe: bool = False,
         _connection_probe: bool = False,
+        _response_byte_limit: int | None = None,
         **kwargs: Any,
     ) -> requests.Response:
         method = method.upper()
@@ -90,6 +139,20 @@ class SafeSessionTransport:
         attempts = self.policy.max_attempts if (method == "GET" or retry_safe) else 1
         safe_to_repeat = method == "GET" or retry_safe
         safe_path = urlsplit(url).path or "/"
+        request_kwargs = kwargs
+        buffer_body = None
+        if _response_byte_limit is not None:
+            headers = requests.structures.CaseInsensitiveDict(kwargs.get("headers") or {})
+            headers.setdefault("Accept-Encoding", "identity")
+            kwargs.update(stream=True, headers=headers)
+            hooks = kwargs.get("hooks") or {}
+            response_hooks = hooks.get("response") or getattr(self.session, "hooks", {}).get("response", ())
+            if callable(response_hooks):
+                response_hooks = (response_hooks,)
+            # Requests may read a redirect body while preparing Response.next
+            # even with redirects disabled. Bound the read before it does so.
+            buffer_body = partial(_buffer_limited_body, max_bytes=_response_byte_limit)
+            request_kwargs = {**kwargs, "hooks": {**hooks, "response": [buffer_body, *response_hooks]}}
 
         with self._lock:
             if (
@@ -122,8 +185,11 @@ class SafeSessionTransport:
                         url,
                         timeout=timeout,
                         verify=self.verify,
-                        **kwargs,
+                        **request_kwargs,
                     )
+                    if buffer_body is not None:
+                        # Also support injected sessions that do not dispatch hooks.
+                        buffer_body(response)
                 except requests.RequestException as exc:
                     elapsed = monotonic() - started
                     code = network_error_code(exc)

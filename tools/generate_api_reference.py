@@ -27,7 +27,7 @@ PURPOSES = {
     "webmaas.registration_query": "掛號紀錄、原始掛號人員代碼及未到診圖示；no_show 為 True 或 None（未知），有掛號不等於已就診。SSO 當次 token 可供首次查詢。見 [PATIENTS](PATIENTS.md)。",
     "prq.visit_cases": "以病歷號或 national_id（二擇一）查就診清單；遇到錄製的調閱審查頁時，病歷號路徑預設自動提交照護原因，可用 access_review_reason 覆寫。保留同病人舊病歷號的原始連結與查詢號，含日期、類別、科別、醫師。見 [VISITS](VISITS.md)。",
     "prq.case_detail": "單次就診的頁籤、連結與原始頁面。",
-    "prq.soap": "該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、慢性處方服藥期限及掃描 PDF 參照；調閱審查預設自動處理，可明確覆寫 access_review_reason。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。",
+    "prq.soap": "該次門診的 S／O／A+P、診斷碼、列印醫囑、一般／慢性處方摘要、明示服藥期限及掃描 PDF 參照。調閱審查可用 access_review_reason 覆寫。僅支援 O 類別。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。",
     "prq.numeric": "該次就診的數值表格；保留雙層表頭、可對齊的欄位路徑及原始數值，見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。",
     "prq.case_orders": "該次就診的醫囑；參照物件可串接明細及報告。",
     "prq.case_medications": "該次就診的藥囑與用法資料。",
@@ -124,10 +124,10 @@ def render() -> str:
         for spec in QUERY_SPECS:
             if spec.service != service:
                 continue
-            signature = str(inspect.signature(getattr(cls, spec.method)))
+            signature = str(inspect.signature(getattr(cls, spec.method), eval_str=True))
             signature = signature.replace("self, ", "").replace("(self)", "()")
-            signature = re.sub(r"vghks_sdk\.models\.[a-z_]+\.", "", signature)
-            signature = signature.replace("'", "").replace("|", "&#124;")
+            signature = re.sub(r"\b(?:vghks_sdk\.models\.[a-z_]+|collections\.abc|datetime|typing)\.", "", signature)
+            signature = signature.replace("|", "&#124;")
             lines.append(f"| `{spec.key}` | `{spec.method}{signature}` | {PURPOSES[spec.key]} |")
         lines.append("")
     lines += [
@@ -173,6 +173,7 @@ def render() -> str:
         "`OrderReport.report_data_status` 區分 TEXT_AVAILABLE、ATTACHMENT_ONLY、METADATA_ONLY、EMPTY。",
         "`HtmlDocument` 保留 html、text、tables、rendering_notes；巢狀表格保留主表自己的列。",
         "PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數值抽取。",
+        "附件下載分段執行 64 MiB 上限。超限會關閉連線並回報 `BINARY_ASSET_TOO_LARGE`。",
         "`to_jsonable` 只轉成可儲存結構，不會去除個資。",
         "SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。",
         "phase、retry_safe、retry_recommended 與結構化 cause 提供失敗階段與安全重試條件；info.root_cause 保留最深層原因。retry_safe 為 None 時表示未知，retry_recommended 不會啟動新的自動重試。",
@@ -204,7 +205,7 @@ def main() -> int:
             print("API_REFERENCE.md is stale; regenerate it.", file=sys.stderr)
             return 1
     else:
-        path.write_text(text, encoding="utf-8")
+        path.write_text(text, encoding="utf-8", newline="\n")
     print(f"Atomic API catalog: {len(QUERY_SPECS)} entries, synchronized.")
     return 0
 

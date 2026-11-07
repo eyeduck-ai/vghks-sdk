@@ -80,7 +80,7 @@ from ..parsing.surgery_cases import (
 from ..parsing.webmaas import is_webmaas_session_timeout, parse_query_form, registration_counts
 from ..queries import QUERY_BY_KEY
 from .bundle import BundleReader
-from .requests import captured_request_parts, identify_parts
+from .requests import captured_request_parts, identify_parts, is_registration_page
 from .requests import identify_operation as identify_operation
 from .requests import request_parts as request_parts
 
@@ -104,6 +104,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
     context_national_id = ""
     context_hid = ""
     visit_context_ready = False
+    registration_scope: tuple[str, str, str, str] | None = None
+    registration_mrn = ""
     results: list[dict[str, Any]] = []
     portal_base = "https://portal.vghks.gov.tw"
     webmaas_base = SDKSettings().webmaas_base_url
@@ -138,8 +140,22 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
             context_mrn = (
                 "" if context_national_id else params.get("queryPtID") or params.get("id", "")
             )
-        operation = identify_parts(method, path, query, form)
+        registration_page = is_registration_page(method, path, query)
+        operation = "webmaas.registration_query" if registration_page else identify_parts(method, path, query, form)
         address = urlsplit(str(request.get("url", "")))
+        scope = None
+        if operation == "webmaas.registration_query":
+            scope = (
+                str(row.get("sdk_operation_id") or ""), str(row.get("live_test_step") or ""),
+                address.scheme, address.netloc,
+            )
+        if scope != registration_scope or method == "POST":
+            registration_scope = None
+            registration_mrn = ""
+        if registration_page:
+            # Displaytag may omit patno on subsequent pages. Use only a
+            # successful POST from this recorded operation and origin.
+            params = {"patno": query.get("patno", registration_mrn)}
         if operation in {"portal.entry", "portal.login"}:
             portal_base = urlunsplit((address.scheme, address.netloc, "", "", ""))
         group = str(row.get("request_group_id") or "")
@@ -217,6 +233,8 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                     result.update(status="PARSE_ERROR", error_code="AUTH_SESSION_REDIRECT")
                 if operation == "portal.login" and location and is_password_change_destination(location, str(request.get("url", "")), portal_base):
                     result.update(status="PARSE_ERROR", error_code="PORTAL_PASSWORD_CHANGE_REQUIRED")
+        elif response.get("body_limit_exceeded") is True:
+            result.update(status="UNAVAILABLE", error_code="BINARY_ASSET_TOO_LARGE")
         elif (
             operation in QUERY_BY_KEY
             or operation in _CONTRACTS
@@ -237,7 +255,7 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         content,
                         params,
                         mime=mime,
-                        context_mrn=context_mrn,
+                        context_mrn="" if registration_page else context_mrn,
                         context_hid=context_hid,
                         context_national_id=context_national_id,
                         trusted_visit_context=visit_context_ready,
@@ -246,6 +264,11 @@ def replay_bundle(reader: BundleReader) -> list[dict[str, Any]]:
                         webmaas_base_url=webmaas_base,
                     )
                 )
+                if (
+                    method == "POST" and scope and (scope[0] or scope[1]) and form.get("patno")
+                    and result["status"] in {"PARSED", "EMPTY"}
+                ):
+                    registration_scope, registration_mrn = scope, form["patno"]
                 if operation == "prq.patient_identity":
                     context_mrn = (
                         parsing.parse_patient_identity(
@@ -653,11 +676,10 @@ def _parse(
         return parsing.parse_patient_demographics(json.loads(text), mrn)
     if key == "webmaas.basic_info":
         return parsing.parse_patient_basic_info(text, mrn)
-    if key in {"webmaas.registration_query", "prq.visit_cases", "prq.case_detail", "prq.soap"} and soup is None:
-        soup = BeautifulSoup(text, "html.parser")
     if key == "webmaas.registration_query":
-        _require(soup.find("table", id="row") is not None, "WEBMAAS_REGISTRATION_STRUCTURE_MISSING")
-        return parsing.parse_registration_records(text, mrn)
+        return parsing.parse_registration_records(text, mrn, soup=soup)
+    if key in {"prq.visit_cases", "prq.case_detail", "prq.soap"} and soup is None:
+        soup = BeautifulSoup(text, "html.parser")
     if key == "prq.visit_cases":
         rows = parsing.parse_visit_cases(
             text,

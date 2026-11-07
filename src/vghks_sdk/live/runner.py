@@ -25,6 +25,7 @@ from .capture import RawCaptureRecorder
 from .config import LiveTestConfig
 from .environment import environment_report
 from .profile import run_live_test
+from .registration_recovery import restore_registration_checkpoint
 from .steps import (
     LIVE_TEST_MRN,
     LIVE_TEST_SCHEMA_VERSION,
@@ -360,16 +361,16 @@ def execute_live_test(
                     for step in steps
                 ),
             )
-        summary = _summary_payload(
-            manager=manager,
-            config=config,
-            status=status,
-            exit_code=exit_code,
-            steps=steps,
-            failure=failure,
-            failure_error_id=failure_error_id,
-        )
         try:
+            summary = _summary_payload(
+                manager=manager,
+                config=config,
+                status=status,
+                exit_code=exit_code,
+                steps=steps,
+                failure=failure,
+                failure_error_id=failure_error_id,
+            )
             archive = manager.finalize(status=status, summary=summary)
         except Exception as archive_error:
             manager.close_console()
@@ -408,6 +409,10 @@ def _summary_payload(
             key: account[key] for key in ("hospital", "expected_mode", "sequence") if key in account
         }
     completed_steps = to_jsonable(steps)
+    if not completed_steps and config.profile == "registrations":
+        recovered = restore_registration_checkpoint(manager.run_directory)
+        existing.update(recovered)
+        completed_steps = recovered.get("steps", [])
     if not completed_steps:
         checkpoint = manager.run_directory / "step_results.json"
         if checkpoint.is_file():

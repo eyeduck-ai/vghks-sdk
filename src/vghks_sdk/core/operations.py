@@ -183,7 +183,7 @@ OPERATIONS: tuple[OperationSpec, ...] = (
         "webmaas",
         "POST",
         "/webmaas/RSV/RSV11W001.do",
-        retry_safe=True,
+        # The token may already have been consumed when a response is lost.
         form=("QRY", "org.apache.struts.taglib.html.TOKEN", "pageid", "pageSize", "patno"),
     ),
     _spec(

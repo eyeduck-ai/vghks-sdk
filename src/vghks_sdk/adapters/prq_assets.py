@@ -18,7 +18,7 @@ from ..models import (
     PacsStudyRef,
     PdfAttachmentRef,
 )
-from ..parsing.assets import parse_binary_asset
+from ..parsing.assets import MAX_BINARY_ASSET_BYTES, parse_binary_asset
 from ..parsing.clinical import parse_order_detail, parse_order_report, parse_pacs_study
 from .prq_context import PrqPatientContext
 
@@ -35,9 +35,6 @@ _PACS_IMAGE = operation_spec("prq.pacs_image")
 
 
 _PDF_ATTACHMENT = operation_spec("prq.pdf_attachment")
-
-
-_MAX_ASSET_BYTES = 64 * 1024 * 1024
 
 
 class PrqAssetOperations(PrqPatientContext):
@@ -152,7 +149,7 @@ class PrqAssetOperations(PrqPatientContext):
             content, _ = self.runtime.request_binary(
                 _PACS_IMAGE,
                 f"{base}/Page/JSP/showPACSPic.jsp",
-                max_bytes=_MAX_ASSET_BYTES,
+                max_bytes=MAX_BINARY_ASSET_BYTES,
                 headers={
                     "Accept": IMAGE_ACCEPT,
                     "Referer": f"{base}/Adm_QueryPACS.do?"
@@ -187,7 +184,7 @@ class PrqAssetOperations(PrqPatientContext):
             content, _ = self.runtime.request_binary(
                 _PDF_ATTACHMENT,
                 f"{base}/Page/JSP/showPDF.jsp",
-                max_bytes=_MAX_ASSET_BYTES,
+                max_bytes=MAX_BINARY_ASSET_BYTES,
                 params={
                     "fileName": encoded_once,
                     "hhisnum": reference.mrn,

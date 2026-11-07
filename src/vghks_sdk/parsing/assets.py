@@ -3,6 +3,8 @@
 from ..core.errors import ParseError
 from ..models import BinaryAsset
 
+MAX_BINARY_ASSET_BYTES = 64 * 1024 * 1024
+
 
 def binary_asset_media_type(content: bytes) -> str:
     """Identify supported binary prefixes, without proving file completeness.
@@ -19,7 +21,7 @@ def binary_asset_media_type(content: bytes) -> str:
 
 
 def parse_binary_asset(content: bytes, *, media_type: str) -> BinaryAsset:
-    if len(content) > 64 * 1024 * 1024:
+    if len(content) > MAX_BINARY_ASSET_BYTES:
         raise ParseError("asset exceeded the supported size", code="ASSET_TOO_LARGE")
     if media_type == "image/jpeg":
         if (
@@ -31,10 +33,15 @@ def parse_binary_asset(content: bytes, *, media_type: str) -> BinaryAsset:
     elif media_type == "application/pdf":
         # Recorded scanner PDFs append this exact producer marker after EOF.
         # Preserve original bytes; do not accept arbitrary trailing content.
-        end = content.rstrip()
-        if end.endswith(b"%%EOF\r%Avision"):
-            end = end.removesuffix(b"\r%Avision")
-        if not content.startswith(b"%PDF") or not end.endswith(b"%%EOF"):
+        end = len(content)
+        while end:
+            # Trim trailing whitespace in small slices instead of copying the PDF.
+            tail = content[max(0, end - 4096):end]
+            trimmed = tail.rstrip()
+            end -= len(tail) - len(trimmed)
+            if trimmed:
+                break
+        if not content.startswith(b"%PDF") or not content.endswith((b"%%EOF", b"%%EOF\r%Avision"), 0, end):
             raise ParseError(
                 "PDF response did not contain a complete PDF", code="PDF_BINARY_INVALID"
             )

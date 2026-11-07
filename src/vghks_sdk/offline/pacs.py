@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from ..contracts.order_assets import ORDER_WORKFLOW_PATH
@@ -18,7 +19,10 @@ _ASSETS = ORDER_WORKFLOW_PATH + "stage3_assets/"
 _UPSTREAM = {"prq.order_history", "prq.order_detail", "prq.order_report", "prq.pacs_study"}
 
 
-def pacs_test_summary(reader: BundleReader, steps: list[dict]) -> dict[str, Any]:
+def pacs_test_summary(
+    reader: BundleReader, steps: list[dict], *,
+    pacs_asset_codes: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Recompute each mode from unique references, outcomes and actual saved bytes.
 
     Original EXE statuses are separate from this audit. Only fixed labels,
@@ -127,7 +131,9 @@ def pacs_test_summary(reader: BundleReader, steps: list[dict]) -> dict[str, Any]
         missing = len(selected) - len(successful) - errors
         verified_bytes = []
         for name, row in successful:
-            code = verify_saved_order_asset(reader, name, row, "prq.pacs_image")
+            code = pacs_asset_codes.get(name) if pacs_asset_codes is not None else None
+            if code is None:
+                code = verify_saved_order_asset(reader, name, row, "prq.pacs_image")
             if code:
                 issue(code)
             else:

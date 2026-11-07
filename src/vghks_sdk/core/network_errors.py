@@ -63,7 +63,7 @@ def _classify(names: set[str], message: str) -> str:
         return "NETWORK_PROXY_FAILED"
     if "ConnectTimeout" in names:
         return "NETWORK_CONNECT_TIMEOUT"
-    if "ReadTimeout" in names:
+    if names & {"ReadTimeout", "ReadTimeoutError"} or "read timed out" in text:
         return "NETWORK_READ_TIMEOUT"
     if "Timeout" in names:
         return "NETWORK_TIMEOUT"

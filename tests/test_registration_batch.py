@@ -19,6 +19,7 @@ from vghks_sdk.live_test_app import (
     build_parser,
     main,
 )
+from vghks_sdk.local_io import write_json_atomic, write_jsonl_line
 from vghks_sdk.models import AuthCheckTarget, RegistrationRecord
 from vghks_sdk.offline.retest import build_retest_config
 
@@ -113,11 +114,51 @@ class RegistrationBatchTests(unittest.TestCase):
     def test_all_patients_are_processed_above_the_old_sample_limit(self):
         mrns = tuple(f"TEST{index:04d}" for index in range(105))
         sdk = BatchSDK()
-        result, summary = self.run_batch(sdk, mrns)
+        step_checkpoints, batch_checkpoints = [], []
+
+        def write_checkpoint(path, value):
+            if path.name == "step_results.json":
+                step_checkpoints.append(sum(step.name.startswith("registrations.patient_") for step in value))
+            elif path.name == "batch_summary.json":
+                batch_checkpoints.append(value["completed_patient_count"])
+            return write_json_atomic(path, value)
+
+        with (
+            patch("vghks_sdk.live.registrations.write_json_atomic", side_effect=write_checkpoint),
+            patch("vghks_sdk.live.steps.write_json_atomic", side_effect=write_checkpoint),
+        ):
+            result, summary = self.run_batch(sdk, mrns)
         self.assertEqual(sdk.calls, list(mrns))
         self.assertEqual((result.status, summary["completed_patient_count"]), ("OK", 105))
         self.assertEqual(summary["no_show_count"], 105)
         self.assertEqual(summary["pending_patient_count"], 0)
+        self.assertEqual([count for count in step_checkpoints if count], [100, 105])
+        self.assertEqual(batch_checkpoints, [0, 100, 105])
+        journal = self.root / "parsed/registrations/patient_results.jsonl"
+        entries = [json.loads(line) for line in journal.read_bytes().splitlines()]
+        self.assertEqual([entry["mrn"] for entry in entries], list(mrns))
+
+    def test_interrupted_journal_sync_rolls_back_the_in_flight_patient(self):
+        sdk = BatchSDK()
+
+        def append(handle, entry, *, durable):
+            self.assertTrue(durable)
+            self.assertTrue((self.root / entry["step"]["output"]).is_file())
+            if entry["index"] == 2:
+                with patch("vghks_sdk.local_io.os.fsync", side_effect=[KeyboardInterrupt(), None]):
+                    write_jsonl_line(handle, entry, durable=durable)
+            else:
+                write_jsonl_line(handle, entry, durable=durable)
+
+        with patch("vghks_sdk.live.registrations.write_jsonl_line", side_effect=append), self.assertRaises(KeyboardInterrupt):
+            self.run_batch(sdk)
+        parsed = self.root / "parsed/registrations"
+        journal = [json.loads(line) for line in (parsed / "patient_results.jsonl").read_bytes().splitlines()]
+        summary = json.loads((parsed / "batch_summary.json").read_bytes())
+        self.assertEqual([entry["index"] for entry in journal], [1])
+        self.assertEqual((summary["completed_patient_count"], summary["pending_patient_count"]), (1, 2))
+        self.assertTrue((parsed / "patients/000002.json").is_file())
+        self.assertEqual(sdk.calls, ["TEST001", "TEST002"])
 
     def test_empty_error_and_success_remain_distinct_and_continue(self):
         sdk = BatchSDK({"TEST001": [], "TEST002": ParseError("synthetic layout")})

@@ -26,7 +26,7 @@ flowchart TD
 | 模組 | 負責的事 |
 | --- | --- |
 | `sdk.py` | 組裝 Service／Adapter／Runtime、注入 transport、管理關閉與 context manager |
-| `services/` | 公開用途、輸入檢查與型別回傳；透過 Adapter Protocol 呼叫 |
+| `services/` | 公開用途、輸入檢查與型別回傳；由 `sdk.py` 注入 Adapter |
 | `adapters/` | 各子系統的請求次序、表單／token、病人與就診 context；`auth.py` 管 Portal 與 SSO |
 | `parsing/` | HTML／JSON／二進位純解析；靜態讀取已知 JS literal，不執行腳本 |
 | `models/` | 資料模型、Filter、驗證與綁定病人／就診的 Ref |
@@ -42,11 +42,7 @@ flowchart TD
 | `cli.py`／`__main__.py` | 命令列入口，依子命令呼叫查詢、workflow 或離線工具 |
 | `local_io.py` | JSON／二進位原子寫入與本機檔案權限處理 |
 
-PRQ 旗標／歷年清單的純解析集中於 `parsing/prq_extensions.py`，手術回覆判定位於 `parsing/oppl.py`。Adapter 與 offline 共用純函式；舊 Adapter 匯入保留相容入口。後續整理見 [OPTIMIZATION](OPTIMIZATION.md)。
-
-`adapters/prq.py` 保留 `PrqAdapter` 組裝入口：`prq_context.py` 管共用病人／就診 context 與調閱審查，`prq_visits.py` 管就診／SOAP，`prq_orders.py` 管各類清單，`prq_assets.py` 管報告與附件。各組操作使用同一 Runtime，完整操作鎖與請求次序不變。
-
-`adapters/auth.py` 保留 `AuthenticationAdapter` 與共用狀態：`auth_portal.py` 管 Portal 登入，`auth_sso.py` 管應用 SSO／簽到退入口，`auth_webmaas.py` 管頁面角色／表單與局部恢復，`auth_shared.py` 管 Session 型別、傳輸及來源驗證。所有組件使用同一 Session，原 `AppSession`／`SsoForm` 匯入仍可用。
+`PrqAdapter` 依 `prq_context`、`prq_visits`、`prq_orders`、`prq_assets` 分工。`AuthenticationAdapter` 依 `auth_portal`、`auth_sso`、`auth_webmaas`、`auth_shared` 分工。兩個組裝入口保留共享狀態及既有匯入路徑。
 
 ## 領域與來源對照
 
@@ -65,7 +61,8 @@ PRQ 旗標／歷年清單的純解析集中於 `parsing/prq_extensions.py`，手
 - **兩種登錄各有用途**：`core/operations.py` 定義底層 HTTP method／path／異動屬性；`queries.py` 定義公開唯讀結果。兩者不是一對一，`queries.dependencies` 只供發現輸入，`queries.run` 不自動執行上游查詢。
 - **Session 有共享狀態**：同一 SDK 的病人 context、HID、SSO 角色與 token 共用。Runtime 在完整操作期間持有 `operation_lock`；不同帳號各用獨立 SDK。維持預設 0.8–1.8 秒節流。
 - **恢復有範圍**：可恢復的唯讀操作最多恢復一次；WebMAAS 明確 timeout 只重建原角色 SSO。登入拒絕、尚未登入與強制改密碼各自分類；密碼 POST、異動及已送出審查不能套用一般重播。TLS 政策由 `core/connections.py` 按來源共用，保留嚴格憑證模式。
-- **參照綁定來源**：Adapter 先核對病人，再使用 VisitCase／Ref。歷史就診的 `mrn` 是明細來源號碼，`lookup_mrn` 是清單查詢號碼；下載驗證允許來源、路徑及病人，不接受任意 URL。
+- **參照綁定來源**。Adapter 核對病人後使用 VisitCase／Ref。歷史就診的 `mrn` 是明細來源號碼，`lookup_mrn` 是清單查詢號碼。附件僅請求已登錄端點，已知登入轉址交由 Runtime 判定，其他轉址以 `BINARY_ASSET_REDIRECT_UNRECOGNIZED` 回報。
+- **附件大小上限**。Transport 在診斷、錄製與 Parser 之前，以 64 KiB 區塊讀取附件並限制 64 MiB。超限時關閉連線，錄製保留 HTTP 狀態、標頭及超限標記。完整回應通過 Parser 後回傳含位元組、大小與 SHA-256 的 `BinaryAsset`。
 - **狀態保留差異**：合法空值、未執行、只有附件、部分解析與未知 schema 分開。Parser 保留來源及解析問題；PDF／JPG 成功下載不含 OCR，也不代表已取得醫療數值。
 - **處置由應用決定**：`acquire`／`queries.run_result` 保留原回傳於 `value`；SDK 提供資料狀態與結構化原因，workflow 決定排程及續跑。外層 `retry_safe=False` 不能被底層網路原因覆蓋，見 [ACQUISITION](ACQUISITION.md)。
 - **提交須保留邊界**：PRQ 遇已錄製的調閱審查頁，核對病歷號／HID／當頁選項後預設送一次 `1A`。手術經 SurgeryCommand；`attendance.punch` 明確呼叫才送出，且排除於唯讀目錄與 EXE。
@@ -77,9 +74,13 @@ PRQ 旗標／歷年清單的純解析集中於 `parsing/prq_extensions.py`，手
 
 `live/profile.py` 編排 core／full；`live/steps.py` 共用結果、步驟記錄與逐步存檔，`live/patient.py` 處理逐次就診、歷年清單與本機搜尋。其他專項直接使用共用 steps，舊 profile 匯入仍可用。
 
+批次掛號先原子寫入逐人結果，再同步追加日誌，每 100 位及結束時寫完整檢查點。`contracts/registration_journal.py` 供離線核對與 `live/registration_recovery.py` 共用提交格式。中斷時依連續完整的提交重建摘要。[批次掛號操作](LIVE_TEST.md#批次掛號整合測試registrations)
+
 離線職責分開：`analyze.py` 組裝報告、`evidence.py` 彙整安全摘要及問題分類、`presentation.py` 呈現／比較已組裝報告；`replay.py` 重解析、`assets.py` 核對存檔、`pacs.py`／`registrations.py` 核對專項、`session.py`／`recovery.py` 核對 Session 與恢復、`retest.py` 產生設定。舊 analyze 匯入保留；登入證據與附件契約仍由 `contracts/auth_evidence.py`、`order_assets.py` 共用。
 
-`offline/cache.py` 只在單次 ZIP 分析內共用 JSON 與請求解析，結束或失敗即清除；目錄、自訂 Reader 與二進位仍直接讀取。`requests.py` 預建唯讀操作簽章，請求形狀快取只存解析所需欄位。`BundleReader.json`／`jsonl` 的公開新值語意保留，快取不跨分析或 SDK Session 共用。上限與量測見 [OPTIMIZATION](OPTIMIZATION.md)。
+JSON 與請求形狀快取限單次 ZIP 分析。批次掛號在當次分析建立錄製序號索引，只核對該病人的捕捉範圍，保留 manifest 中的頁面次序。[效能量測與取捨](OPTIMIZATION.md)
+
+一般附件摘要與 PACS 模式摘要在同一次 ZIP 分析共用已存圖片的驗證結論。每個存檔成員只讀取一次，兩份摘要仍各自核對 outcome、參照與覆蓋。原始 HTTP 回應與已存檔案各自驗證。
 
 恢復判定需以 `capture_operation_id` 對到同一次 raw 操作並核對完整次序。重解析、附件核對與原始實測各自保留，後續成功不覆寫原 ERROR；NO_SAMPLE 保留缺口，見 [VALIDATION](VALIDATION.md)。
 

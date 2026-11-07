@@ -1,88 +1,51 @@
-# SDK 優化方向
+# SDK 架構與效能檢視
 
-P1／P2／P3 的本機優化已完成實作，保留既有 Service、CLI 與請求行為。院內證據與待驗證範圍仍以 [VALIDATION](VALIDATION.md) 為準。
+本輪以 `cfdf041`（0.23.6）為同步基準。現有 Service、Adapter、Runtime 與純 Parser 的責任已分開，線上與離線可共用解析。保留現有分層，優先修正跨層行為不一致及同一份資料的重複處理。[架構與擴充入口](ARCHITECTURE.md)
 
-## 已有基礎
+## 本輪修正
 
-- Service／Adapter／Parser／Model 分層、Protocol 注入與共用 Runtime 已建立。
-- 已有操作鎖、有限恢復、TLS 政策、參照綁定及合成／localhost 測試。
-- 已有附件去重、原子寫入、純證據契約及離線完整性核對，可直接沿用。
-
-## 優先順序
-
-以下記錄完成內容；後續擴充沿用相同驗收條件。
-
-| 優先 | 現況與位置 | 建議修改 | 驗收重點 |
-| --- | --- | --- | --- |
-| P1 已完成：純解析 | [parsing/prq_extensions.py](../src/vghks_sdk/parsing/prq_extensions.py)、[parsing/oppl.py](../src/vghks_sdk/parsing/oppl.py) | 病人旗標、歷年清單、上傳類型與手術回覆判定歸位；Adapter／offline 共用，舊匯入相容 | 同一合成 ZIP 禁止 socket 重解析，完整 JSON／Markdown 報告、重測設定及原 ZIP hash 一致 |
-| P1 已完成：介面 | [services/protocols.py](../src/vghks_sdk/services/protocols.py)、[queries.py](../src/vghks_sdk/queries.py) | 補密碼狀態、眼科掃描及排程 filters；分開 Service／Adapter 的 ref／reference；API generator 核對輸入綁定 | 全目錄合成 discovery／replay 覆蓋；保留位置參數別名，未知 discovery scope 明確報錯 |
-| P2 已完成：模組責任 | [offline/analyze.py](../src/vghks_sdk/offline/analyze.py)、[live/profile.py](../src/vghks_sdk/live/profile.py)、[adapters/prq.py](../src/vghks_sdk/adapters/prq.py) 保留原入口 | 拆出證據／呈現、共用步驟／病人流程及 PRQ context／就診／醫囑／附件 | API、操作鎖、HTTP 次序、密碼／審查 POST 次數及重測範圍不變 |
-| P2 已完成：登入拆分 | [adapters/auth.py](../src/vghks_sdk/adapters/auth.py) 保留入口、共享狀態與挑戰分類 | Portal、應用 SSO、WebMAAS 及共用傳輸／來源驗證分工；位置見 [ARCHITECTURE](ARCHITECTURE.md) | 原 33 個方法邏輯不變；帳號隔離、有限恢復及不重送密碼的回歸保留 |
-| P2 已完成：回傳型別 | [models/json_responses.py](../src/vghks_sdk/models/json_responses.py)、[responses.py](../src/vghks_sdk/responses.py) | PRQ／OPPL／審查 JSON 提供可選 TypedDict 與純轉換函式；既有 Service 仍回傳 dict | 沿用 Parser 驗證，保留未知欄位與原值；未確認型別用 object，不猜來源代碼 |
-| P3 已完成：本機效能 | [offline/cache.py](../src/vghks_sdk/offline/cache.py)、[offline/requests.py](../src/vghks_sdk/offline/requests.py)、[benchmark_offline.py](../tools/benchmark_offline.py) | 單次 ZIP 共用有界 JSON／請求形狀快取；預建唯讀簽章，避免重複解碼及 DOM | 公開 Reader 仍回傳新值；完整報告／重測設定、錯誤與大小限制不變，結束或失敗即清除快取 |
-
-登錄檢查應連接 `core/operations.py`、`queries.py`、live discovery、offline replay 與 API generator；HTTP contract 與公開結果仍維持各自職責，一份結果可包含多個請求。既有重複 key、相依循環、異動排除及 HAR contract 檢查繼續保留。
-
-效能工作以本機解析及存檔為起點。維持 SDK 預設節流、Session 操作鎖及按帳號隔離；快取限單次分析，不跨病人／Session 保存查詢內容。
+| 範圍 | 改動 |
+| --- | --- |
+| 附件請求 | PDF／JPG 只請求登錄端點。辨識到的登入挑戰交由 Runtime 處理，其他 3xx 保留狀態及錯誤碼。傳輸按 64 KiB 區塊執行 64 MiB 上限，超限即關閉，原始錄製保留 HTTP 證據。合格檔案回傳完整 `BinaryAsset`。 |
+| 掛號查詢 | 資料列和下一頁連結共用 DOM。分頁與離線核對共用來源、路徑及病人限制。傳輸層遇逾時或暫時性 HTTP 錯誤時保留掛號 POST 的失敗結果。 |
+| 離線掛號 | 一次索引錄製序號，依各病人的範圍取資料並保留 manifest 次序。後續頁省略病歷號時，唯有同一錄製範圍和來源的成功 POST 能提供病人 context。 |
+| PACS 離線核對 | 同一次 ZIP 分析共用每個已存圖片的成功或錯誤結論。合成 ZIP 的 imgUrl 與 uid 圖片各從兩次讀取及 SHA-256 降為一次。只暫存核對碼，圖片內容直接讀取。 |
 
 ## 本機效能量測
 
-`python tools/benchmark_offline.py` 預設產生 600 筆合成回應，對照有／無快取各五輪；輸出只有計數、耗時、摘要 hash。可用 `--input` 指定本機 ZIP。下表另記錄本輪以同一 ZIP 比較上一版／新版，兩版均啟用 JSON 快取：
+下列中位數來自同機各五輪的合成資料，量測 Parser 和離線核對函式，不含醫院 HTTP、節流或 EXE 存檔時間。
 
-| 指標 | 上一版 | 新版 |
+| 案例 | 同步基準 | 工作樹 |
 | --- | ---: | ---: |
-| JSON 解碼次數 | 1,203 | 1,203 |
-| 請求參數解析次數 | 1,800 | 1 |
-| 分析期間簽章重建次數 | 68,400 | 0 |
-| 峰值追蹤記憶體 | 5.13 MiB | 7.64 MiB |
-| 耗時中位數 | 0.366 秒 | 0.054 秒 |
+| 120 頁掛號 HTML，每頁 25 列 | 1.21 秒 | 0.74 秒 |
+| 1,000 個查詢範圍，4,000 筆錄製項目，含索引建立 | 1.84 秒 | 0.59 秒 |
 
-此案例的請求形狀相同，故只解析一次；不同形狀仍分開。簽章初始化時預建 114 個；完整 JSON／Markdown 報告、重測設定及原 ZIP hash 一致。速度改善伴隨此量測的峰值增加，不宣稱所有格式都有相同比例。
+對同一份合成批次掛號 ZIP，完整 JSON／Markdown 分析與重測設定一致，原 ZIP SHA-256 一致。跨來源、順序不符及缺病人 context 的案例另以回歸測試驗證。
 
-快取共用 32 MiB 總預算：JSON 單項最多 8 MiB／原檔 4 MiB、最多 64 項；請求形狀最多 4 MiB／4,096 項，只保留解析所需欄位，不保留額外 headers／Cookie。目錄、自訂 Reader、二進位及跨次分析不共用。
+以 32 MiB 合成掃描 PDF 比較檔尾驗證，兩版均回傳同一份 bytes。把輸入檔案先建立再量測，`tracemalloc` 額外峰值由約 64 MiB 降至約 9 KiB，省下去除換行與掃描器結尾時的整檔複製。這是驗證階段的配置量，合格附件回傳時仍持有完整內容。
 
-驗證時另修正 Windows 原子換檔偶發拒絕：`local_io.py` 對錯誤碼 5／32／33 最多換檔四次，總等待最多 140 ms；永久失敗仍保留原錯誤碼。重試限於同一份已寫好的本機暫存檔。
+既有的操作簽章在載入時預建。`python tools/benchmark_offline.py` 可量測單次 ZIP 快取，並核對報告、重測設定及原檔雜湊。32 MiB 快取預算由 JSON 與請求形狀共用；目錄、自訂 Reader、二進位和跨次分析走直接讀取。歷次數據與證據層級見 [驗證範圍](VALIDATION.md)。
 
-## 後續架構改進
+## 大批次步驟存檔
 
-目前保留既有分層，優先針對重複工作局部改寫。模組拆分改善維護；總耗時是否下降仍須量測。線上每次請求另有必要的 0.8–1.8 秒節流，目前沒有院內分段耗時足以支持全面重寫。
+在 Windows 本機工作樹用 Python 3.10 交錯量測三輪。每輪以同一批合成掛號步驟寫入實際檔案。改動前每步呼叫 `write_json_atomic`。量測原型每步追加 JSONL 並 `flush`／`fsync`，每 100 步及結束時原子寫入全量快照。兩種路徑的最終 `step_results.json` 位元組一致，JSONL 也可還原完整步驟。時間只涵蓋步驟存檔，另行寫入的掛號結果、摘要、HTTP 與 ZIP 打包在量測範圍之外。
 
-維持局部改寫，已完成下列工作：
+| 步驟數 | 每步全量快照 | 追加日誌與定期快照 |
+| ---: | ---: | ---: |
+| 100 | 0.285 秒 | 0.032 秒 |
+| 500 | 3.649 秒 | 0.183 秒 |
+| 1,000 | 12.881 秒 | 0.422 秒 |
 
-| 項目 | 實作 | 保留條件 |
+另以相同的預編碼內容實測寫檔、同步與換檔。500 步的中位數由 0.767 降至 0.137 秒，1,000 步由 1.571 降至 0.271 秒。1,000 步的寫入內容約由 201 MiB 降至 2.54 MiB。整段存檔的差額還包含反覆序列化的成本。
+
+`registrations` 已採用既有逐人日誌作為提交紀錄，每 100 位與結束時更新完整檢查點。中斷補封裝依連續日誌重建步驟與摘要，舊 ZIP 沿用原本的離線讀取路徑。[中斷處理](LIVE_TEST.md#批次掛號整合測試registrations)
+
+實作後在同機交錯跑三輪 1,000 位合成病人的實際批次流程。步驟快照、批次摘要與逐筆日誌的合計存檔中位數由 **15.224 秒降至 0.540 秒**，包含序列化、寫檔及同步。整段本機流程含逐人結果存檔，由 17.752 秒降至 2.947 秒。步驟快照寫入 1,004 → 15 次，批次摘要寫入 1,002 → 12 次。扣除執行耗時與新增日誌版本欄位，兩版的最終步驟和摘要一致。此輪使用合成 SDK，HTTP、節流及 ZIP 打包在量測範圍之外。
+
+## 後續優先順序
+
+| 優先 | 建議 | 驗收重點 |
 | --- | --- | --- |
-| 操作識別 | 依 method／path 分組預建簽章；當次 ZIP 共用相同請求的解析結果 | 最具體匹配、同分次序、分頁特例及原匯入入口 |
-| 回應檢查 | 純文字無密碼線索時免建 DOM；導覽與登入／schema 檢查重用既有 DOM | HTML／entity／script／密碼線索仍完整解析，不只信 Content-Type；強制變更及 timeout 判斷保留 |
-| 步驟存檔 | 共用 writer 只做一次序列化；500 步合成存檔由 6.47 降至 4.99 秒 | 每步仍寫完整原子快照；中斷、失敗及原錯誤碼保留。journal／checkpoint 留待更大批次需求確認 |
+| 1 | 若目標是縮短院內耗時，先按 SSO、必要 HTTP、解析與存檔分段量測。 | 維持操作鎖、預設節流及帳號隔離，以請求次序與結果一致性驗收。 |
 
-CPU profile 含量測開銷，上述呼叫計數用於定位重複工作；不視為院內效能或預期加速比例。後續改動仍需完整報告／重測設定一致及來源 hash 不變的驗收。
-
-共用 Session／病人 context 的完整操作鎖維持；同帳號改用 async 或並行 HTTP 仍需遵守狀態與次序，不能據此增加請求量。離線純解析可獨立優化，跨病人／Session 的醫療結果快取仍不採用。
-
-## 測試加速
-
-`python run_tests.py` 預設完整循序執行；`--jobs 2 --durations 10` 以隔離程序按模組執行並顯示慢項目。相同 822 項的案例 ID／結果完全一致：單程序 155.8 秒、兩程序 85.6 秒，均略過 13 項私有條件測試。
-
-日常修改可先用重複的 `--pattern "test_auth*.py"` 選相關模組，交付前仍跑完整 suite。`--list` 可核對範圍；`--timings output/test-timings.json` 保存名稱／耗時。空選取、匯入錯誤、失敗及案例數不符均以非零碼結束；不刪減 TLS／恢復或其他案例。
-
-CI 的 Windows 3.10／Ubuntu 3.12 同樣採兩程序完整測試；修正 Windows 暫存目錄別名的路徑斷言，正式 writer 的回傳契約維持。
-
-## 驗證工作
-
-優先在下一輪經授權的院內測試補齊已知缺口：
-
-- 批次掛號：實際分頁、合法空結果及恢復情境。
-- 簽到退：SDK 實際院內登入與唯讀查詢；送出異動另依明確授權。
-- 登入／WebMAAS：自然 TTL、強制改密碼與缺表單備援，僅在實際出現時記錄。
-- 掃描與調閱：完整分類流程，以及不同入口獨立觸發調閱審查。
-
-Cookie 遺失、合成回應與 localhost 成功各保留自己的證據層級。NO_SAMPLE 保留缺樣本；後續成功不覆寫原 ERROR／PARTIAL。
-
-## 每批變更的完成條件
-
-1. 一批只處理一個責任邊界，保留既有 Service、型別與 CLI 相容入口。
-2. 先跑相關 unittest，再跑完整 suite、Ruff、API 同步與公開內容檢查；指令見 [DEVELOPMENT](DEVELOPMENT.md)。
-3. 離線重構以同一 ZIP 禁止 socket 比較完整報告（排除 analyzer build）及重測設定；沒有私有證據時使用合成案例並保留未驗證範圍。
-4. 涉及 EXE 時補對應 source／frozen localhost 驗證；涉及封裝時檢查 wheel／sdist 及獨立安裝。
-
-[架構與責任邊界](ARCHITECTURE.md) · [新增 HAR 功能](HAR_RECORDING.md)
+新增或調整查詢時，同步檢查 HTTP contract、QuerySpec、live discovery、離線 replay 與 API generator。一般測試可用 `python run_tests.py --jobs 2 --durations 10`，變更封裝或 EXE 時使用相應驗證工具。[開發與驗證指令](DEVELOPMENT.md)

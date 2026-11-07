@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import time
-from urllib.parse import parse_qs, urljoin, urlsplit
 
 from ..core.errors import ParseError
 from ..core.operations import OperationSpec, operation_spec
 from ..identifiers import normalize_mrn
 from ..models import PatientBasicInfo, PatientDemographics, RegistrationRecord
 from ..parsing.webmaas import (
-    find_next_displaytag_href,
     parse_patient_basic_info,
     parse_patient_demographics,
     parse_query_form,
-    parse_registration_records,
+    parse_registration_page,
     registration_identity,
+    registration_page_url,
 )
 from ..runtime import SDKRuntime
 
@@ -118,28 +117,15 @@ class WebMaasAdapter:
             seen_records: set[tuple[tuple[tuple[str, str], ...], bool | None]] = set()
             visited_pages: set[str] = set()
             for _ in range(50):
-                for record in parse_registration_records(html_text, mrn):
+                page_records, href = parse_registration_page(html_text, mrn)
+                for record in page_records:
                     identity = registration_identity(record)
                     if identity not in seen_records:
                         seen_records.add(identity)
                         records.append(record)
-                href = find_next_displaytag_href(html_text)
                 if not href:
                     break
-                next_url = urljoin(landing_url, href)
-                target = urlsplit(next_url)
-                origin = urlsplit(landing_url)
-                patient = parse_qs(target.query).get("patno", [mrn])
-                if (
-                    (target.scheme, target.netloc, target.path)
-                    != (origin.scheme, origin.netloc, origin.path)
-                    or target.fragment
-                    or patient != [mrn]
-                ):
-                    raise ParseError(
-                        "registration pagination left the patient query",
-                        code="WEBMAAS_REGISTRATION_PAGE_INVALID",
-                    )
+                next_url = registration_page_url(landing_url, href, mrn)
                 if next_url in visited_pages:
                     raise ParseError(
                         "registration pagination repeated a page",

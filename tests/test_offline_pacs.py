@@ -6,15 +6,18 @@ import json
 import socket
 import tempfile
 import unittest
+from collections import Counter
+from hashlib import sha256
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
 from test_pacs_img_url import image_url
 
 from vghks_sdk.contracts.order_assets import ORDER_WORKFLOW_PATH
 from vghks_sdk.local_io import write_json_atomic
 from vghks_sdk.models import BinaryAsset, PacsImageRef, to_jsonable
-from vghks_sdk.offline.analyze import _markdown, inspect_bundle
+from vghks_sdk.offline.analyze import _inspect_bundle, _markdown, inspect_bundle
 from vghks_sdk.offline.bundle import BundleReader
 from vghks_sdk.offline.pacs import pacs_test_summary
 
@@ -85,6 +88,78 @@ class OfflinePacsTests(unittest.TestCase):
 
     def codes(self, report):
         return {row['code'] for row in report['problems']}
+
+    def archive(self):
+        source = self.root / 'synthetic.zip'
+        with ZipFile(source, 'w') as archive:
+            for member in sorted(self.root.rglob('*')):
+                if member.is_file() and member != source:
+                    archive.write(member, member.relative_to(self.root).as_posix())
+        return source
+
+    def test_zip_analysis_reads_and_hashes_each_pacs_file_once_per_analysis(self):
+        self.references([IMG, UID])
+        self.asset(UID, 2)
+        self.summary(modes={mode: {
+            'status': 'OK', 'references': 1, 'downloaded_files': 1,
+            'download_errors': 0, 'downloaded_bytes': len(JPEG),
+        } for mode in ('imgUrl', 'uid')})
+        source = self.archive()
+        before = sha256(source.read_bytes()).digest()
+        with (
+            patch.object(socket, 'socket', side_effect=AssertionError('offline socket')),
+            BundleReader(source) as reader,
+        ):
+            expected = _inspect_bundle(reader)
+            self.assertEqual(expected[0]['order_assets']['jpg_files'], 2)
+            for mode in ('imgUrl', 'uid'):
+                self.assertEqual(expected[0]['pacs_test']['modes'][mode]['verified_files'], 1)
+            expected_reads = {name: 1 for name in reader.names if name.endswith('.jpg')}
+            self.assertEqual(len(expected_reads), 2)
+            for analysis in (1, 2):
+                with (
+                    self.subTest(analysis=analysis),
+                    patch.object(reader, 'read', wraps=reader.read) as read,
+                    patch('vghks_sdk.models.assets.calculate_sha256', wraps=sha256) as digest,
+                ):
+                    self.assertEqual(inspect_bundle(reader), expected)
+                    self.assertEqual(Counter(
+                        call.args[0] for call in read.call_args_list if call.args[0].endswith('.jpg')
+                    ), expected_reads)
+                    self.assertEqual(digest.call_count, 2)
+        self.assertEqual(sha256(source.read_bytes()).digest(), before)
+
+    def test_zip_analysis_reuses_failed_checks_with_the_original_error_codes(self):
+        cases = (
+            (lambda path: path.unlink(), 'ORDER_ASSET_MISSING', 0, 0),
+            (lambda path: path.write_bytes(JPEG[:-1]), 'ORDER_ASSET_SIZE_MISMATCH', 1, 0),
+            (lambda path: path.write_bytes(JPEG[:-2] + b'xx'), 'ORDER_ASSET_FORMAT_INVALID', 1, 0),
+            (lambda path: path.write_bytes(JPEG.replace(b'synthetic', b'corrupted')),
+             'ORDER_ASSET_HASH_MISMATCH', 1, 1),
+        )
+        for corrupt, code, expected_reads, expected_hashes in cases:
+            with self.subTest(code=code):
+                path, _ = self.asset(IMG)
+                corrupt(path)
+                name = path.relative_to(self.root).as_posix()
+                with (
+                    patch.object(socket, 'socket', side_effect=AssertionError('offline socket')),
+                    BundleReader(self.archive()) as reader,
+                ):
+                    expected = _inspect_bundle(reader)
+                    with (
+                        patch.object(reader, 'read', wraps=reader.read) as read,
+                        patch('vghks_sdk.models.assets.calculate_sha256', wraps=sha256) as digest,
+                    ):
+                        report, retest = inspect_bundle(reader)
+                    self.assertEqual((report, retest), expected)
+                    self.assertEqual(
+                        sum(call.args == (name,) for call in read.call_args_list), expected_reads,
+                    )
+                    self.assertEqual(digest.call_count, expected_hashes)
+                for section in ('order_assets', 'pacs_test'):
+                    self.assertIn(code, {item['code'] for item in report[section]['issues']})
+                self.assertEqual(report['pacs_test']['modes']['imgUrl']['verified_files'], 0)
 
     def test_original_gaps_and_missing_mode_remain_distinct_from_expected_success(self):
         # The same reference discovered twice still requires one download.

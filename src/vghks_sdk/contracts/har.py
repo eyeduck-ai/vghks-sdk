@@ -39,6 +39,7 @@ from ..parsing import (
     parse_unsigned_records,
     parse_visit_cases,
 )
+from ..parsing.assets import MAX_BINARY_ASSET_BYTES
 from ..parsing.portal import parse_login_target
 
 _OPERATION_KEYS = frozenset(
@@ -661,7 +662,7 @@ def _validate_pacs_image(entry: HarEntry) -> None:
     body = entry.response_body or b""
     _require(body.startswith(b"\xff\xd8"), "PACS JPEG SOI was missing")
     _require(body.endswith(b"\xff\xd9"), "PACS JPEG EOI was missing")
-    _require(len(body) <= 64 * 1024 * 1024, "PACS JPEG exceeded size limit")
+    _require(len(body) <= MAX_BINARY_ASSET_BYTES, "PACS JPEG exceeded size limit")
 
 
 def _validate_pdf_negative_fixture(entry: HarEntry) -> None:

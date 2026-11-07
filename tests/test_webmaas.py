@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import unittest
+from dataclasses import replace
 from datetime import date
 from html import escape
 from pathlib import Path
@@ -15,7 +16,7 @@ import requests
 from vghks_sdk import PatientBasicInfo, PortalCredentials, RequestPolicy, SDKSettings
 from vghks_sdk.adapters.auth import AppSession, AuthenticationAdapter
 from vghks_sdk.adapters.webmaas import WebMaasAdapter
-from vghks_sdk.core.errors import ConfigurationError, NotFoundError, ParseError
+from vghks_sdk.core.errors import ConfigurationError, NotFoundError, ParseError, RequestError
 from vghks_sdk.core.transport import SafeSessionTransport
 from vghks_sdk.models import to_jsonable
 from vghks_sdk.parsing.webmaas import (
@@ -388,8 +389,23 @@ class WebMaasAdapterTests(unittest.TestCase):
         self.assertEqual(session.request.call_count, 4)
         self.assertIn("d-123-p=2", session.request.call_args_list[-1].args[1])
 
+    def test_registration_does_not_resend_a_token_after_an_uncertain_response(self):
+        for outcome, code in (
+            (requests.ReadTimeout(), "NETWORK_READ_TIMEOUT"),
+            (response("unavailable", 503), "HTTP_503"),
+        ):
+            adapter, session, auth = adapter_with(response(landing("RSV11WForm")), identity(), outcome)
+            transport = adapter.runtime.transport
+            transport.policy = replace(transport.policy, max_attempts=3)
+            with self.subTest(code=code), self.assertRaises(RequestError) as caught:
+                adapter.get_registration_history(MRN)
+            self.assertEqual(caught.exception.info.code, code)
+            self.assertIs(caught.exception.info.retry_safe, False)
+            self.assertEqual(session.request.call_count, 3)
+            auth.login.assert_not_called()
+
     def test_registration_pagination_preserves_different_no_show_markers(self):
-        next_page = f"?d-123-p=2&patno={MRN}"
+        next_page = "?d-123-p=2"
         icon = '<label title="未到診"><img src="../images/icon/Rsdefyrc.png"/></label>'
         adapter, session, _ = adapter_with(
             response(landing("RSV11WForm")), identity(),
@@ -420,6 +436,8 @@ class WebMaasAdapterTests(unittest.TestCase):
                 "WEBMAAS_REGISTRATION_PAGE_INVALID",
             ),
             ("?d-1-p=2&patno=WRONG", "WEBMAAS_REGISTRATION_PAGE_INVALID"),
+            (f"?d-1-p=2&patno={MRN}&patno=", "WEBMAAS_REGISTRATION_PAGE_INVALID"),
+            ("?d-1-p=2&patno=", "WEBMAAS_REGISTRATION_PAGE_INVALID"),
             ("?d-1-p=2", "WEBMAAS_REGISTRATION_PAGINATION_LOOP"),
         ):
             adapter, session, _ = adapter_with(

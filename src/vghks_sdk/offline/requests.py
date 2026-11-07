@@ -76,6 +76,14 @@ def _signature_index(operations: Iterable[OperationSpec]):
 _SIGNATURES = _signature_index(OPERATIONS)
 
 
+def is_registration_page(method: str, path: str, query: Mapping[str, str]) -> bool:
+    return (
+        method == "GET"
+        and path == "/webmaas/RSV/RSV11W001.do"
+        and any(re.fullmatch(r"d-\w+-p", key) for key in query)
+    )
+
+
 def identify_parts(method: str, path: str, query: Mapping[str, str], form: Mapping[str, str]) -> str:
     # A displaytag next-page GET returns rows, not the initial token form.
     if (method == "GET" and path == "/webmaas/RSV/RSV11W001.do" and query.get("patno")

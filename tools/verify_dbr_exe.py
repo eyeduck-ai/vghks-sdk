@@ -27,17 +27,47 @@ from vghks_sdk.live.config import LIVE_CONFIG_SCHEMA_VERSION  # noqa: E402
 from vghks_sdk.live.defaults import SYNTHETIC_MRN  # noqa: E402
 
 MODES = ("normal", "missing_mime", "wrong_mime", "invalid_pdf", "html_as_pdf",
-         "expired_once", "expired_twice", "http_denied", "no_dbr", "no_pdf")
+         "unexpected_redirect", "oversize_chunked", "expired_once", "expired_twice", "http_denied",
+         "no_dbr", "no_pdf")
 ERRORS = {"invalid_pdf": "PDF_BINARY_INVALID", "html_as_pdf": "AUTH_RELOGIN_FAILED",
+          "unexpected_redirect": "BINARY_ASSET_REDIRECT_UNRECOGNIZED",
+          "oversize_chunked": "BINARY_ASSET_TOO_LARGE",
           "expired_twice": "AUTH_RELOGIN_FAILED", "http_denied": "AUTH_RELOGIN_FAILED"}
+_OVERSIZE_PDF_BYTES = 80 * 1024 * 1024
 
 
 class DbrIntranet(EyeIntranet):
+    def oversized_pdf(self):
+        self.protocol_version = "HTTP/1.1"
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        block = b"%PDF" + b"x" * (64 * 1024 - 4)
+        frame = f"{len(block):x}\r\n".encode("ascii") + block + b"\r\n"
+        sent = 0
+        try:
+            for _ in range(_OVERSIZE_PDF_BYTES // len(block)):
+                self.wfile.write(frame)
+                sent += len(block)
+            self.wfile.write(b"0\r\n\r\n")
+        except OSError:
+            # The client is expected to close its side while this reply is active.
+            pass
+        finally:
+            self.server.test_state["oversize_bytes_sent"] = sent
+            self.close_connection = True
+
     def dispatch(self):
         path = urlsplit(self.path).path
         state = self.server.test_state
         if path == "/login.do" and self.command == "GET":
+            state["redirect_target_gets"] += 1
             return self.binary_reply(LOGIN, "text/html; charset=utf-8")
+        if path == "/unexpected-asset":
+            state["redirect_target_gets"] += 1
+            return self.binary_reply(PDF, "application/pdf")
         if path in {"/PRQWeb/QueryCaseList.do", "/PRQWeb/QueryBillingSOAP.do",
                     "/PRQWeb/MRUploadFile.do", "/PRQWeb/QueryUploadMR.do"}:
             state["forbidden"].append(path)
@@ -81,6 +111,10 @@ class DbrIntranet(EyeIntranet):
             seq = "D1" if "D1.pdf" in params["fileName"] else "D2"
             state["pdf_attempts"][seq] = state["pdf_attempts"].get(seq, 0) + 1
             if seq == "D1":
+                if mode == "unexpected_redirect":
+                    return self.reply("", 307, location="/unexpected-asset")
+                if mode == "oversize_chunked":
+                    return self.oversized_pdf()
                 if mode in {"expired_once", "expired_twice"} and (
                         mode == "expired_twice" or state["pdf_attempts"][seq] == 1):
                     return self.reply("", 302, location="/login.do")
@@ -121,8 +155,8 @@ def main():
         helper.server.test_state = state = {
             "origin": origin, "mode": mode, "reject_login": False, "login_posts": 0,
             "queried_mrns": set(), "paths": [], "bad_headers": [], "order_sequences": [],
-            "report_sequences": [], "image_ids": [], "forbidden": [],
-            "history_filters": [], "pdf_attempts": {},
+            "report_sequences": [], "image_ids": [], "forbidden": [], "redirect_target_gets": 0,
+            "history_filters": [], "pdf_attempts": {}, "oversize_bytes_sent": 0,
         }
         # localhost may resolve IPv6 first. Serve both loopback addresses so
         # the direct TCP diagnostic and Requests test the same synthetic host.
@@ -220,6 +254,7 @@ def main():
                 assert state["history_filters"] == [{"Use": "Dur", "date": "4000", "ordertype": "*"},
                                                     {"Use": "Dur", "date": "4000", "ordertype": "OR"}]
                 assert not state["forbidden"] and not state["bad_headers"]
+                assert state["redirect_target_gets"] == 0, (mode, state["redirect_target_gets"])
                 assert not any(path.startswith("/disabled/") for path in state["paths"])
                 assert sorted(state["report_sequences"]) == ([] if mode == "no_dbr" else ["D1", "D2"])
                 assert sorted(state["order_sequences"]) == ([] if mode == "no_dbr" else ["D1", "D2"])
@@ -242,6 +277,12 @@ def main():
                     if mode in ERRORS:
                         codes = [step.get("issue", {}).get("code") for step in summary["steps"] if step.get("issue")]
                         assert ERRORS[mode] in codes, (mode, codes)
+                    if mode == "oversize_chunked":
+                        assert state["pdf_attempts"]["D1"] == 1
+                        assert 64 * 1024 * 1024 <= state["oversize_bytes_sent"] < _OVERSIZE_PDF_BYTES, state
+                        captures = [json.loads(line) for line in bundle.read("capture_manifest.jsonl").splitlines()]
+                        limited, = [row for row in captures if (row.get("response") or {}).get("body_limit_exceeded")]
+                        assert limited["response"]["status_code"] == 200 and limited["response_file"] is None
                 analyzed = subprocess.run(
                     [*command, "--analyze", str(archives[0]), "--analysis-output", str(root / "analysis")],
                     cwd=root, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -260,11 +301,11 @@ def main():
                 (output / f"dbr-{'source' if args.source else 'exe'}-{mode}-analysis.json").write_text(
                     json.dumps(analysis, indent=2), encoding="utf-8")
                 if mode == "expired_once":
-                    # A successful download does not erase the original
-                    # redirected/login responses from the offline evidence.
-                    assert {row["code"] for row in analysis["problems"]} == {
-                        "AUTH_SESSION_REDIRECT", "AUTH_SESSION_LOGIN_PAGE",
-                    }, analysis["problems"]
+                    # The original 302 remains evidence after the successful retry.
+                    assert {row["code"] for row in analysis["problems"]} == {"AUTH_SESSION_REDIRECT"}, analysis["problems"]
+                elif mode == "oversize_chunked":
+                    assert any(row["code"] == ERRORS[mode] and row["capture_id"]
+                               for row in analysis["problems"]), analysis["problems"]
                 else:
                     assert (not analysis["problems"] if mode not in ERRORS else analysis["problems"]), (mode, analysis["problems"])
                 results.append({"mode": mode, "status": summary["status"], "pdf_files": expected_pdfs,

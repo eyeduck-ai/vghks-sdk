@@ -8,7 +8,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 from bs4 import BeautifulSoup, Tag
 
@@ -105,8 +105,11 @@ def registration_counts(rows: Sequence[RegistrationRecord]) -> dict[str, Any]:
     }
 
 
-def parse_registration_records(html_text: str, expected_mrn: str = "") -> list[RegistrationRecord]:
-    soup = BeautifulSoup(html_text, "html.parser")
+def parse_registration_records(
+    html_text: str, expected_mrn: str = "", *, soup: BeautifulSoup | None = None
+) -> list[RegistrationRecord]:
+    if soup is None:
+        soup = BeautifulSoup(html_text, "html.parser")
     table = soup.find("table", id="row")
     if table is None:
         raise ParseError(
@@ -184,7 +187,38 @@ def _registration_no_show(cell: Tag | None) -> bool | None:
 
 
 def find_next_displaytag_href(html_text: str) -> str | None:
+    return _next_displaytag_href(BeautifulSoup(html_text, "html.parser"))
+
+
+def parse_registration_page(
+    html_text: str, expected_mrn: str
+) -> tuple[list[RegistrationRecord], str | None]:
     soup = BeautifulSoup(html_text, "html.parser")
+    return parse_registration_records(html_text, expected_mrn, soup=soup), _next_displaytag_href(soup)
+
+
+def registration_page_url(landing_url: str, href: str, mrn: str) -> str:
+    try:
+        url = urljoin(landing_url, href)
+        origin, target = urlsplit(landing_url), urlsplit(url)
+    except ValueError as exc:
+        raise ParseError(
+            "registration pagination URL was invalid", code="WEBMAAS_REGISTRATION_PAGE_INVALID"
+        ) from exc
+    patient = parse_qs(target.query, keep_blank_values=True).get("patno", [mrn])
+    if (
+        (target.scheme, target.netloc, target.path) != (origin.scheme, origin.netloc, origin.path)
+        or target.fragment
+        or patient != [mrn]
+    ):
+        raise ParseError(
+            "registration pagination left the patient query",
+            code="WEBMAAS_REGISTRATION_PAGE_INVALID",
+        )
+    return url
+
+
+def _next_displaytag_href(soup: BeautifulSoup) -> str | None:
     for link in soup.find_all("a", href=True):
         href = str(link.get("href"))
         text = normalize_inline_text(link.get_text(" ", strip=True)).lower()

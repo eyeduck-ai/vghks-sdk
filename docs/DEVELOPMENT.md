@@ -86,9 +86,9 @@ private defaults 僅接受 `{"test_mrn": "已獲授權的病歷號"}`，不接�
 
 | profile | localhost 驗證工具 | 主要檢查 |
 | --- | --- | --- |
-| `registrations` | `tools/verify_registration_exe.py` | source／frozen 各十種 HTTPS 情境、TXT／CSV／貼上、前導零與去重、中文路徑、未到診與未知、錯誤續跑／登入停止、完整批次重測範圍 |
+| `registrations` | `tools/verify_registration_exe.py` | 十種 HTTPS 情境，涵蓋清單輸入、錯誤續跑／登入停止、日誌與最終步驟一致性，以及完整批次離線重測範圍 |
 | `pacs` | `tools/verify_pacs_exe.py` | 十九種 HTTPS 情境、imgUrl／原 UID 參數、查無圖片、完整下載與失敗續跑、雙院輸入及 Session 隔離、文字模板／PARTIAL、CLI 離線完整性與單院重測 |
-| `dbr` | `tools/verify_dbr_exe.py` | 十種 HTTPS 情境、歷年 DBR 抽樣、二進位／登入分類、原始 PDF／JPG 保存、有限恢復與 CLI 離線分析 |
+| `dbr` | `tools/verify_dbr_exe.py` | 十二種 HTTPS 情境，涵蓋歷年 DBR 抽樣、無長度宣告的超限串流、原始 PDF／JPG 保存、有限登入恢復與 CLI 離線分析 |
 | `password` | `tools/verify_password_exe.py` | 十五種 HTTPS 情境、舊密碼只送一次、強制變更原頁保存、匿名／Cookie 目錄對照及離線白名單 |
 | `session` | `tools/verify_session_exe.py` | 十二種 HTTPS 情境、表單／token、隔離 Cookie、明確 timeout 的 GET／唯讀 POST 自動 SSO 恢復及持續失效停止 |
 | `failures` | `tools/verify_failure_exe.py` | 68 個無 socket 模擬、23 種 HTTPS 情境、未登入與錯誤密碼計數、通知、資料狀態及離線分類 |
@@ -139,21 +139,22 @@ GitHub main 的原始碼、wheel 與內網使用的 EXE 可以有不同版本；
 
 ## 本機資料整理
 
+公開來源依用途放在 `src/`、`docs/`、`tests/`、`tools/`、`examples/` 和 `configs/`。根目錄保留建置設定、文件入口及 CLI 相容入口。本機輸入、產物與證據依下表歸檔。
+
 | 路徑／類型 | 保留與清理方式 |
 | --- | --- |
-| `data/`、`dist/` 的原始 HAR／回傳 ZIP | 不可再生的證據，保留原檔；離線分析不得改寫 |
-| `private/` | 保留人工檢閱、denylist 及建置參數，不公開 |
-| `output/` 的院內分析與私有回歸結果 | 保留仍支撐驗證結論的紀錄；原始回傳已不在本機時，不因舊版本而刪除剩餘證據 |
-| `dist/vghks-live-test.exe`、`output/build-info.json` | 保留現行 EXE 與其建置資訊，更新後完成 localhost 驗證 |
-| `output/package/`、驗證報告 | 保留目前 SDK 與現行 EXE 對應套件及近期檢查結果；其他舊套件、重複 log 與安裝副本可移除 |
-| `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/` | 可重建快取及封裝 metadata；建置相依環境需核對無其他用途後才清除 |
+| `data/recordings/`、`data/returns/` | 原始 HAR 與院內回傳 ZIP。若原件還在 EXE 旁，先保全原件，再核對原始雜湊與對應分析 |
+| `private/` | 本機檢閱、denylist 及自用建置參數 |
+| `dist/vghks-live-test.exe`、`output/build-info.json` | 現行 Windows 測試器及其 `build_id`、SDK 版本和預設計畫 |
+| `output/package/` | 目前工作樹建置並通過封包檢查的 wheel／sdist |
+| `output/verification/` | 整理後的合成驗證總結、效能量測及清理清單。驗證工具執行時先把報告寫到 `output/` |
+| `output/` 的院內分析與私有回歸 | 保留能支持院內驗證結論的紀錄，尤其是原始回傳已不在本機的情況 |
+| `build/`、`__pycache__/`、`.ruff_cache/`、`*.egg-info/`、`output/test-tmp/` | 可重建的建置或測試暫存。`output/build-tools/` 可暫存本機建置依賴，供同一環境重建套件 |
 
-每次整理先記錄清理清單、檔案數與大小，再核對用途。同一版本驗證的逐情境 log 可在總結報告已通過後移除；保留近期完整測試、EXE 驗證總結與建置資訊。暫存安裝副本及舊 wheel／sdist 可重建，原始 HAR／ZIP 和失去原檔後的分析證據不能用版本新舊判斷是否多餘。重構離線分析時，應以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定，避免整理改變結論或範圍。
+整理前列出目標、檔案數與大小，先核對現行 EXE／wheel 與驗證總結。通過驗證後可移除被取代的本機建置、重複 log、逐情境合成報告及暫存安裝副本。清理清單記錄移動、刪除結果及現行產物的 SHA-256，與其他本機產物同樣放在 Git 忽略的目錄。
 
-雙院 PACS 保留每院原分析、目前版本的正式分析與單院重測設定、原 ZIP hash、下載／文字核對摘要、source／frozen 驗證總結及獨立安裝驗證摘要。已記錄完整一致性比較後，可移除重複的 frozen／安裝分析副本與開發中的中間分析；不得移除原始回傳或唯一剩餘證據。清理清單記錄各目標及刪除結果，結束後核對現行 EXE／wheel hash 與必要證據仍在。
+雙院 PACS 保留每院原始回傳、正式分析、單院重測設定、ZIP 雜湊及下載／文字核對摘要。重構離線分析時，以同一份 ZIP 禁止 socket 重解析，比較完整報告（排除 analyzer build）及重測設定後，可清理重複的分析副本。
 
-工作用 `output/build-tools/`、`output/test-tmp/` 與獨立 wheel 安裝環境完成驗證後可清除；最新完整 suite、建置、套件掃描及安裝驗證摘要仍保留。這些檔案只留本機，清理 manifest 也不加入公開來源。
-
-Windows 清理前解析完整目標路徑，確認仍在 workspace 內；使用 `Remove-Item -LiteralPath`，不跨 shell 組字串刪除。仍被公開匯入、CLI 或測試使用的相容層保留。共用 JSON 原子寫入及本機權限處理由 `local_io.py` 維護。
+Windows 清理前解析完整目標路徑並確認位於 workspace 內，使用 PowerShell 的 `Remove-Item -LiteralPath` 或 `Move-Item -LiteralPath`。保留公開匯入、CLI 與測試使用的相容入口。
 
 `.gitignore` 不會移除既有 Git 歷史。若發現敏感資料誤推，依 [SECURITY](../SECURITY.md) 處理；不要只刪最新檔案。完整開發不變量見 [AGENTS](../AGENTS.md)。

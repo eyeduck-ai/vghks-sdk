@@ -6,7 +6,7 @@ from ..core.errors import ConfigurationError
 from ..core.operations import operation_spec
 from ..models import BinaryAsset
 from ..models.surgery_cases import SurgeryCase, SurgeryCaseFilter, SurgeryCaseRef, SurgeryNoteRef
-from ..parsing.assets import parse_binary_asset
+from ..parsing.assets import MAX_BINARY_ASSET_BYTES, parse_binary_asset
 from ..parsing.surgery_cases import (
     parse_surgery_cases,
     parse_surgery_departments,
@@ -67,7 +67,7 @@ class SurgeryCasesAdapter:
             content, _ = self.runtime.request_binary(
                 spec,
                 f"{base}/jsp/pc/page/show/showPDF.jsp",
-                max_bytes=64 * 1024 * 1024,
+                max_bytes=MAX_BINARY_ASSET_BYTES,
                 params={"file": ref.file_path},
                 headers={
                     "Referer": f"{base}/qlogAction.do?method=qLog",

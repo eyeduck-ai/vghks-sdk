@@ -3,66 +3,94 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from collections import Counter
+from operator import itemgetter
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 from ..contracts.har import HarEntry
+from ..contracts.registration_journal import (
+    COUNT_FIELDS,
+    JOURNAL_VERSION,
+    patient_index,
+    read_patient_journal,
+)
+from ..contracts.registration_journal import (
+    PATIENT_STATUSES as _STATUSES,
+)
+from ..contracts.registration_journal import (
+    REGISTRATION_QUERY as _KEY,
+)
+from ..contracts.registration_journal import (
+    REGISTRATION_ROOT as _ROOT,
+)
 from ..core.errors import ConfigurationError, ParseError
 from ..identifiers import normalize_mrns
 from ..models import RegistrationRecord, to_jsonable
 from ..parsing.webmaas import (
-    find_next_displaytag_href,
-    parse_registration_records,
+    parse_registration_page,
     registration_counts,
     registration_identity,
+    registration_page_url,
 )
 from .bundle import BundleReader
-from .replay import request_parts
+from .requests import captured_request_parts, is_registration_page
 
-_ROOT = "parsed/registrations/"
 _PATH = "/webmaas/RSV/RSV11W001.do"
-_KEY = "webmaas.registration_query"
-_STATUSES = ("OK", "EMPTY", "ERROR", "BLOCKED")
+_IndexedExchange = tuple[int, int, dict]
 
 
-def _request_identity(request: dict) -> tuple:
-    address = urlsplit(str(request.get("url", "")))
-    _, _, query, _ = request_parts(request)
-    return address.scheme, address.netloc, address.path, tuple(sorted(query.items()))
+def _request_identity(url: str) -> tuple:
+    address = urlsplit(url)
+    query = sorted(parse_qsl(address.query, keep_blank_values=True), key=itemgetter(0))
+    return address.scheme, address.netloc, address.path, address.fragment, tuple(query)
 
 
-def _page_request(row: dict) -> bool:
-    method, path, query, form = request_parts(row.get("request") or {})
-    return path == _PATH and (
-        (method == "POST" and form.get("QRY") == "QRY")
-        or (method == "GET" and any(re.fullmatch(r"d-\w+-p", key) for key in query))
+def _capture_number(value: Any) -> int | None:
+    if isinstance(value, str) and 1 <= len(value) <= 12 and value.isascii() and value.isdigit():
+        return int(value)
+    return None
+
+
+def _index_exchanges(captures: list[dict]) -> list[_IndexedExchange]:
+    return sorted(
+        (number, position, row)
+        for position, row in enumerate(captures)
+        if row.get("kind") == "HTTP_EXCHANGE"
+        and (number := _capture_number(row.get("capture_id"))) is not None
     )
 
 
-def _replay_patient(reader: BundleReader, captures: list[dict], step: dict, mrn: str) -> tuple[list, int]:
-    first, last = step.get("first_capture_id"), step.get("last_capture_id")
-    if not all(isinstance(value, str) and value.isascii() and value.isdigit() for value in (first, last)):
+def _replay_patient(
+    reader: BundleReader, captures: list[_IndexedExchange], step: dict, mrn: str
+) -> tuple[list[RegistrationRecord], int]:
+    first = _capture_number(step.get("first_capture_id"))
+    last = _capture_number(step.get("last_capture_id"))
+    if first is None or last is None or first > last:
         raise ParseError("capture range missing", code="REGISTRATION_CAPTURE_MISSING")
-    pages = [row for row in captures if row.get("kind") == "HTTP_EXCHANGE"
-             and isinstance(row.get("capture_id"), str) and row["capture_id"].isascii()
-             and row["capture_id"].isdigit()
-             and int(first) <= int(row["capture_id"]) <= int(last) and _page_request(row)]
-    # If Runtime rebuilt a read operation, only its final submitted query and
-    # subsequent pages form the saved result. Earlier failures stay in replay.
-    starts = [i for i, row in enumerate(pages) if request_parts(row["request"])[0] == "POST"]
-    if not starts:
+    start = bisect_left(captures, first, key=itemgetter(0))
+    stop = bisect_right(captures, last, lo=start, key=itemgetter(0))
+    pages = []
+    # Keep manifest order within the range so an out-of-order capture is still
+    # checked as recorded. A rebuilt query starts a new set of result pages.
+    for _, _, row in sorted(captures[start:stop], key=itemgetter(1)):
+        method, path, query, form = captured_request_parts(reader, row.get("request") or {})
+        if path == _PATH and method == "POST" and form.get("QRY") == "QRY":
+            pages.clear()
+        elif not pages or not is_registration_page(method, path, query):
+            continue
+        pages.append((row, query, form))
+    if not pages:
         raise ParseError("query capture missing", code="REGISTRATION_CAPTURE_MISSING")
-    pages = pages[starts[-1]:]
     records: list[RegistrationRecord] = []
     seen = set()
     expected_next = None
-    for position, row in enumerate(pages):
-        request = row["request"]
-        _, _, query, form = request_parts(request)
+    landing_url = str(pages[0][0]["request"].get("url", ""))
+    for position, (row, query, form) in enumerate(pages):
         if (form.get("patno") if position == 0 else query.get("patno", mrn)) != mrn:
             raise ParseError("capture patient differs", code="REGISTRATION_CAPTURE_PATIENT_MISMATCH")
-        if position and (expected_next is None or _request_identity(request) != expected_next):
+        if position and _request_identity(str(row["request"].get("url", ""))) != expected_next:
             raise ParseError("page capture differs", code="REGISTRATION_PAGINATION_INCOMPLETE")
         response = row.get("response") or {}
         if response.get("status_code") != 200 or not row.get("response_file"):
@@ -71,13 +99,13 @@ def _replay_patient(reader: BundleReader, captures: list[dict], step: dict, mrn:
                      if str(key).lower() == "content-type"), "")
         text = HarEntry("", "", frozenset(), frozenset(), {}, 200,
                         reader.read(row["response_file"]), mime).text()
-        for record in parse_registration_records(text, mrn):
+        page_records, href = parse_registration_page(text, mrn)
+        for record in page_records:
             identity = registration_identity(record)
             if identity not in seen:
                 seen.add(identity)
                 records.append(record)
-        href = find_next_displaytag_href(text)
-        expected_next = _request_identity({"url": urljoin(str(request.get("url", "")), href)}) if href else None
+        expected_next = _request_identity(registration_page_url(landing_url, href, mrn)) if href else None
     if expected_next is not None:
         raise ParseError("last page missing", code="REGISTRATION_PAGINATION_INCOMPLETE")
     return records, len(pages)
@@ -120,12 +148,20 @@ def registration_batch_summary(reader: BundleReader, steps: list[dict]) -> dict[
     if recorded.get("schema_version") != 1:
         issue("REGISTRATION_SUMMARY_INVALID")
     index = read(_ROOT + "patients.json", list, "REGISTRATION_INDEX_INVALID")
-    expected_index = [{"index": i, "mrn": mrn, "output": f"patients/{i:06d}.json"}
-                      for i, mrn in enumerate(mrns, 1)]
-    if index != expected_index:
+    if index != patient_index(mrns):
         issue("REGISTRATION_INDEX_MISMATCH")
+    journal_version = recorded.get("patient_journal_version")
+    journal_path = _ROOT + "patient_results.jsonl"
     try:
-        journal = reader.jsonl(_ROOT + "patient_results.jsonl")
+        if journal_version == JOURNAL_VERSION:
+            with reader.open(journal_path) as handle:
+                journal, journal_issue = read_patient_journal(handle, mrns)
+            if journal_issue:
+                issue(journal_issue)
+        else:
+            if journal_version is not None:
+                issue("REGISTRATION_JOURNAL_INVALID")
+            journal = reader.jsonl(journal_path)
     except ConfigurationError:
         issue("REGISTRATION_JOURNAL_INVALID")
         journal = []
@@ -133,7 +169,7 @@ def registration_batch_summary(reader: BundleReader, steps: list[dict]) -> dict[
     by_name = {step["name"]: step for step in patient_steps}
     if len(by_name) != len(patient_steps) or len(journal) > len(mrns):
         issue("REGISTRATION_JOURNAL_MISMATCH")
-    captures = reader.jsonl("capture_manifest.jsonl")
+    captures = _index_exchanges(reader.jsonl("capture_manifest.jsonl"))
     statuses: Counter = Counter()
     totals: Counter = Counter()
     codes: Counter = Counter()
@@ -177,12 +213,14 @@ def registration_batch_summary(reader: BundleReader, steps: list[dict]) -> dict[
                 issue("REGISTRATION_RESULT_PATIENT_MISMATCH")
             saved.append(record)
         counts = registration_counts(saved)
-        totals.update({key: counts[key] for key in ("record_count", "no_show_count", "attendance_unknown_count")})
+        totals.update({key: counts[key] for key in COUNT_FIELDS})
         codes.update(counts["registered_by_codes"])
+        if journal_version == JOURNAL_VERSION and entry and entry["registered_by_codes"] != counts["registered_by_codes"]:
+            issue("REGISTRATION_JOURNAL_MISMATCH")
         details = step.get("details") or {}
         if status != ("OK" if saved else "EMPTY") or any(
             type(details.get(key)) is not int or details[key] != counts[key]
-            for key in ("record_count", "no_show_count", "attendance_unknown_count")
+            for key in COUNT_FIELDS
         ):
             issue("REGISTRATION_STEP_MISMATCH")
         try:
@@ -193,7 +231,10 @@ def registration_batch_summary(reader: BundleReader, steps: list[dict]) -> dict[
             elif path in reader.names:
                 totals["verified_patient_count"] += 1
         except ParseError as exc:
-            issue(exc.info.code if exc.info.code in {
+            code = exc.info.code
+            if code == "WEBMAAS_REGISTRATION_PAGE_INVALID":
+                code = "REGISTRATION_PAGINATION_INCOMPLETE"
+            issue(code if code in {
                 "REGISTRATION_CAPTURE_MISSING", "REGISTRATION_CAPTURE_PATIENT_MISMATCH",
                 "REGISTRATION_PAGINATION_INCOMPLETE",
             } else "REGISTRATION_REPLAY_INCOMPLETE")
@@ -209,7 +250,7 @@ def registration_batch_summary(reader: BundleReader, steps: list[dict]) -> dict[
         "completed_patient_count": sum(statuses[key] for key in ("OK", "EMPTY", "ERROR")),
         "blocked_patient_count": statuses["BLOCKED"],
         "pending_patient_count": len(mrns) - sum(statuses.values()),
-        **{key: totals[key] for key in ("record_count", "no_show_count", "attendance_unknown_count")},
+        **{key: totals[key] for key in COUNT_FIELDS},
     }
     if any(type(recorded.get(key)) is not int or recorded[key] != value for key, value in counts.items()) or (
         recorded.get("patient_status_counts") != {key: statuses[key] for key in _STATUSES}

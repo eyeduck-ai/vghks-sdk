@@ -80,6 +80,10 @@ class _AnalysisReader(BundleReader):
     def archive(self) -> zipfile.ZipFile | None:
         return self._archive
 
+    @property
+    def is_zip_snapshot(self) -> bool:
+        return self._zip_snapshot
+
     def open(self, name: str) -> BinaryIO:
         return self._source.open(name)
 

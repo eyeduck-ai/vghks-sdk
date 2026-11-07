@@ -71,7 +71,9 @@ for row in registrations:
 
 整合系統在閒置後可用 `sdk.auth.check(only=("webmaas",))` 驗證當次 WebMAAS 表單與 token，再按報告決定是否繼續。0.22.3 已避免只靠快取 Session 回報可用；檢查結果及有限 SSO 複查的處理見 [CONNECTIONS](CONNECTIONS.md)。失敗前若尚未送出病歷號，不能由缺表單錯誤判定該病人沒有資料。缺表單／token 會清除該子系統快取，原錯誤仍保留；下一次查詢重新建立 SSO。
 
-正常查無掛號回傳 `[]`。未知版型、缺 token、病人不符、分頁迴圈或超過 50 頁會丟出帶穩定錯誤碼的 `SDKError` 子類別。分頁連結只能指向同一服務、同一掛號端點與同一病人。
+正常查無掛號回傳 `[]`。未知版型、缺 token、病人不符、分頁迴圈或超過 50 頁會丟出帶穩定錯誤碼的 `SDKError` 子類別。分頁連結限同來源及同一掛號端點。若連結帶有 `patno`，必須是唯一且符合本次查詢的病歷號；省略時沿用同一次查詢的病人並核對回應資料列。
+
+掛號表單的 POST 遇到逾時、連線失敗或 503 等暫時性 HTTP 錯誤時，回傳原錯誤並保留 `retry_safe=False`。已辨識的登入或 Session 挑戰仍按 Runtime 規則以新的表單與 token 恢復。
 
 基本資料明確查無病人回報 `WEBMAAS_PATIENT_NOT_FOUND`；缺 DETAIL 或識別欄位屬解析錯誤。HTTP 401／403 或登入過期會由 Runtime 至多重新登入一次，重新建立 SSO、token 與病人 context。
 

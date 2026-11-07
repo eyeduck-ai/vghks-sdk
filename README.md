@@ -38,47 +38,32 @@ with VghksSDK(
 | `patients`／`opd` | 基本資料、掛號、醫師每日門診清單與掛號序號 |
 | `records` | 就診、SOAP、數值、會診、歷史手術、各科報告、病人旗標 |
 | `orders`／`medications` | 單次就診與跨期間醫囑／藥囑、報告、PDF／JPG |
-| `surgery` | 手術案例、紀錄 PDF、排程、同意書與明確的異動命令 |
-| `reviews` | 審查登入、案件、審查結果、醫囑、附件／影像清單 |
-| `audit`／`earnings` | 未簽病歷、績點及專勤工作獎金 |
-| `personnel` | 依姓名／員工編號／職稱／單位查人事，供醫師卡號轉姓名及就診篩選組合 |
-| `attendance` | 本人簽到退狀態、日期區間打卡紀錄與明確送出一次簽到退 |
-| `auth`／`queries` | 登入與連線檢查、唯讀功能目錄與動態呼叫 |
-| `vghks_sdk.workflows` | 報告收集、門診 SOAP 篩選、手術紀錄收集 |
+| `surgery`／`reviews` | 手術案例、排程、紀錄及同意書；審查案件、結果與附件清單 |
+| `audit`／`earnings`／`personnel`／`attendance` | 未簽病歷、績點與獎金、人事、本人簽到退 |
+| `auth`／`queries`／`vghks_sdk.workflows` | 連線檢查、唯讀目錄、多步驟查詢與收集 |
 
 ## 使用重點
 
-- 查詢按需登入；可恢復的 Session 過期最多自動恢復一次。登入遭拒、強制改密碼與異動不套用一般重播；明確 WebMAAS timeout 只重建該頁 SSO。
-- 同一 SDK 共用 Session 與病人 context，操作循序執行，預設每次請求隨機等待 0.8–1.8 秒。不同帳號各用獨立 SDK，並限制合計請求量。
-- TLS 自動選擇相容設定；明確憑證錯誤預設可對該來源略過驗證。嚴格模式使用 `SDKSettings(allow_unverified_tls=False)`，詳見 [CONNECTIONS](docs/CONNECTIONS.md)。
-- Service 保留原回傳型別；需要統一狀態時用 `acquire(...)` 或 `sdk.queries.run_result(...)`，區分空值、部分解析與失敗。排程及後續處置由應用決定，見 [ACQUISITION](docs/ACQUISITION.md)。
-- 遇到已錄製的 PRQ 病歷調閱審查頁，核對後預設提交照護原因 `1A` 一次；送出結果不明時不重送。手術與簽到退異動需明確呼叫。
-- 數值、SOAP 及手術欄位保留來源語意；未執行、只有附件與查無圖片分開表示。PDF／JPG 下載不包含 OCR。
+- 每個帳號各用一個 SDK。查詢按需登入，同一 Session 依序維護病人 context，預設每次請求節流 0.8–1.8 秒。
+- 可辨識的唯讀 Session 過期最多自動恢復一次。嚴格憑證驗證使用 `SDKSettings(allow_unverified_tls=False)`。[連線、TLS 與恢復](docs/CONNECTIONS.md)
+- 需要區分空值、未執行、只有附件、部分解析與失敗時，用 `acquire(...)` 或 `sdk.queries.run_result(...)` 取得狀態與原回傳值。[結果與錯誤處理](docs/ACQUISITION.md)
+- PRQ 調閱審查會核對當頁後預設提交照護原因 `1A` 一次。手術與簽到退異動由呼叫端明確提交。[就診與調閱審查](docs/VISITS.md#院方要求病歷調閱審查時)
 
 ## 文件
 
 | 閱讀需求 | 文件 |
 | --- | --- |
-| 原子功能用途、參數、回傳值 | [API_REFERENCE](docs/API_REFERENCE.md) |
-| 自動連線、TLS、重試與狀態 | [CONNECTIONS](docs/CONNECTIONS.md) |
-| 資料缺失、部分解析、錯誤原因與重試判斷 | [ACQUISITION](docs/ACQUISITION.md) |
-| 組合較複雜的應用 | [COMPOSITION](docs/COMPOSITION.md)、[examples](examples/) |
-| 整體分層、資料流與擴充位置 | [ARCHITECTURE](docs/ARCHITECTURE.md) |
-| 優化順序與驗收條件 | [OPTIMIZATION](docs/OPTIMIZATION.md) |
-| 錄製新 HAR 並新增功能 | [HAR_RECORDING](docs/HAR_RECORDING.md) |
-| 測試、建置、發布與離線安裝 | [DEVELOPMENT](docs/DEVELOPMENT.md) |
-| 後續 agents 接手 | [AGENTS](AGENTS.md) |
-| 內網 EXE 與回傳分析 | [LIVE_TEST](docs/LIVE_TEST.md)、[VALIDATION](docs/VALIDATION.md) |
-| 公開資料邊界 | [SECURITY](SECURITY.md) |
-
-領域欄位細節：[簽到退](docs/ATTENDANCE.md)、[人事](docs/PERSONNEL.md)、[就診](docs/VISITS.md)、[病人](docs/PATIENTS.md)、[SOAP](docs/SOAP.md)、[數值](docs/NUMERIC_REPORTS.md)、[掃描病歷](docs/SCANNED_RECORDS.md)、[手術排程](docs/SURGERY_SCHEDULE.md)、[手術案例](docs/SURGERY_CASES.md)、[審查](docs/REVIEWS.md)。
+| 查 API、欄位與組合範例 | [API 參考](docs/API_REFERENCE.md)、[領域文件索引](docs/ARCHITECTURE.md#領域與來源對照)、[組合範例](docs/COMPOSITION.md) |
+| 理解設計與效能 | [架構](docs/ARCHITECTURE.md)、[優化重點與量測](docs/OPTIMIZATION.md) |
+| 擴充、測試或建置 | [開發指南](docs/DEVELOPMENT.md)、[HAR 錄製](docs/HAR_RECORDING.md)、[AGENTS](AGENTS.md) |
+| 執行院內測試或判讀證據 | [EXE 使用方式](docs/LIVE_TEST.md)、[驗證範圍](docs/VALIDATION.md)、[資料安全](SECURITY.md) |
 
 ## 開發與測試
 
-clone 後執行 `python -m pip install -e ".[dev]"`，再依修改範圍驗證：
+clone 後執行 `python -m pip install -e ".[dev]"`，再依修改範圍執行下列檢查。
 
 ```sh
-python run_tests.py
+python run_tests.py --jobs 2
 python -m ruff check .
 python tools/generate_api_reference.py --check
 python tools/check_public_tree.py
@@ -89,6 +74,6 @@ python -m build --outdir output/package
 
 ## 本機資料與測試 EXE
 
-EXE 是使用 SDK 的院內測試工具；批次掛號、PACS、DBR、登入與 Session 等計畫、輸入方式及讀取上限見 [LIVE_TEST](docs/LIVE_TEST.md)。公開工具不內嵌真實病歷號；自用建置參數不得含帳密。
+本機建置的 wheel／sdist 放在 `output/package/`，Windows 測試器放在 `dist/vghks-live-test.exe`。雙擊使用建置時選定的測試計畫，可用 `--plan` 核對。[EXE 操作方式](docs/LIVE_TEST.md)
 
-`data/`、`private/`、`dist/`、`output/` 是本機資料，`tmp/`、`build/` 是暫存。**結果 ZIP 未加密；HAR、原始回傳、報告及自用 EXE 只留本機，不進公開 repo、Issue 或 Actions artifact。** 原始證據與可重建檔案的保留方式見 [本機資料整理](docs/DEVELOPMENT.md#本機資料整理)。
+**結果 ZIP 未加密。** HAR、原始回傳、報告及自用 EXE 僅留本機。原始錄製放 `data/recordings/`，院內回傳放 `data/returns/`。[本機資料整理](docs/DEVELOPMENT.md#本機資料整理)

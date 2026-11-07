@@ -18,7 +18,7 @@
 | 操作 ID | Service 呼叫及回傳 | 用途 |
 | --- | --- | --- |
 | `attendance.status` | `get_status() -> AttendanceState` | 讀取登入者、上次簽到退、來源地點與電腦序號；不送出簽到。見 [ATTENDANCE](ATTENDANCE.md)。 |
-| `attendance.records` | `get_records(start: date, end: date, *, mode: AttendanceMode = processed) -> AttendanceHistory` | 依西元日期區間查詢登入者的打卡事件；mode 選 processed／raw，query 與 reported_mode 分開保留，不能由事件推定簽到／簽退或完整出勤。 |
+| `attendance.records` | `get_records(start: date, end: date, *, mode: Literal['processed', 'raw'] = 'processed') -> AttendanceHistory` | 依西元日期區間查詢登入者的打卡事件；mode 選 processed／raw，query 與 reported_mode 分開保留，不能由事件推定簽到／簽退或完整出勤。 |
 
 ## sdk.patients
 
@@ -40,7 +40,7 @@
 | --- | --- | --- |
 | `prq.visit_cases` | `get_visit_cases(mrn: str &#124; None = None, *, national_id: str &#124; None = None, access_review_reason: str &#124; None = None) -> list[VisitCase]` | 以病歷號或 national_id（二擇一）查就診清單；遇到錄製的調閱審查頁時，病歷號路徑預設自動提交照護原因，可用 access_review_reason 覆寫。保留同病人舊病歷號的原始連結與查詢號，含日期、類別、科別、醫師。見 [VISITS](VISITS.md)。 |
 | `prq.case_detail` | `get_case_detail(case: VisitCase) -> CaseDetail` | 單次就診的頁籤、連結與原始頁面。 |
-| `prq.soap` | `get_soap(case: VisitCase, *, access_review_reason: str &#124; None = None) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑／藥囑摘要、慢性處方服藥期限及掃描 PDF 參照；調閱審查預設自動處理，可明確覆寫 access_review_reason。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。僅支援 O 類別。 |
+| `prq.soap` | `get_soap(case: VisitCase, *, access_review_reason: str &#124; None = None) -> SoapRecord` | 該次門診的 S／O／A+P、診斷碼、列印醫囑、一般／慢性處方摘要、明示服藥期限及掃描 PDF 參照。調閱審查可用 access_review_reason 覆寫。僅支援 O 類別。見 [SOAP](SOAP.md) 與 [SCANNED_RECORDS](SCANNED_RECORDS.md)。 |
 | `prq.numeric` | `get_numeric_report(case: VisitCase) -> NumericReport` | 該次就診的數值表格；保留雙層表頭、可對齊的欄位路徑及原始數值，見 [NUMERIC_REPORTS](NUMERIC_REPORTS.md)。 |
 | `prq.consults` | `get_consults(case: VisitCase) -> list[ConsultRecord]` | 該次就診的會診紀錄；合法空清單不視為例外。 |
 | `prq.treatments` | `get_treatments(case: VisitCase) -> list[TreatmentRecord]` | 該次就診的處置／治療清單。 |
@@ -51,7 +51,7 @@
 | `prq.research_flags` | `get_research_flags(mrn: str) -> dict[str, Any]` | 研究／臨床試驗相關旗標。 |
 | `prq.bed_transfers` | `get_bed_transfers(mrn: str) -> dict[str, Any]` | 轉床及床位異動歷史。 |
 | `prq.care_cases` | `get_care_cases(mrn: str) -> dict[str, Any]` | 照護個案相關清單。 |
-| `prq.upload_history` | `get_upload_history(mrn: str, main_type: str = , days: str = *) -> UploadHistory` | 歷年上傳頁的完整掃描病歷清單，逐筆保留表格、病歷類別、顯示日期、PDF 參照及來源 subtype；可依病歷類別篩選。見 [SCANNED_RECORDS](SCANNED_RECORDS.md)。 |
+| `prq.upload_history` | `get_upload_history(mrn: str, main_type: str = '', days: str = '*') -> UploadHistory` | 歷年上傳頁的完整掃描病歷清單，逐筆保留表格、病歷類別、顯示日期、PDF 參照及來源 subtype；可依病歷類別篩選。見 [SCANNED_RECORDS](SCANNED_RECORDS.md)。 |
 | `prq.upload_types` | `get_upload_types() -> list[dict[str, str]]` | 上傳文件類型目錄，供 upload_history 使用。 |
 | `prq.text_report_history` | `get_text_report_history(mrn: str, department: str, days: int = 3650) -> TextReportHistory` | 各科報告清單；PATH／RAD／CHK 與醫囑路徑分開。 |
 | `prq.text_report` | `get_text_report(ref: OrderReportRef) -> OrderReport` | 讀取各科報告的正文與附件參照；眼科完整檢查宜由醫囑路徑發現。 |
@@ -90,7 +90,7 @@
 | `oppl.consent_catalog` | `get_consent_catalog() -> dict[str, Any]` | 依科別分類的同意書範本目錄。 |
 | `oppl.consent_doctor` | `resolve_consent_doctor(card_no: str) -> dict[str, Any]` | 將卡號解析成同意書使用的醫師資訊。 |
 | `oppl.consent_template` | `get_consent_template(name: str, department: str) -> dict[str, Any]` | 讀取指定科別／名稱的同意書範本資料。 |
-| `oppl.schedule_form` | `open_schedule_form(fields: Mapping[str, Any], *, mode: str = edit) -> FormSnapshot` | 取得既有排程表單快照；不儲存排程，不能直接把快照當異動命令。 |
+| `oppl.schedule_form` | `open_schedule_form(fields: Mapping[str, Any], *, mode: str = 'edit') -> FormSnapshot` | 取得既有排程表單快照；不儲存排程，不能直接把快照當異動命令。 |
 | `oppl_records.departments` | `get_case_departments() -> list[str]` | 已完成手術案例查詢可用的科別。 |
 | `oppl_records.cases` | `get_cases(filter: SurgeryCaseFilter) -> list[SurgeryCase]` | 依執刀／指導／助手、術式代碼、科別及期間查詢手術案例。 |
 | `oppl_records.note` | `get_record_ref(ref: SurgeryCaseRef) -> SurgeryNoteRef &#124; None` | 由 SurgeryCase.reference 取得該次手術紀錄 PDF 位置；無紀錄可回 None。 |
@@ -164,6 +164,7 @@ MUTATION_OUTCOME_UNKNOWN 必須先讀回查證，禁止自動重送；跨程序�
 `OrderReport.report_data_status` 區分 TEXT_AVAILABLE、ATTACHMENT_ONLY、METADATA_ONLY、EMPTY。
 `HtmlDocument` 保留 html、text、tables、rendering_notes；巢狀表格保留主表自己的列。
 PDF/JPG 以 BinaryAsset 回傳；取得二進位不表示已做 OCR 或醫療數值抽取。
+附件下載分段執行 64 MiB 上限。超限會關閉連線並回報 `BINARY_ASSET_TOO_LARGE`。
 `to_jsonable` 只轉成可儲存結構，不會去除個資。
 SDKError.info 提供 code/category/operation/app；診斷錯誤欄位與完整 raw capture 用途不同。
 phase、retry_safe、retry_recommended 與結構化 cause 提供失敗階段與安全重試條件；info.root_cause 保留最深層原因。retry_safe 為 None 時表示未知，retry_recommended 不會啟動新的自動重試。

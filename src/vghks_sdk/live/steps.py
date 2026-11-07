@@ -69,7 +69,9 @@ def _run_step(
     missing_code: str = "MISSING",
     classified_error_code: str = "",
     operation_key: str = "",
+    persist_step: Callable[[LiveTestStep], None] | None = None,
 ) -> tuple[T | None, BaseException | None]:
+    step_count = len(steps)
     started = monotonic()
     first = getattr(raw_capture, "capture_count", 0) + 1
     print(f"START {name}", flush=True)
@@ -136,11 +138,12 @@ def _run_step(
     finally:
         if raw_capture is not None:
             raw_capture.set_live_step(None)
-        # Persist completed work after every unit, including when the next
-        # operation is interrupted. No response values enter this journal.
-        write_json_atomic(root / "step_results.json", steps)
-        if steps and steps[-1].name == name:
+        if persist_step is None:
+            write_json_atomic(root / "step_results.json", steps)
+        if len(steps) > step_count:
             last = steps[-1]
+            if persist_step is not None:
+                persist_step(last)
             line = f"{last.status} {name} ({last.duration_ms:.0f} ms) {last.error_code}".rstrip()
             print(line, flush=True)
             with (root / "progress.log").open("a", encoding="utf-8") as handle:

@@ -31,7 +31,7 @@ data = to_jsonable(soap)  # 包含新欄位，可由應用程式存為本機 JSO
 | `assessment`／`plan` | 僅在來源分別標示 A／P 時有值；不以語意拆分 A+P，也不自行合成 A+P |
 | `diagnoses` | `tuple[SoapDiagnosis, ...]`，每筆包含 `code`、`name`、`coding_system`、`raw_text` |
 | `orders` | `tuple[SoapOrder, ...]`，每筆包含 `name`、`quantity`、`raw_text` |
-| `medications` | `tuple[SoapMedication, ...]`，每筆包含 `name`、`dose`、`unit`、`route`、`frequency`、`days`、`total_quantity`、`raw_text` |
+| `medications` | `tuple[SoapMedication, ...]`，依列印順序保留藥名、劑量、單位、途徑、頻次、天數、總發藥量及原文。辨識的表格以 `prescription_type` 標示 `regular` 或 `chronic`；`chronic_period_index` 可對應同一份 SOAP 的期限清單 |
 | `chronic_prescription_periods` | `tuple[SoapChronicPrescriptionPeriod, ...]`；頁面明示「慢性病連續處方箋處方」及「服藥期限」時，取其 `start_date`、`end_date`，並保留 `source_label`、`source_block_index`、`raw_text` |
 | `present_sections` | 已辨識的段落／摘要標頭：S、O、AP、A、P、DIAGNOSES、ORDERS、MEDICATIONS |
 | `unclassified_blocks` | 未歸入上述欄位的原始文字，例如生命徵象；保留供應用程式或後續解析器使用 |
@@ -42,7 +42,12 @@ data = to_jsonable(soap)  # 包含新欄位，可由應用程式存為本機 JSO
 
 解析器保留重複分段與重複診斷的來源順序，不依位置假設 `blocks[0]` 就是 S。A+P 跨多個文字區塊時以空行串接；原始區塊仍存在 `blocks`。只解析正文，忽略 SOAP 外部的導覽及 script。
 
-若藥囑欄位標題前有連續處方說明，解析器會保留說明於 `unclassified_blocks`，並從明確的「藥名／劑量／單位／途徑／頻次／天數／總發藥量」欄位標題開始解析藥囑。明示的服藥期限另存於 `chronic_prescription_periods`，日期在 Python 為 `date`、JSON 為 `YYYY-MM-DD`；`source_block_index` 是對應 `blocks` 的零起始索引。此區間是頁面標示的服藥期限，不推論每次領藥日或單一藥物的實際用藥日。一般處方沒有該行時回空清單。原始整段仍保留於 `blocks`。無完整標題時不從自由文字推論用藥；辨識到不完整的藥囑標題會回傳解析問題碼。
+## 一般與慢性處方
+
+- 0.23.6 依明確的藥囑欄位標題與慢箋說明辨識混合表格和重複表頭。說明保留在 `unclassified_blocks`，全文保留在 `blocks`。期限無法辨識時，慢箋列仍可解析，`chronic_period_index` 為 `None`。
+- `chronic_period_index` 是期限清單的零起始索引，期限的 `source_block_index` 則對應 `blocks`。起訖在 Python 為 `date`，在 JSON 為 `YYYY-MM-DD`。來源明示的月數、期數與領藥次數分別存入 `printed_months`、`printed_period_count`、`printed_dispense_count`。
+- 頁面無明示計數、同組資料解析完整、各列天數一致且為 28–31 天時，起訖日期差恰為天數的 2 或 3 倍才填入 `estimated_cycles` 和 `estimated_cycle_days`。這兩欄是日期差估計，實際領藥次數、日期及用藥安排仍以院方資料為準。
+- 只有已存的文字區塊時，可用 `vghks_sdk.parsing.parse_soap_medications(blocks)` 在本機取得藥囑、期限和問題碼。文字重解析只接受區塊開頭的明確標題，原始 HTML 可另外提供 SOAP 段落標籤。
 
 ## 診斷及醫囑的界線
 

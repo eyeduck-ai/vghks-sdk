@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable, Sequence
 from time import monotonic
 from typing import Protocol, TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -26,7 +26,7 @@ from .core.errors import (
 )
 from .core.operations import OperationSpec
 from .core.readiness import AuthCheckSpec, make_auth_report, resolve_auth_targets
-from .core.transport import SafeSessionTransport
+from .core.transport import SafeSessionTransport, content_length_exceeds
 from .models import AuthCheckReport, AuthCheckTarget, PasswordStatus
 from .parsing.assets import binary_asset_media_type
 from .parsing.portal import is_portal_login_destination
@@ -170,29 +170,41 @@ class SDKRuntime:
         max_bytes: int,
         **kwargs: object,
     ) -> tuple[bytes, str]:
-        response = self.request_response(spec, url, **kwargs)
-        content_length = str(response.headers.get("Content-Length", "")).strip()
-        if content_length.isdecimal() and int(content_length) > max_bytes:
+        # Keep binary requests on their registered endpoint. The common
+        # response path can still recognize the Portal login entrance.
+        kwargs["allow_redirects"] = False
+        response = self.request_response(spec, url, _response_byte_limit=max_bytes, **kwargs)
+        try:
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("Location", "")
+                source = urlsplit(url)
+                target = urlsplit(urljoin(url, location))
+                if location and (target.scheme, target.netloc) == (source.scheme, source.netloc):
+                    # Classify known application login destinations without fetching them.
+                    self.auth.assert_not_expired("", target.geturl())
+                raise ParseError(
+                    "binary download returned an unrecognized redirect",
+                    code="BINARY_ASSET_REDIRECT_UNRECOGNIZED", operation=spec.key, app=spec.app,
+                    endpoint_path=spec.path, http_status=response.status_code,
+                )
+            content = response.content or b""
+            if (
+                getattr(response, "sdk_body_limit_exceeded", False) is True
+                or content_length_exceeds(response, max_bytes)
+                or len(content) > max_bytes
+            ):
+                raise RequestError(
+                    "binary response exceeded the per-file size limit",
+                    status_code=response.status_code,
+                    code="BINARY_ASSET_TOO_LARGE",
+                    category="VALIDATION",
+                    phase="RESPONSE",
+                    endpoint_path=spec.path,
+                )
+            media_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip()
+            return content, media_type
+        finally:
             response.close()
-            raise RequestError(
-                "binary response exceeded the per-file size limit",
-                code="BINARY_ASSET_TOO_LARGE",
-                category="VALIDATION",
-                phase="RESPONSE",
-                endpoint_path=spec.path,
-            )
-        content = response.content or b""
-        media_type = str(response.headers.get("Content-Type", "")).split(";", 1)[0].strip()
-        response.close()
-        if len(content) > max_bytes:
-            raise RequestError(
-                "binary response exceeded the per-file size limit",
-                code="BINARY_ASSET_TOO_LARGE",
-                category="VALIDATION",
-                phase="RESPONSE",
-                endpoint_path=spec.path,
-            )
-        return content, media_type
 
     def request_response(
         self,

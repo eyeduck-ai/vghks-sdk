@@ -302,10 +302,16 @@ class RawCaptureRecorder:
             capture_id = self._next_id()
             request_data = _prepared_request_data(request)
             request_file = self._write_request(capture_id, request_data)
-            response_body = bytes(getattr(response, "content", b"") or b"")
-            response_path = self.responses_dir / (f"{capture_id}{_response_extension(response)}")
-            response_path.write_bytes(response_body)
-            restrict_permissions(response_path)
+            body_limit_exceeded = getattr(response, "sdk_body_limit_exceeded", False) is True
+            response_file = None
+            body_length = 0
+            if not body_limit_exceeded:
+                response_body = bytes(getattr(response, "content", b"") or b"")
+                response_path = self.responses_dir / (f"{capture_id}{_response_extension(response)}")
+                response_path.write_bytes(response_body)
+                restrict_permissions(response_path)
+                response_file = response_path.relative_to(self.output_dir).as_posix()
+                body_length = len(response_body)
             response_data = {
                 "status_code": int(getattr(response, "status_code", 0)),
                 "tls": getattr(response, "tls_details", {}),
@@ -314,8 +320,10 @@ class RawCaptureRecorder:
                 "headers": _response_header_items(response),
                 "cookies": _cookie_jar_values(getattr(response, "cookies", None)),
                 "encoding": getattr(response, "encoding", None),
-                "body_length": len(response_body),
+                "body_length": body_length,
             }
+            if body_limit_exceeded:
+                response_data["body_limit_exceeded"] = True
             self._write_manifest(
                 {
                     **self._context_fields(),
@@ -336,7 +344,7 @@ class RawCaptureRecorder:
                     "request": request_data,
                     "request_file": request_file,
                     "response": response_data,
-                    "response_file": response_path.relative_to(self.output_dir).as_posix(),
+                    "response_file": response_file,
                     "error": None,
                 }
             )

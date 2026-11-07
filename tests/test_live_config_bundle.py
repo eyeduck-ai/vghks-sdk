@@ -247,17 +247,21 @@ class BundleTests(unittest.TestCase):
             self.assertNotIn("files_manifest.json", names)
             self.assertFalse(any(name.endswith(".zip") for name in names))
 
-    def test_incomplete_run_can_be_packed_offline(self) -> None:
+    def test_interrupted_archive_creation_can_be_repacked_offline(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             manager = LiveTestBundleManager(Path(temp_dir) / "runs" / "interrupted")
             run_directory = manager.run_directory
             manager.log("partial", echo=False)
-            manager.close_console()
+            with patch.object(manager, "_create_archive", side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+                manager.finalize(status="OK")
             self.assertTrue((run_directory / INCOMPLETE_MARKER).is_file())
             with patch("requests.sessions.Session.request") as network:
                 archive = pack_incomplete_run(run_directory)
             network.assert_not_called()
             self.assertTrue(archive.archive_path.is_file())
+            self.assertFalse((run_directory / INCOMPLETE_MARKER).exists())
+            with zipfile.ZipFile(archive.archive_path) as zipped:
+                self.assertNotIn(INCOMPLETE_MARKER, zipped.namelist())
             summary = json.loads((run_directory / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["status"], "INTERRUPTED")
 

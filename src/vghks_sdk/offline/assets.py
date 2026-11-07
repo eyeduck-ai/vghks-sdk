@@ -14,12 +14,16 @@ from .bundle import BundleReader
 _ASSETS = ORDER_WORKFLOW + ORDER_ASSET_STAGE + "/"
 
 
-def verify_order_assets(reader: BundleReader, steps: list[dict] | None = None) -> dict[str, Any]:
+def verify_order_assets(
+    reader: BundleReader, steps: list[dict] | None = None, *,
+    pacs_asset_codes: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Check each successful saved query once, including pre-hash audit formats.
 
     Outcome paths must identify the sibling PDF/JPG and metadata JSON. Only
     counts and fixed issue codes leave this helper; references and content do
-    not enter the analysis report. Service/live statuses remain original.
+    not enter the analysis report. Within one ZIP, collect PACS verdicts by
+    outcome member so the mode summary can reuse both successes and failures.
     """
     result: dict[str, Any] = {
         "status": "NO_ASSETS", "checked_files": 0, "pdf_files": 0, "jpg_files": 0,
@@ -59,6 +63,8 @@ def verify_order_assets(reader: BundleReader, steps: list[dict] | None = None) -
             continue
         result["checked_files"] += 1
         code = verify_saved_order_asset(reader, name, audit, operation)
+        if pacs_asset_codes is not None and operation == "prq.pacs_image":
+            pacs_asset_codes[name] = code
         if code:
             result["issues"].append({"operation": operation, "code": code})
         else:

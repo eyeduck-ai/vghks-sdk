@@ -1,6 +1,9 @@
 # Changelog
 
-## 未發布
+## 0.24.3
+
+- 即時查詢、HAR 重解析與診斷共用自動解碼。Windows CP950 造字保留為 Unicode 私用區碼位，並維持相鄰文字的位元組邊界。
+- `private_use_characters()` 提供已解析文字中的私用區碼位與可往返的 Windows CP950 對應，供核對來源字表。
 
 - 0.24.2 支援原生 PACS 專項 ZIP／目錄的正式離線分析，保留選單、本機預檢、交接與人工觀察的獨立狀態；缺檔及矛盾另列，重測設定不自動登入或呼叫檢閱器。原始證據 writer 與測試編排分開，舊匯入保留。
 - SmartIris 專用 Session 移除更長 URL prefix 的既有 adapter，確保四步交接均使用零重試 transport；被接管的資源在 client 關閉時釋放。

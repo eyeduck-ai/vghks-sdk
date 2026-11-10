@@ -18,6 +18,10 @@
 
 所有模式維持 HTTPS；TLS12_COMPAT 不開啟 TLS 1.0／1.1。關閉憑證驗證仍有加密，但不再確認伺服器身分，因此僅在明確驗證失敗時啟用。沒有已錄製的 HTTP／SSO 路徑，SDK 不會自行把 https 改成 http。
 
+## 文字回應
+
+傳輸層先解碼 HTTP 回應，再將文字交給 Parser。Windows CP950 造字會保留為 Unicode 私用區字碼。已有帳號編碼設定的應用程式可呼叫 `vghks_sdk.core.response_text.decode_response_text(content, content_type, encoding=...)`，傳入 `auto`、`big5` 或 `utf-8`，取得解碼文字與實際使用的編碼。
+
 ## 登入、異動與節流
 
 第一次向尚未確認連線的來源傳送密碼或不可重試的 POST 前，SDK 以獨立 Session 做匿名 GET `/`，先解決 TLS 問題。此探測不攜帶使用者 Cookie、Authorization、參數或 body，不跟隨轉址；401／403／404 也能證明 HTTPS 已連通，但不代表已登入。

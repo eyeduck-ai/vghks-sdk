@@ -25,8 +25,10 @@ from .connections import TLSConnectionManager, https_origin
 from .diagnostics import DiagnosticRecorder
 from .errors import ParseError, RequestError
 from .network_errors import network_error_code
+from .response_text import decode_cp950
 
 _CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
+_BIG5_CHARSETS = {"big5", "big-5", "cp950", "ms950"}
 _BODY_CHUNK_BYTES = 64 * 1024
 
 
@@ -335,7 +337,7 @@ class SafeSessionTransport:
         content_type = response.headers.get("Content-Type", "")
         match = _CHARSET_RE.search(content_type)
         declared = match.group(1).strip().lower() if match else ""
-        if declared in {"big5", "big-5", "cp950", "ms950"}:
+        if declared in _BIG5_CHARSETS:
             encodings = ("cp950", "big5", "utf-8")
         elif declared in {"utf-8", "utf8"}:
             encodings = ("utf-8", "cp950")
@@ -356,7 +358,13 @@ class SafeSessionTransport:
                 return content.decode(encoding, errors="strict")
             except (UnicodeDecodeError, LookupError):
                 continue
-        return content.decode("utf-8", errors="replace")
+        # Preserve strict codec choices before extending legacy CP950.
+        if declared in _BIG5_CHARSETS:
+            return decode_cp950(content, errors="replace")
+        try:
+            return decode_cp950(content)
+        except UnicodeDecodeError:
+            return content.decode("utf-8", errors="replace")
 
     def json(self, response: requests.Response) -> Any:
         try:

@@ -91,6 +91,23 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(session.calls, 2)
         self.assertTrue(sleeps)
 
+    def test_transport_decodes_windows_cp950_user_defined_characters(self) -> None:
+        transport = SafeSessionTransport(policy=RequestPolicy())
+        self.addCleanup(transport.close)
+        raw = b"\x8e\xf5" + "甲乙".encode("cp950")
+        for content_type in ("text/html; charset=Big5", "text/html"):
+            with self.subTest(content_type=content_type):
+                self.assertEqual(transport.text(FakeResponse(200, raw, content_type)), "\ue3a4甲乙")
+        damaged = FakeResponse(200, raw + b"\xff", "text/html; charset=Big5")
+        self.assertEqual(transport.text(damaged), "\ue3a4甲乙\ufffd")
+
+    def test_transport_keeps_valid_utf8_on_a_mislabeled_big5_page(self) -> None:
+        transport = SafeSessionTransport(policy=RequestPolicy())
+        self.addCleanup(transport.close)
+        # Extended CP950 can also read these bytes. The prior UTF-8 choice wins.
+        response = FakeResponse(200, "丁A".encode(), "text/html; charset=Big5")
+        self.assertEqual(transport.text(response), "丁A")
+
     def test_unsafe_post_is_not_retried_after_network_failure(self) -> None:
         session = FakeSession([requests.ConnectionError("offline")])
         transport = SafeSessionTransport(

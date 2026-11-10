@@ -67,6 +67,14 @@ def _write_har(path: Path, entries: list[dict]) -> None:
 
 
 class SyntheticHarContractTests(unittest.TestCase):
+    def test_raw_big5_body_uses_the_shared_windows_cp950_decoder(self) -> None:
+        entry = HarEntry(
+            method="GET", path="/synthetic", query_keys=frozenset(), form_keys=frozenset(),
+            operation_values={}, response_status=200, response_body=b"\x8e\xf5" + "甲乙".encode("cp950"),
+            response_mime_type="text/html; charset=big5",
+        )
+        self.assertEqual(entry.text(), "\ue3a4甲乙")
+
     def test_semantic_selection_allows_extra_keys_and_base64(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "scenario.har"

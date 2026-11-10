@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import random
-import re
 import threading
 import time
 from collections.abc import Callable
@@ -25,10 +24,8 @@ from .connections import TLSConnectionManager, https_origin
 from .diagnostics import DiagnosticRecorder
 from .errors import ParseError, RequestError
 from .network_errors import network_error_code
-from .response_text import decode_cp950
+from .response_text import decode_response_text
 
-_CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
-_BIG5_CHARSETS = {"big5", "big-5", "cp950", "ms950"}
 _BODY_CHUNK_BYTES = 64 * 1024
 
 
@@ -333,38 +330,10 @@ class SafeSessionTransport:
         )
 
     def text(self, response: requests.Response) -> str:
-        content = response.content or b""
-        content_type = response.headers.get("Content-Type", "")
-        match = _CHARSET_RE.search(content_type)
-        declared = match.group(1).strip().lower() if match else ""
-        if declared in _BIG5_CHARSETS:
-            encodings = ("cp950", "big5", "utf-8")
-        elif declared in {"utf-8", "utf8"}:
-            encodings = ("utf-8", "cp950")
-        elif (response.encoding or "").lower() in {"iso-8859-1", "latin1", "latin-1"}:
-            encodings = ("utf-8", "cp950", response.encoding)
-        elif response.encoding:
-            encodings = (response.encoding, "utf-8", "cp950")
-        else:
-            encodings = ("utf-8", "cp950")
-
-        tried: set[str] = set()
-        for encoding in encodings:
-            normalized = encoding.lower()
-            if normalized in tried:
-                continue
-            tried.add(normalized)
-            try:
-                return content.decode(encoding, errors="strict")
-            except (UnicodeDecodeError, LookupError):
-                continue
-        # Preserve strict codec choices before extending legacy CP950.
-        if declared in _BIG5_CHARSETS:
-            return decode_cp950(content, errors="replace")
-        try:
-            return decode_cp950(content)
-        except UnicodeDecodeError:
-            return content.decode("utf-8", errors="replace")
+        return decode_response_text(
+            response.content or b"", response.headers.get("Content-Type", ""),
+            encoding_hint=getattr(response, "encoding", None),
+        )[0]
 
     def json(self, response: requests.Response) -> Any:
         try:

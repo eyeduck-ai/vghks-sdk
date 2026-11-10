@@ -7,6 +7,7 @@ import requests
 
 from vghks_sdk import RequestPolicy
 from vghks_sdk.core.errors import ConfigurationError, RequestError
+from vghks_sdk.core.response_text import private_use_characters
 from vghks_sdk.core.transport import SafeSessionTransport
 
 
@@ -97,7 +98,9 @@ class TransportTests(unittest.TestCase):
         raw = b"\x8e\xf5" + "甲乙".encode("cp950")
         for content_type in ("text/html; charset=Big5", "text/html"):
             with self.subTest(content_type=content_type):
-                self.assertEqual(transport.text(FakeResponse(200, raw, content_type)), "\ue3a4甲乙")
+                response = FakeResponse(200, raw, content_type)
+                response.encoding = requests.utils.get_encoding_from_headers(response.headers)
+                self.assertEqual(transport.text(response), "\ue3a4甲乙")
         damaged = FakeResponse(200, raw + b"\xff", "text/html; charset=Big5")
         self.assertEqual(transport.text(damaged), "\ue3a4甲乙\ufffd")
 
@@ -107,6 +110,14 @@ class TransportTests(unittest.TestCase):
         # Extended CP950 can also read these bytes. The prior UTF-8 choice wins.
         response = FakeResponse(200, "丁A".encode(), "text/html; charset=Big5")
         self.assertEqual(transport.text(response), "丁A")
+
+    def test_private_use_diagnostics_return_only_codes_and_round_trippable_pairs(self) -> None:
+        self.assertEqual(private_use_characters("合成\ue3a4\uf70f", "\ue3a4\ufffd\U000F0000"), [
+            {"code_point": "U+E3A4", "windows_cp950": "8E F5"},
+            {"code_point": "U+F70F", "windows_cp950": None},
+            {"code_point": "U+F0000", "windows_cp950": None},
+        ])
+        self.assertEqual(len(private_use_characters("".join(chr(0xE000 + i) for i in range(20)))), 16)
 
     def test_unsafe_post_is_not_retried_after_network_failure(self) -> None:
         session = FakeSession([requests.ConnectionError("offline")])

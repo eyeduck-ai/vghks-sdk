@@ -21,6 +21,7 @@ from bs4 import BeautifulSoup
 
 from ..core.errors import ConfigurationError, ParseError, error_code
 from ..core.operations import OPERATION_BY_KEY, OperationSpec
+from ..core.response_text import decode_response_text
 from ..models import OrderDetailRef, OrderReportRef, PacsStudyRef, VisitCase
 from ..parsing import (
     parse_clinical_orders,
@@ -75,26 +76,7 @@ class HarEntry:
     def text(self) -> str:
         if self.response_text is not None:
             return self.response_text
-        body = self.response_body or b""
-        declared = _declared_charset(self.response_mime_type)
-        if declared in {"big5", "big-5", "cp950", "ms950"}:
-            candidates = ("cp950", "big5", "utf-8")
-        elif declared in {"utf-8", "utf8"}:
-            candidates = ("utf-8", "cp950")
-        elif declared:
-            candidates = (declared, "utf-8", "cp950")
-        else:
-            candidates = ("utf-8", "cp950")
-        tried: set[str] = set()
-        for encoding in candidates:
-            if encoding.casefold() in tried:
-                continue
-            tried.add(encoding.casefold())
-            try:
-                return body.decode(encoding)
-            except (LookupError, UnicodeDecodeError):
-                continue
-        return body.decode("utf-8", errors="replace")
+        return decode_response_text(self.response_body or b"", self.response_mime_type)[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -426,11 +408,6 @@ def _name_value_pairs(value: Any) -> list[tuple[str, str]]:
             raise ConfigurationError("HAR parameter must contain a name")
         pairs.append((str(item["name"]), str(item.get("value", ""))))
     return pairs
-
-
-def _declared_charset(mime_type: str) -> str:
-    match = re.search(r"charset\s*=\s*['\"]?([^;'\"\s]+)", mime_type, re.I)
-    return match.group(1).casefold() if match else ""
 
 
 def _require(condition: bool, message: str) -> None:

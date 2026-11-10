@@ -20,7 +20,11 @@
 
 ## 文字回應
 
-傳輸層先解碼 HTTP 回應，再將文字交給 Parser。Windows CP950 造字會保留為 Unicode 私用區字碼。已有帳號編碼設定的應用程式可呼叫 `vghks_sdk.core.response_text.decode_response_text(content, content_type, encoding=...)`，傳入 `auto`、`big5` 或 `utf-8`，取得解碼文字與實際使用的編碼。
+傳輸層先解碼 HTTP 回應，再將文字交給 Parser。SDK 依回應的 BOM、charset 與位元組判斷編碼。即時查詢、HAR 原始位元組重解析與除錯摘要共用 `vghks_sdk.core.response_text.decode_response_text(content, content_type)`，回傳文字與實際使用的編碼。
+
+Windows CP950 造字保留為 Unicode 私用區碼位。`private_use_characters(*texts)` 可檢查已解析的欄位，每次回傳最多 16 個不同的私用區碼位。`windows_cp950` 欄是由碼位換算的 CP950 對應值。HTTP 實際傳輸格式仍需查看原始回應及 charset。
+
+收集造字對照時，記下來源系統、字表或字型版本、私用區碼位及已確認的標準 Unicode 碼位。優先請院方資訊室提供造字對照，或以同一來源的標準 Unicode 欄位核對。確認後的 SDK 字典宜依來源與字表版本分組，套用在解析後的人類可讀欄位，並保留原文供核對。
 
 ## 登入、異動與節流
 

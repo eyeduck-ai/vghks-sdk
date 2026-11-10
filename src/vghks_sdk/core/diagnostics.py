@@ -27,6 +27,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .errors import ConfigurationError, error_code, error_info
+from .response_text import decode_response_text
 
 _CHARSET_RE = re.compile(r"charset\s*=\s*['\"]?([^;\s'\"]+)", re.IGNORECASE)
 _SAFE_FIELD_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.\[\]-]{0,79}$")
@@ -398,7 +399,7 @@ def _response_structure(response: Any) -> Mapping[str, Any]:
     if binary_type:
         base.update(kind="binary", binary_media_type=binary_type)
         return base
-    text, decoded_as = _decode_sample(raw[:_MAX_SHAPE_BYTES], declared_charset)
+    text, decoded_as = decode_response_text(raw[:_MAX_SHAPE_BYTES], content_type)
     base["decoded_as"] = _safe_code(decoded_as)
 
     if len(raw) <= _MAX_SHAPE_BYTES:
@@ -522,25 +523,6 @@ def _json_type(value: Any) -> str:
     if isinstance(value, list):
         return "array"
     return "other"
-
-
-def _decode_sample(raw: bytes, declared: str) -> tuple[str, str]:
-    encodings: list[str] = []
-    if declared in {"big5", "big-5", "cp950", "ms950"}:
-        encodings.extend(("cp950", "big5"))
-    elif declared in {"utf-8", "utf8"}:
-        encodings.append("utf-8")
-    encodings.extend(("utf-8", "cp950", "big5"))
-    seen: set[str] = set()
-    for encoding in encodings:
-        if encoding in seen:
-            continue
-        seen.add(encoding)
-        try:
-            return raw.decode(encoding, errors="strict"), encoding
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return raw.decode("utf-8", errors="replace"), "utf-8-replace"
 
 
 def _form_encoded_keys(text: str) -> list[str]:

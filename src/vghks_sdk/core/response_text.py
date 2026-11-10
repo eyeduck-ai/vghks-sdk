@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import codecs
 import re
+import unicodedata
 from functools import partial
-from typing import Literal
+from itertools import chain
+from typing import Literal, TypedDict
 
 _HTTP_CHARSET = re.compile(r"charset\s*=\s*[\"'\s]*([a-zA-Z0-9_-]+)", re.I)
 _META_CHARSET = re.compile(rb'<meta\b[^>]*\bcharset\s*=\s*["\x27\s]*([a-zA-Z0-9_-]+)', re.I)
+_UTF8_CHARSETS = {"utf-8", "utf8", "utf_8"}
+_COMMON_CHARSETS = _UTF8_CHARSETS | {
+    "big5", "big-5", "cp950", "ms950", "950", "iso-8859-1", "latin1", "latin-1",
+}
 
 # Windows CP950 user-defined rows and the PUA code point at trail byte 0x40.
 # Python's existing CP950 mappings take precedence.
@@ -62,21 +68,25 @@ def declared_charsets(content: bytes, content_type: str) -> tuple[str | None, st
 
 
 def decode_response_text(
-    content: bytes, content_type: str = "", *, encoding: str = "auto",
+    content: bytes, content_type: str = "", *, encoding_hint: str | None = None,
 ) -> tuple[str, str]:
-    """Return text and codec for an account's auto, big5, or utf-8 setting."""
+    """Return decoded text and codec using the response's own encoding hints."""
     if content.startswith(codecs.BOM_UTF8):
         return content.decode("utf-8-sig", errors="replace"), "utf-8-sig"
-    if encoding == "big5":
-        return decode_cp950(content, errors="replace"), "cp950"
-    if encoding != "auto":
-        return content.decode("utf-8", errors="replace"), "utf-8"
+    http, meta = declared_charsets(content, content_type)
+    declared = meta or http
+    hint = declared or (encoding_hint or "").lower()
+    if hint and hint not in _COMMON_CHARSETS:
+        try:
+            codec = codecs.lookup(hint).name
+            return content.decode(codec), codec
+        except (LookupError, UnicodeError):
+            pass
     try:
         return content.decode("utf-8"), "utf-8"
     except UnicodeDecodeError:
         pass
-    http, meta = declared_charsets(content, content_type)
-    if (meta or http) in {"utf-8", "utf8"}:
+    if declared in _UTF8_CHARSETS:
         # Use the base codecs to choose an encoding for mislabeled pages.
         try:
             return content.decode("cp950"), "cp950"
@@ -87,3 +97,34 @@ def decode_response_text(
                 return utf8, "utf-8"
     # Legacy PRQ pages can contain a damaged byte alongside valid text.
     return decode_cp950(content, errors="replace"), "cp950"
+
+
+class PrivateUseCharacter(TypedDict):
+    code_point: str
+    windows_cp950: str | None
+
+
+def private_use_characters(*texts: str) -> list[PrivateUseCharacter]:
+    """Describe up to 16 distinct private-use code points from parsed text."""
+    points: set[int] = set()
+    for char in chain.from_iterable(texts):
+        if unicodedata.category(char) == "Co":
+            points.add(ord(char))
+            if len(points) == 16:
+                break
+    return [
+        {"code_point": f"U+{point:04X}", "windows_cp950": _cp950_equivalent(point)}
+        for point in sorted(points)
+    ]
+
+
+def _cp950_equivalent(point: int) -> str | None:
+    for first, last, first_codepoint in _CP950_EUDC_ROWS:
+        offset = point - first_codepoint
+        if 0 <= offset < (last - first + 1) * 157:
+            row, column = divmod(offset, 157)
+            trail = 0x40 + column if column < 63 else 0xA1 + column - 63
+            pair = bytes((first + row, trail))
+            if decode_cp950(pair) == chr(point):
+                return pair.hex(" ").upper()
+    return None

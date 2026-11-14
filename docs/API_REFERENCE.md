@@ -148,6 +148,8 @@
 | `sdk.personnel.get_by_card(card_no)` | 用員工帳號或已知四碼帳號 + F 別名查找精確匹配；回 PersonnelRecord 或 None；其 name 可接 VisitFilter.doctor_names，不使用醫師章號作為帳號。 |
 | `sdk.surgery.get_supply_model(key, department)` | 依材料／範本鍵查詢供應模型；未列入預設抽樣。 |
 | `sdk.surgery.open_consent_form(fields)` | 讀取同意書表單快照；不提交。 |
+| `patient_name_profile(source='vghks')` | 頂層純函式，回傳 source、version 與獨立 mapping 副本供顯示端共用；未知來源回空字表。見 [PATIENTS](PATIENTS.md#姓名造字顯示)。 |
+| `display_patient_name(name, source='vghks')` | 頂層純函式，只替換來源字表中已確認的姓名造字；未知碼位保留。模型原姓名、decoder、原始資料及身分比對不變。 |
 
 MIS 使用 `EarningsCredentials(national_id, password)`，與 Portal 帳密分開。
 重新登入後舊 EarningsReportContext 失效，需再次開啟報表。

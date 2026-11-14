@@ -1,6 +1,6 @@
 # vghks-sdk
 
-可組合的 VGHKS 內網 Python SDK，提供病人、門診、SOAP、醫囑、報告、手術、審查及簽到退功能。共用登入、SSO、Session 與錯誤處理，以 Requests 運作。Python 3.10+，MIT 授權。
+可組合的 VGHKS 內網 Python SDK，提供病人、門診、SOAP、醫囑、報告、手術、審查及簽到退功能。共用登入、SSO、Session 與錯誤處理，以 Requests 運作。版本 **0.24.4**，Python 3.10+，MIT 授權。
 
 這是獨立開發的 SDK，並非醫院官方產品。使用者仍需具備內網存取與相應資料查詢權限。
 
@@ -49,6 +49,7 @@ with VghksSDK(
 - 可辨識的唯讀 Session 過期最多自動恢復一次。嚴格憑證驗證使用 `SDKSettings(allow_unverified_tls=False)`。[連線、TLS 與恢復](docs/CONNECTIONS.md)
 - 需要區分空值、未執行、只有附件、部分解析與失敗時，用 `acquire(...)` 或 `sdk.queries.run_result(...)` 取得狀態與原回傳值。[結果與錯誤處理](docs/ACQUISITION.md)
 - PRQ 調閱審查會核對當頁後預設提交照護原因 `1A` 一次。手術與簽到退異動由呼叫端明確提交。[就診與調閱審查](docs/VISITS.md#院方要求病歷調閱審查時)
+- 姓名造字可選用頂層 `display_patient_name(name, source="vghks")` 與 `patient_name_profile(...)`；僅套用已確認的來源字表，原始姓名與身分核對不變。[姓名顯示](docs/PATIENTS.md#姓名造字顯示)
 
 ## 文件
 

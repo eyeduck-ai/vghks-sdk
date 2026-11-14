@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.4
+
+- 新增頂層純函式 `patient_name_profile(source='vghks')` 與 `display_patient_name(name, source='vghks')`，讓 SDK 使用者與其他顯示端共用單一來源字表。
+- 只納入已確認的三筆姓名造字：`U+E3A4 → 凃`、`U+EA81 → 眞`、`U+E03E → 綉`；保留確切字形，未知來源及碼位不替換。
+- 字表僅套用於明確呼叫的姓名顯示，HTTP 解碼、模型原姓名、原始資料與身分核對維持不變；回傳 profile 可獨立修改，不污染 SDK 字表。新增合成回歸及使用文件。
+
 ## 0.24.3
 
 - 即時查詢、HAR 重解析與診斷共用自動解碼。Windows CP950 造字保留為 Unicode 私用區碼位，並維持相鄰文字的位元組邊界。

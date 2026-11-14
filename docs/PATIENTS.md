@@ -40,6 +40,30 @@ basic = sdk.queries.run("webmaas.basic_info", mrn=mrn)
 
 基本資料頁 URL 與 page id 是 `QUY15`，但 HAR 的 SSO `externalRoles` 實際為 **maas_QRY15**；掛號是 **maas_RSV11**。SDK 以當次登入取得 bridge keys 並切換角色，重新登入後也重新取得頁面 token。
 
+## 姓名造字顯示
+
+HTTP decoder 保留 Windows CP950 的私用區碼位，這能保住原文，但碼位本身不等於通用 Unicode 姓氏。0.24.4 起，需要顯示已確認字形時，應用程式可直接使用頂層純函式：
+
+```python
+from vghks_sdk import display_patient_name, patient_name_profile
+
+original_name = patient.name
+display_name = display_patient_name(original_name, source="vghks")
+profile = patient_name_profile(source="vghks")
+```
+
+`patient_name_profile` 回傳 `source`、字表 `version`（目前為字串 `"1"`）與 `mapping`；每次都是獨立副本，可供瀏覽器等其他顯示端共用。未知來源保留原 `source`、回傳空 `mapping`。目前 `vghks` 字表只包含使用者已確認的三筆對照：
+
+| 來源碼位 | 顯示碼位 | 字形 |
+| --- | --- | --- |
+| `U+E3A4` | `U+51C3` | 凃 |
+| `U+EA81` | `U+771E` | 眞 |
+| `U+E03E` | `U+7D89` | 綉 |
+
+保留確認的確切字形，不將眞換成真或將綉換成繡。其他來源及未知私用區碼位保持原樣，不套用猜測對照。
+
+`display_patient_name` 僅回傳新顯示字串，保留姓名其餘文字、空白及順序；不發 HTTP，不改 `patient.name`、Parser、decoder 或原始回應。顯示值不能取代身分比較、去重鍵、查詢輸入或原始資料保存。其他 SDK 使用者可自行決定在哪些姓名顯示位置呼叫；既有 Service 的回傳契約不變。
+
 ## 掛號結果
 
 每筆 `RegistrationRecord` 提供：

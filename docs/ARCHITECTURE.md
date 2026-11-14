@@ -36,6 +36,7 @@ flowchart TD
 | `queries.py` | 可發現的唯讀結果、輸入與 discovery 相依；動態呼叫既有 Service |
 | `responses.py` | 可選的 JSON TypedDict 轉換；共用純 Parser，不發 HTTP、不改 Service 原回傳 |
 | `acquisition.py` | 選用的統一結果與既有資料狀態評估；不新增 HTTP 或重試 |
+| `text_display.py` | 來源限定的姓名顯示字表與純顯示函式；不改 decoder、模型原值或身分比對 |
 | `search.py`／`workflows/` | 選擇資料來源、多步驟查詢、篩選、去重、錯誤續跑及階段存檔 |
 | `contracts/` | HAR 契約及共用純證據規則，如登入證據、附件目錄與格式 |
 | `live/`／`live_test_app.py` | SDK 的測試應用：計畫、採樣、錄製、coverage、結果 ZIP |
@@ -68,6 +69,7 @@ flowchart TD
 - **處置由應用決定**：`acquire`／`queries.run_result` 保留原回傳於 `value`；SDK 提供資料狀態與結構化原因，workflow 決定排程及續跑。外層 `retry_safe=False` 不能被底層網路原因覆蓋，見 [ACQUISITION](ACQUISITION.md)。
 - **提交須保留邊界**：PRQ 遇已錄製的調閱審查頁，核對病歷號／HID／當頁選項後預設送一次 `1A`。手術經 SurgeryCommand；`attendance.punch` 明確呼叫才送出，且排除於唯讀目錄與 EXE。
 - **診斷分兩層**：一般診斷保存有限結構欄位；raw capture 刻意保存完整內容。Portal 與 MIS 帳密分開；raw／parsed／ZIP 可能含個資，只留本機。
+- **顯示與身分分開**：`display_patient_name` 僅在呼叫端明確要求時套用 `text_display.py` 中已確認的來源字表；`patient_name_profile` 提供獨立副本供其他介面使用。HTTP 解碼、模型姓名、原始資料與身分核對均保留原值，未知來源及碼位不替換。[姓名顯示](PATIENTS.md#姓名造字顯示)
 
 ## 測試與離線資料流
 

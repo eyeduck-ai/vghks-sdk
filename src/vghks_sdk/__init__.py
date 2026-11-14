@@ -126,6 +126,7 @@ from .search import (
     SoapScanMatch,
     SoapSearch,
 )
+from .text_display import display_patient_name, patient_name_profile
 from .workflows import PatientRecordsResult, SoapScanResult, export_patient_records, scan_soap
 
 if TYPE_CHECKING:
@@ -271,7 +272,9 @@ __all__ = [
     "as_surgery_payload",
     "assess_data",
     "classify_order_execution",
+    "display_patient_name",
     "error_info",
     "export_patient_records",
+    "patient_name_profile",
     "scan_soap",
 ]

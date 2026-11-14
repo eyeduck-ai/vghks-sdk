@@ -8,7 +8,7 @@ _PROFILE_VERSION = "1"
 # Only mappings explicitly confirmed for this source belong here. Decoding,
 # stored source names and identity comparisons must retain the original text.
 _PATIENT_NAME_MAPPINGS = {
-    "vghks": {"\ue3a4": "\u51c3", "\uea81": "\u771e", "\ue03e": "\u7d89"},
+    "vghks": {"\ue3a4": "\u51c3", "\uea81": "\u771e", "\ue03e": "\u7d89", "\ue897": "\u6052"},
 }
 
 

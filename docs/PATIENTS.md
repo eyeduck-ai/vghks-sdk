@@ -52,13 +52,14 @@ display_name = display_patient_name(original_name, source="vghks")
 profile = patient_name_profile(source="vghks")
 ```
 
-`patient_name_profile` 回傳 `source`、字表 `version`（目前為字串 `"1"`）與 `mapping`；每次都是獨立副本，可供瀏覽器等其他顯示端共用。未知來源保留原 `source`、回傳空 `mapping`。目前 `vghks` 字表只包含使用者已確認的三筆對照：
+`patient_name_profile` 回傳 `source`、字表 `version`（目前為字串 `"1"`）與 `mapping`；每次都是獨立副本，可供瀏覽器等其他顯示端共用。未知來源保留原 `source`、回傳空 `mapping`。目前 `vghks` 字表只包含使用者已確認的四筆對照：
 
 | 來源碼位 | 顯示碼位 | 字形 |
 | --- | --- | --- |
 | `U+E3A4` | `U+51C3` | 凃 |
 | `U+EA81` | `U+771E` | 眞 |
 | `U+E03E` | `U+7D89` | 綉 |
+| `U+E897` | `U+6052` | 恒 |
 
 保留確認的確切字形，不將眞換成真或將綉換成繡。其他來源及未知私用區碼位保持原樣，不套用猜測對照。
 
